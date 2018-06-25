@@ -8,7 +8,8 @@ if test "$PHP_TASK" != "no"; then
 
   task_source_files="src/php_task.c \
     src/fiber.c \
-    src/fiber_stack.c"
+    src/fiber_stack.c \
+    src/task.c"
   
   task_use_asm="yes"
   

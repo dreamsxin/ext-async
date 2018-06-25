@@ -25,6 +25,7 @@
 
 #include "php_task.h"
 #include "fiber.h"
+#include "task.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(task)
 
@@ -55,7 +56,8 @@ static PHP_GINIT_FUNCTION(task)
 
 PHP_MINIT_FUNCTION(task)
 {
-	zend_fiber_ce_register();
+	concurrent_fiber_ce_register();
+	concurrent_task_ce_register();
 
 	REGISTER_INI_ENTRIES();
 
@@ -65,7 +67,8 @@ PHP_MINIT_FUNCTION(task)
 
 PHP_MSHUTDOWN_FUNCTION(task)
 {
-	zend_fiber_ce_unregister();
+	concurrent_task_ce_unregister();
+	concurrent_fiber_ce_unregister();
 
 	UNREGISTER_INI_ENTRIES();
 
@@ -95,7 +98,7 @@ static PHP_RINIT_FUNCTION(task)
 
 static PHP_RSHUTDOWN_FUNCTION(task)
 {
-	zend_fiber_shutdown();
+	concurrent_fiber_shutdown();
 
 	return SUCCESS;
 }

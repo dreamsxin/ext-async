@@ -29,7 +29,7 @@
 
 #include "fiber_stack.h"
 
-zend_bool zend_fiber_stack_allocate(zend_fiber_stack *stack, unsigned int size)
+zend_bool concurrent_fiber_stack_allocate(concurrent_fiber_stack *stack, unsigned int size)
 {
 	static __thread size_t page_size;
 
@@ -80,7 +80,7 @@ zend_bool zend_fiber_stack_allocate(zend_fiber_stack *stack, unsigned int size)
 	return 1;
 }
 
-void zend_fiber_stack_free(zend_fiber_stack *stack)
+void concurrent_fiber_stack_free(concurrent_fiber_stack *stack)
 {
 	static __thread size_t page_size;
 

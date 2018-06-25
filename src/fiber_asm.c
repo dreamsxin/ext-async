@@ -36,27 +36,27 @@ typedef struct _transfer_t {
 extern fcontext_t make_fcontext(void *sp, size_t size, void (*fn)(transfer_t));
 extern transfer_t jump_fcontext(fcontext_t to, void *vp);
 
-typedef struct _zend_fiber_context_asm {
+typedef struct _concurrent_fiber_context_asm {
 	fcontext_t ctx;
 	fcontext_t caller;
-	zend_fiber_stack stack;
+	concurrent_fiber_stack stack;
 	zend_bool initialized;
 	zend_bool root;
-} zend_fiber_context_asm;
+} concurrent_fiber_context_asm;
 
-typedef struct _zend_fiber_record_asm {
-	zend_fiber_func func;
-} zend_fiber_record_asm;
+typedef struct _concurrent_fiber_record_asm {
+	concurrent_fiber_func func;
+} concurrent_fiber_record_asm;
 
-void zend_fiber_asm_start(transfer_t trans)
+void concurrent_fiber_asm_start(transfer_t trans)
 {
-	zend_fiber_record_asm *record;
-	zend_fiber_context_asm *context;
+	concurrent_fiber_record_asm *record;
+	concurrent_fiber_context_asm *context;
 
-	record = (zend_fiber_record_asm *) trans.data;
+	record = (concurrent_fiber_record_asm *) trans.data;
 
 	trans = jump_fcontext(trans.ctx, 0);
-	context = (zend_fiber_context_asm *) trans.data;
+	context = (concurrent_fiber_context_asm *) trans.data;
 
 	if (context != NULL) {
 		context->caller = trans.ctx;
@@ -65,58 +65,58 @@ void zend_fiber_asm_start(transfer_t trans)
 	record->func();
 }
 
-zend_fiber_context zend_fiber_create_root_context()
+concurrent_fiber_context concurrent_fiber_create_root_context()
 {
-	zend_fiber_context_asm *context;
+	concurrent_fiber_context_asm *context;
 
-	context = emalloc(sizeof(zend_fiber_context_asm));
-	ZEND_SECURE_ZERO(context, sizeof(zend_fiber_context_asm));
+	context = emalloc(sizeof(concurrent_fiber_context_asm));
+	ZEND_SECURE_ZERO(context, sizeof(concurrent_fiber_context_asm));
 
 	context->initialized = 1;
 	context->root = 1;
 
-	return (zend_fiber_context) context;
+	return (concurrent_fiber_context) context;
 }
 
-zend_fiber_context zend_fiber_create_context()
+concurrent_fiber_context concurrent_fiber_create_context()
 {
-	zend_fiber_context_asm *context;
+	concurrent_fiber_context_asm *context;
 
-	context = emalloc(sizeof(zend_fiber_context_asm));
-	ZEND_SECURE_ZERO(context, sizeof(zend_fiber_context_asm));
+	context = emalloc(sizeof(concurrent_fiber_context_asm));
+	ZEND_SECURE_ZERO(context, sizeof(concurrent_fiber_context_asm));
 
-	return (zend_fiber_context) context;
+	return (concurrent_fiber_context) context;
 }
 
-zend_bool zend_fiber_create(zend_fiber_context ctx, zend_fiber_func func, size_t stack_size)
+zend_bool concurrent_fiber_create(concurrent_fiber_context ctx, concurrent_fiber_func func, size_t stack_size)
 {
 	static __thread size_t record_size;
 
-	zend_fiber_context_asm *context;
-	zend_fiber_record_asm *record;
+	concurrent_fiber_context_asm *context;
+	concurrent_fiber_record_asm *record;
 
-	context = (zend_fiber_context_asm *) ctx;
+	context = (concurrent_fiber_context_asm *) ctx;
 
 	if (UNEXPECTED(context->initialized == 1)) {
 		return 0;
 	}
 
-	if (!zend_fiber_stack_allocate(&context->stack, stack_size)) {
+	if (!concurrent_fiber_stack_allocate(&context->stack, stack_size)) {
 		return 0;
 	}
 
 	if (!record_size) {
-		record_size = (size_t) ceil((double) sizeof(zend_fiber_record_asm) / 64) * 64;
+		record_size = (size_t) ceil((double) sizeof(concurrent_fiber_record_asm) / 64) * 64;
 	}
 
 	void *sp = (void *) (context->stack.size - record_size + (char *) context->stack.pointer);
 
-	record = (zend_fiber_record_asm *) sp;
+	record = (concurrent_fiber_record_asm *) sp;
 	record->func = func;
 
 	sp -= 64;
 
-	context->ctx = make_fcontext(sp, sp - (void *) context->stack.pointer, &zend_fiber_asm_start);
+	context->ctx = make_fcontext(sp, sp - (void *) context->stack.pointer, &concurrent_fiber_asm_start);
 	context->ctx = jump_fcontext(context->ctx, record).ctx;
 
 	context->initialized = 1;
@@ -124,15 +124,15 @@ zend_bool zend_fiber_create(zend_fiber_context ctx, zend_fiber_func func, size_t
 	return 1;
 }
 
-void zend_fiber_destroy(zend_fiber_context ctx)
+void concurrent_fiber_destroy(concurrent_fiber_context ctx)
 {
-	zend_fiber_context_asm *context;
+	concurrent_fiber_context_asm *context;
 
-	context = (zend_fiber_context_asm *) ctx;
+	context = (concurrent_fiber_context_asm *) ctx;
 
 	if (context != NULL) {
 		if (!context->root && context->initialized) {
-			zend_fiber_stack_free(&context->stack);
+			concurrent_fiber_stack_free(&context->stack);
 		}
 
 		efree(context);
@@ -140,17 +140,17 @@ void zend_fiber_destroy(zend_fiber_context ctx)
 	}
 }
 
-zend_bool zend_fiber_switch_context(zend_fiber_context current, zend_fiber_context next)
+zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, concurrent_fiber_context next)
 {
-	zend_fiber_context_asm *from;
-	zend_fiber_context_asm *to;
+	concurrent_fiber_context_asm *from;
+	concurrent_fiber_context_asm *to;
 
 	if (UNEXPECTED(current == NULL) || UNEXPECTED(next == NULL)) {
 		return 0;
 	}
 
-	from = (zend_fiber_context_asm *) current;
-	to = (zend_fiber_context_asm *) next;
+	from = (concurrent_fiber_context_asm *) current;
+	to = (concurrent_fiber_context_asm *) next;
 
 	if (UNEXPECTED(from->initialized == 0) || UNEXPECTED(to->initialized == 0)) {
 		return 0;
@@ -161,15 +161,15 @@ zend_bool zend_fiber_switch_context(zend_fiber_context current, zend_fiber_conte
 	return 1;
 }
 
-zend_bool zend_fiber_yield(zend_fiber_context current)
+zend_bool concurrent_fiber_yield(concurrent_fiber_context current)
 {
-	zend_fiber_context_asm *fiber;
+	concurrent_fiber_context_asm *fiber;
 
 	if (UNEXPECTED(current == NULL)) {
 		return 0;
 	}
 
-	fiber = (zend_fiber_context_asm *) current;
+	fiber = (concurrent_fiber_context_asm *) current;
 
 	if (UNEXPECTED(fiber->initialized == 0)) {
 		return 0;

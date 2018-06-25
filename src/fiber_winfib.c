@@ -25,18 +25,18 @@
 
 #include "fiber.h"
 
-typedef struct _zend_fiber_context_win32 {
+typedef struct _concurrent_fiber_context_win32 {
 	void *fiber;
 	void *caller;
 	zend_bool root;
 	zend_bool initialized;
-} zend_fiber_context_win32;
+} concurrent_fiber_context_win32;
 
-zend_fiber_context zend_fiber_create_root_context()
+concurrent_fiber_context concurrent_fiber_create_root_context()
 {
-	zend_fiber_context_win32 *context;
+	concurrent_fiber_context_win32 *context;
 
-	context = (zend_fiber_context_win32 *) zend_fiber_create_context();
+	context = (concurrent_fiber_context_win32 *) concurrent_fiber_create_context();
 	context->root = 1;
 	context->initialized = 1;
 
@@ -50,24 +50,24 @@ zend_fiber_context zend_fiber_create_root_context()
 		return NULL;
 	}
 
-	return (zend_fiber_context)context;
+	return (concurrent_fiber_context)context;
 }
 
-zend_fiber_context zend_fiber_create_context()
+concurrent_fiber_context concurrent_fiber_create_context()
 {
-	zend_fiber_context_win32 *context;
+	concurrent_fiber_context_win32 *context;
 
-	context = emalloc(sizeof(zend_fiber_context_win32));
-	ZEND_SECURE_ZERO(context, sizeof(zend_fiber_context_win32));
+	context = emalloc(sizeof(concurrent_fiber_context_win32));
+	ZEND_SECURE_ZERO(context, sizeof(concurrent_fiber_context_win32));
 
-	return (zend_fiber_context) context;
+	return (concurrent_fiber_context) context;
 }
 
-zend_bool zend_fiber_create(zend_fiber_context ctx, zend_fiber_func func, size_t stack_size)
+zend_bool concurrent_fiber_create(concurrent_fiber_context ctx, concurrent_fiber_func func, size_t stack_size)
 {
-	zend_fiber_context_win32 *context;
+	concurrent_fiber_context_win32 *context;
 
-	context = (zend_fiber_context_win32 *) ctx;
+	context = (concurrent_fiber_context_win32 *) ctx;
 
 	if (UNEXPECTED(context->initialized == 1)) {
 		return 0;
@@ -84,11 +84,11 @@ zend_bool zend_fiber_create(zend_fiber_context ctx, zend_fiber_func func, size_t
 	return 1;
 }
 
-void zend_fiber_destroy(zend_fiber_context ctx)
+void concurrent_fiber_destroy(concurrent_fiber_context ctx)
 {
-	zend_fiber_context_win32 *context;
+	concurrent_fiber_context_win32 *context;
 
-	context = (zend_fiber_context_win32 *) ctx;
+	context = (concurrent_fiber_context_win32 *) ctx;
 
 	if (context != NULL) {
 		if (context->root) {
@@ -102,17 +102,17 @@ void zend_fiber_destroy(zend_fiber_context ctx)
 	}
 }
 
-zend_bool zend_fiber_switch_context(zend_fiber_context current, zend_fiber_context next)
+zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, concurrent_fiber_context next)
 {
-	zend_fiber_context_win32 *from;
-	zend_fiber_context_win32 *to;
+	concurrent_fiber_context_win32 *from;
+	concurrent_fiber_context_win32 *to;
 
 	if (UNEXPECTED(current == NULL) || UNEXPECTED(next == NULL)) {
 		return 0;
 	}
 
-	from = (zend_fiber_context_win32 *) current;
-	to = (zend_fiber_context_win32 *) next;
+	from = (concurrent_fiber_context_win32 *) current;
+	to = (concurrent_fiber_context_win32 *) next;
 
 	if (UNEXPECTED(from->initialized == 0) || UNEXPECTED(to->initialized == 0)) {
 		return 0;
@@ -125,15 +125,15 @@ zend_bool zend_fiber_switch_context(zend_fiber_context current, zend_fiber_conte
 	return 1;
 }
 
-zend_bool zend_fiber_yield(zend_fiber_context current)
+zend_bool concurrent_fiber_yield(concurrent_fiber_context current)
 {
-	zend_fiber_context_win32 *from;
+	concurrent_fiber_context_win32 *from;
 
 	if (UNEXPECTED(current == NULL)) {
 		return 0;
 	}
 
-	from = (zend_fiber_context_win32 *) current;
+	from = (concurrent_fiber_context_win32 *) current;
 
 	if (UNEXPECTED(from->initialized == 0)) {
 		return 0;

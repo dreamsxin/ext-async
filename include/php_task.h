@@ -20,6 +20,7 @@
 #define PHP_TASK_H
 
 #include "fiber.h"
+#include "task.h"
 
 extern zend_module_entry task_module_entry;
 
@@ -31,16 +32,19 @@ ZEND_TSRMLS_CACHE_EXTERN()
 
 ZEND_BEGIN_MODULE_GLOBALS(task)
 	/* Root fiber context (main thread). */
-	zend_fiber_context root;
+	concurrent_fiber_context root;
 
 	/* Active fiber, NULL when in main thread. */
-	zend_fiber *current_fiber;
+	concurrent_fiber *current_fiber;
 
 	/* Default fiber C stack size. */
 	zend_long stack_size;
 
 	/* Error to be thrown into a fiber (will be populated by throw()). */
 	zval *error;
+
+	/* Active async task scheduler. */
+	concurrent_task_scheduler *scheduler;
 
 ZEND_END_MODULE_GLOBALS(task)
 

@@ -19,17 +19,17 @@
 #ifndef FIBER_STACK_H
 #define FIBER_STACK_H
 
-typedef struct _zend_fiber_stack {
+typedef struct _concurrent_fiber_stack {
 	void *pointer;
 	size_t size;
 
 #ifdef ZEND_FIBER_VALGRIND
 	int valgrind;
 #endif
-} zend_fiber_stack;
+} concurrent_fiber_stack;
 
-zend_bool zend_fiber_stack_allocate(zend_fiber_stack *stack, unsigned int size);
-void zend_fiber_stack_free(zend_fiber_stack *stack);
+zend_bool concurrent_fiber_stack_allocate(concurrent_fiber_stack *stack, unsigned int size);
+void concurrent_fiber_stack_free(concurrent_fiber_stack *stack);
 
 #if _POSIX_MAPPED_FILES
 #define ZEND_FIBER_MMAP 1

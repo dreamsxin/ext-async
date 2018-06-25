@@ -23,15 +23,17 @@
 
 BEGIN_EXTERN_C()
 
-void zend_fiber_ce_register();
-void zend_fiber_ce_unregister();
+extern zend_class_entry *concurrent_fiber_ce;
 
-void zend_fiber_shutdown();
+void concurrent_fiber_ce_register();
+void concurrent_fiber_ce_unregister();
 
-typedef void* zend_fiber_context;
-typedef struct _zend_fiber zend_fiber;
+void concurrent_fiber_shutdown();
 
-struct _zend_fiber {
+typedef void* concurrent_fiber_context;
+typedef struct _concurrent_fiber concurrent_fiber;
+
+struct _concurrent_fiber {
 	/* Fiber PHP object handle. */
 	zend_object std;
 
@@ -42,8 +44,8 @@ struct _zend_fiber {
 	zend_fcall_info fci;
 	zend_fcall_info_cache fci_cache;
 
-	/* Fiber context of this fiber, will be created during call to start(). */
-	zend_fiber_context context;
+	/* Native fiber context of this fiber, will be created during call to start(). */
+	concurrent_fiber_context context;
 
 	/* Destination for a PHP value being passed into or returned from the fiber. */
 	zval *value;
@@ -64,21 +66,24 @@ static const zend_uchar ZEND_FIBER_STATUS_RUNNING = 2;
 static const zend_uchar ZEND_FIBER_STATUS_FINISHED = 3;
 static const zend_uchar ZEND_FIBER_STATUS_DEAD = 4;
 
-typedef void (* zend_fiber_func)();
+typedef void (* concurrent_fiber_func)();
 
-zend_fiber_context zend_fiber_create_root_context();
-zend_fiber_context zend_fiber_create_context();
+zend_bool concurrent_fiber_switch_to(concurrent_fiber *fiber);
+void concurrent_fiber_run();
 
-zend_bool zend_fiber_create(zend_fiber_context context, zend_fiber_func func, size_t stack_size);
-void zend_fiber_destroy(zend_fiber_context context);
+concurrent_fiber_context concurrent_fiber_create_root_context();
+concurrent_fiber_context concurrent_fiber_create_context();
 
-zend_bool zend_fiber_switch_context(zend_fiber_context current, zend_fiber_context next);
-zend_bool zend_fiber_yield(zend_fiber_context current);
+zend_bool concurrent_fiber_create(concurrent_fiber_context context, concurrent_fiber_func func, size_t stack_size);
+void concurrent_fiber_destroy(concurrent_fiber_context context);
+
+zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, concurrent_fiber_context next);
+zend_bool concurrent_fiber_yield(concurrent_fiber_context current);
 
 END_EXTERN_C()
 
 #define REGISTER_FIBER_CLASS_CONST_LONG(const_name, value) \
-	zend_declare_class_constant_long(zend_ce_fiber, const_name, sizeof(const_name)-1, (zend_long)value);
+	zend_declare_class_constant_long(concurrent_fiber_ce, const_name, sizeof(const_name)-1, (zend_long)value);
 
 #define ZEND_FIBER_VM_STACK_SIZE 4096
 
