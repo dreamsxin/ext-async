@@ -1,5 +1,5 @@
 PHP_ARG_ENABLE(task, whether to enable task support,
-[  --enable-task          Enable task task support], no)
+[  --enable-task          Enable task support], no)
 
 if test "$PHP_TASK" != "no"; then
   AC_DEFINE(HAVE_TASK, 1, [ ])
@@ -10,7 +10,7 @@ if test "$PHP_TASK" != "no"; then
     TASK_CFLAGS="$TASK_CFLAGS -DHAVE_UCONTEXT_H=1"
   ])
 
-  task_source_files="src/php_task.c \
+  task_source_files="php_task.c \
     src/fiber.c \
     src/fiber_stack.c \
     src/task.c"

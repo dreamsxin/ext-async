@@ -23,6 +23,7 @@
 #include "task.h"
 
 extern zend_module_entry task_module_entry;
+#define phpext_task_ptr &task_module_entry
 
 #define PHP_TASK_VERSION "0.1.0"
 

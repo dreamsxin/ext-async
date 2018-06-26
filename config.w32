@@ -3,5 +3,8 @@ ARG_ENABLE('task', 'task support', 'yes');
 if (PHP_TASK != 'no') {
 	AC_DEFINE('HAVE_TASK', 1, 'task support enabled');
 
-	EXTENSION('task', 'src/php_task.c src/fiber.c src/fiber_winfib.c', null, '/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1');
+	ADD_FLAG("CFLAGS", "/I " + configure_module_dirname);
+	ADD_FLAG("CFLAGS", "/I " + configure_module_dirname + "\\include");
+
+	EXTENSION('task', 'php_task.c src\\fiber.c src\\fiber_winfib.c src\\task.c', null, '/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1');
 }

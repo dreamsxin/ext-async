@@ -26,6 +26,17 @@
 #include "fiber.h"
 #include "fiber_stack.h"
 
+#undef ASM_CALLDECL
+#if (defined(i386) || defined(__i386__) || defined(__i386) \
+     || defined(__i486__) || defined(__i586__) || defined(__i686__) \
+     || defined(__X86__) || defined(_X86_) || defined(__THW_INTEL__) \
+     || defined(__I86__) || defined(__INTEL__) || defined(__IA32__) \
+     || defined(_M_IX86) || defined(_I86_)) && (defined(_WIN32) || defined(WIN32))
+#define ASM_CALLDECL __cdecl
+#else
+#define ASM_CALLDECL
+#endif
+
 typedef void* fcontext_t;
 
 typedef struct _transfer_t {
@@ -33,8 +44,8 @@ typedef struct _transfer_t {
     void *data;
 } transfer_t;
 
-extern fcontext_t make_fcontext(void *sp, size_t size, void (*fn)(transfer_t));
-extern transfer_t jump_fcontext(fcontext_t to, void *vp);
+extern fcontext_t ASM_CALLDECL make_fcontext(void *sp, size_t size, void (*fn)(transfer_t));
+extern transfer_t ASM_CALLDECL jump_fcontext(fcontext_t to, void *vp);
 
 typedef struct _concurrent_fiber_context_asm {
 	fcontext_t ctx;
