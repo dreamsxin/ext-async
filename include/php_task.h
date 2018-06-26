@@ -46,6 +46,8 @@ ZEND_BEGIN_MODULE_GLOBALS(task)
 	/* Active async task scheduler. */
 	concurrent_task_scheduler *scheduler;
 
+	size_t counter;
+
 ZEND_END_MODULE_GLOBALS(task)
 
 #define TASK_G(v) ZEND_MODULE_GLOBALS_ACCESSOR(task, v)

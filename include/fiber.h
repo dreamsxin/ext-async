@@ -80,6 +80,22 @@ void concurrent_fiber_destroy(concurrent_fiber_context context);
 zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, concurrent_fiber_context next);
 zend_bool concurrent_fiber_yield(concurrent_fiber_context current);
 
+#define CONCURRENT_FIBER_BACKUP_EG(stack, stack_page_size, exec) do { \
+	stack = EG(vm_stack); \
+	stack->top = EG(vm_stack_top); \
+	stack->end = EG(vm_stack_end); \
+	stack_page_size = EG(vm_stack_page_size); \
+	exec = EG(current_execute_data); \
+} while (0)
+
+#define CONCURRENT_FIBER_RESTORE_EG(stack, stack_page_size, exec) do { \
+	EG(vm_stack) = stack; \
+	EG(vm_stack_top) = stack->top; \
+	EG(vm_stack_end) = stack->end; \
+	EG(vm_stack_page_size) = stack_page_size; \
+	EG(current_execute_data) = exec; \
+} while (0)
+
 END_EXTERN_C()
 
 #define REGISTER_FIBER_CLASS_CONST_LONG(const_name, value) \

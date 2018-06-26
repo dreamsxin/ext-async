@@ -32,6 +32,7 @@ void concurrent_task_ce_unregister();
 
 typedef struct _concurrent_task concurrent_task;
 typedef struct _concurrent_task_scheduler concurrent_task_scheduler;
+typedef struct _concurrent_task_continuation concurrent_task_continuation;
 
 struct _concurrent_task {
 	/* Task PHP object handle. */
@@ -59,6 +60,8 @@ struct _concurrent_task {
 	/* Max size of the C stack being used by the task. */
 	size_t stack_size;
 
+	size_t id;
+
 	/* Reference to the task scheduler being used to run the task. */
 	concurrent_task_scheduler *scheduler;
 
@@ -71,6 +74,11 @@ struct _concurrent_task {
 	zend_bool await;
 	zend_fcall_info awaiter;
 	zend_fcall_info_cache awaiter_cache;
+
+	zval error;
+
+	/* Return value of the task, may also be an error object, check status for outcome. */
+	zval result;
 };
 
 static const zend_uchar CONCURRENT_TASK_OPERATION_START = 0;
@@ -86,6 +94,14 @@ struct _concurrent_task_scheduler {
 	concurrent_task *first;
 
 	concurrent_task *last;
+};
+
+struct _concurrent_task_continuation {
+	/* Task PHP object handle. */
+	zend_object std;
+
+	concurrent_task *task;
+	concurrent_task_scheduler *scheduler;
 };
 
 END_EXTERN_C()

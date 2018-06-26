@@ -37,23 +37,6 @@ static zend_op_array fiber_run_func;
 static zend_try_catch_element fiber_terminate_try_catch_array = { 0, 1, 0, 0 };
 static zend_op fiber_run_op[2];
 
-#define CONCURRENT_FIBER_BACKUP_EG(stack, stack_page_size, exec) do { \
-	stack = EG(vm_stack); \
-	stack->top = EG(vm_stack_top); \
-	stack->end = EG(vm_stack_end); \
-	stack_page_size = EG(vm_stack_page_size); \
-	exec = EG(current_execute_data); \
-} while (0)
-
-#define CONCURRENT_FIBER_RESTORE_EG(stack, stack_page_size, exec) do { \
-	EG(vm_stack) = stack; \
-	EG(vm_stack_top) = stack->top; \
-	EG(vm_stack_end) = stack->end; \
-	EG(vm_stack_page_size) = stack_page_size; \
-	EG(current_execute_data) = exec; \
-} while (0)
-
-
 zend_bool concurrent_fiber_switch_to(concurrent_fiber *fiber)
 {
 	concurrent_fiber_context root;
@@ -200,6 +183,8 @@ static void concurrent_fiber_object_destroy(zend_object *object)
 	concurrent_fiber_destroy(fiber->context);
 
 	zend_object_std_dtor(&fiber->std);
+
+	efree(fiber);
 }
 
 

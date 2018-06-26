@@ -13,13 +13,26 @@ $continuation = function (?\Throwable $e, $v = null): void {
 
 $scheduler = new TaskScheduler();
 
-$t1 = new Task($work, range(1, 2));
-$t2 = new Task($work, []);
+// $task = new Task(function () {
+//     $a = new class() implements Awaitable {
 
-$t1->continueWith($continuation);
-$t2->continueWith($continuation);
+//         public function continueWith(callable $continuation)
+//         {
+//             $continuation(null, 321);
+//         }
+//     };
+    
+//     return 2 * Task::await($a);
+// });
 
-$scheduler->start($t1);
-$scheduler->start($t2);
+// $task->continueWith($continuation);
 
+// $scheduler->start(new Task(function () use ($scheduler, $task, $continuation) {
+//     $scheduler->start($task);
+//     $task->continueWith($continuation);
+// }));
+
+$scheduler->start(new Task(function () {}));
+
+$scheduler->run();
 $scheduler->run();
