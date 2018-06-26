@@ -1,5 +1,6 @@
 <?php
 
+use Concurrent\Awaitable;
 use Concurrent\Task;
 use Concurrent\TaskScheduler;
 
@@ -13,26 +14,25 @@ $continuation = function (?\Throwable $e, $v = null): void {
 
 $scheduler = new TaskScheduler();
 
-// $task = new Task(function () {
-//     $a = new class() implements Awaitable {
+$task = new Task(function () {
+    $a = new class() implements Awaitable {
 
-//         public function continueWith(callable $continuation)
-//         {
-//             $continuation(null, 321);
-//         }
-//     };
+        public function continueWith(callable $continuation)
+        {
+            $continuation(null, 321);
+        }
+    };
     
-//     return 2 * Task::await($a);
-// });
+    var_dump(Task::await($a));
+    
+    return 2 * Task::await($a);
+});
 
-// $task->continueWith($continuation);
-
-// $scheduler->start(new Task(function () use ($scheduler, $task, $continuation) {
-//     $scheduler->start($task);
-//     $task->continueWith($continuation);
-// }));
-
-$scheduler->start(new Task(function () {}));
+$scheduler->start(new Task(function () use ($scheduler, $task, $continuation) {
+    $scheduler->start($task);
+    
+    $task->continueWith($continuation);
+}));
 
 $scheduler->run();
 $scheduler->run();

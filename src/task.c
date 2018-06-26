@@ -42,6 +42,7 @@ static zend_object_handlers concurrent_task_continuation_handlers;
 
 static void concurrent_task_start(concurrent_task *task)
 {
+	task->operation = CONCURRENT_TASK_OPERATION_NONE;
 	task->context = concurrent_fiber_create_context();
 
 	if (task->context == NULL) {
@@ -70,6 +71,7 @@ static void concurrent_task_start(concurrent_task *task)
 
 static void concurrent_task_continue(concurrent_task *task)
 {
+	task->operation = CONCURRENT_TASK_OPERATION_NONE;
 	task->status = CONCURRENT_FIBER_STATUS_RUNNING;
 
 	if (!concurrent_fiber_switch_to((concurrent_fiber *) task)) {
@@ -199,24 +201,30 @@ ZEND_METHOD(TaskContinuation, __invoke)
 
 	if (error == NULL || Z_TYPE_P(error) == IS_NULL) {
 		task->operation = CONCURRENT_TASK_OPERATION_RESUME;
-		ZVAL_COPY(task->value, val);
+
+		if (task->value != NULL) {
+			ZVAL_COPY(task->value, val);
+		}
 	} else {
 		task->operation = CONCURRENT_TASK_OPERATION_ERROR;
 		ZVAL_COPY(&task->error, error);
 	}
 
 	task->value = NULL;
-	task->next = NULL;
 
-	if (scheduler->last == NULL) {
-		scheduler->first = task;
-		scheduler->last = task;
-	} else {
-		scheduler->last->next = task;
-		scheduler->last = task;
+	if (task->status == CONCURRENT_FIBER_STATUS_SUSPENDED) {
+		task->next = NULL;
+
+		if (scheduler->last == NULL) {
+			scheduler->first = task;
+			scheduler->last = task;
+		} else {
+			scheduler->last->next = task;
+			scheduler->last = task;
+		}
+
+		scheduler->scheduled++;
 	}
-
-	scheduler->scheduled++;
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_task_continuation_ctor, 0)
@@ -265,6 +273,8 @@ static void concurrent_task_object_destroy(zend_object *object)
 		concurrent_fiber_switch_to((concurrent_fiber *) task);
 	}
 
+	concurrent_fiber_destroy(task->context);
+
 	if (task->status == CONCURRENT_FIBER_STATUS_INIT) {
 		zend_fcall_info_args_clear(&task->fci, 1);
 
@@ -278,8 +288,6 @@ static void concurrent_task_object_destroy(zend_object *object)
 	}
 
 	zval_ptr_dtor(&task->error);
-
-	concurrent_fiber_destroy(task->context);
 
 	if (task->await) {
 		if (task->awaiter.object) {
@@ -392,6 +400,7 @@ ZEND_METHOD(Task, await)
 	size_t stack_page_size;
 	zval cont;
 	zval error;
+	zval *value;
 
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_ZVAL(val);
@@ -409,7 +418,7 @@ ZEND_METHOD(Task, await)
 	}
 
 	if (Z_TYPE_P(val) != IS_OBJECT) {
-		RETURN_ZVAL(val, 1, 1);
+		RETURN_ZVAL(val, 1, 0);
 	}
 
 	ce = Z_OBJCE_P(val);
@@ -436,18 +445,26 @@ ZEND_METHOD(Task, await)
 		RETURN_ZVAL(val, 1, 0);
 	}
 
+	value = task->value;
 	task->value = USED_RET() ? return_value : NULL;
 
 	ZVAL_OBJ(&cont, concurrent_task_continuation_object_create(task, TASK_G(scheduler)));
 	zend_call_method_with_1_params(val, NULL, NULL, "continueWith", NULL, &cont);
 	zval_ptr_dtor(&cont);
 
+	if (task->operation != CONCURRENT_TASK_OPERATION_NONE) {
+		task->value = value;
+
+		return;
+	}
+
 	task->status = CONCURRENT_FIBER_STATUS_SUSPENDED;
-	task->value = USED_RET() ? return_value : NULL;
 
 	CONCURRENT_FIBER_BACKUP_EG(task->stack, stack_page_size, task->exec);
 	concurrent_fiber_yield(task->context);
 	CONCURRENT_FIBER_RESTORE_EG(task->stack, stack_page_size, task->exec);
+
+	task->value = value;
 
 	if (task->status == CONCURRENT_FIBER_STATUS_DEAD) {
 		zend_throw_error(NULL, "Task has been destroyed");
@@ -536,6 +553,8 @@ ZEND_METHOD(TaskScheduler, start)
 		scheduler->last = task;
 	}
 
+	GC_ADDREF(&task->std);
+
 	scheduler->scheduled++;
 }
 
@@ -557,7 +576,7 @@ ZEND_METHOD(TaskScheduler, schedule)
 
 	task = (concurrent_task *) Z_OBJ_P(obj);
 
-	if (val !=  NULL && task->value != NULL) {
+	if (val != NULL && task->value != NULL) {
 		ZVAL_COPY(task->value, val);
 		task->value = NULL;
 	}
@@ -664,6 +683,7 @@ ZEND_METHOD(TaskScheduler, run)
 		}
 
 		zval_ptr_dtor(&result);
+		GC_DELREF(&task->std);
 
 		task = scheduler->first;
 	}
