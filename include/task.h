@@ -37,7 +37,7 @@ struct _concurrent_task {
 	/* Task PHP object handle. */
 	zend_object std;
 
-	/* Status of the task, one of the ZEND_FIBER_STATUS_* constants. */
+	/* Status of the task, one of the CONCURRENT_FIBER_STATUS_* constants. */
 	zend_uchar status;
 
 	/* Callback and info / cache to be used when task is started. */

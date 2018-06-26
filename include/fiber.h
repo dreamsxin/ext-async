@@ -37,7 +37,7 @@ struct _concurrent_fiber {
 	/* Fiber PHP object handle. */
 	zend_object std;
 
-	/* Status of the fiber, one of the ZEND_FIBER_STATUS_* constants. */
+	/* Status of the fiber, one of the CONCURRENT_FIBER_STATUS_* constants. */
 	zend_uchar status;
 
 	/* Callback and info / cache to be used when fiber is started. */
@@ -60,11 +60,11 @@ struct _concurrent_fiber {
 	size_t stack_size;
 };
 
-static const zend_uchar ZEND_FIBER_STATUS_INIT = 0;
-static const zend_uchar ZEND_FIBER_STATUS_SUSPENDED = 1;
-static const zend_uchar ZEND_FIBER_STATUS_RUNNING = 2;
-static const zend_uchar ZEND_FIBER_STATUS_FINISHED = 3;
-static const zend_uchar ZEND_FIBER_STATUS_DEAD = 4;
+static const zend_uchar CONCURRENT_FIBER_STATUS_INIT = 0;
+static const zend_uchar CONCURRENT_FIBER_STATUS_SUSPENDED = 1;
+static const zend_uchar CONCURRENT_FIBER_STATUS_RUNNING = 2;
+static const zend_uchar CONCURRENT_FIBER_STATUS_FINISHED = 3;
+static const zend_uchar CONCURRENT_FIBER_STATUS_DEAD = 4;
 
 typedef void (* concurrent_fiber_func)();
 
@@ -85,7 +85,7 @@ END_EXTERN_C()
 #define REGISTER_FIBER_CLASS_CONST_LONG(const_name, value) \
 	zend_declare_class_constant_long(concurrent_fiber_ce, const_name, sizeof(const_name)-1, (zend_long)value);
 
-#define ZEND_FIBER_VM_STACK_SIZE 4096
+#define CONCURRENT_FIBER_VM_STACK_SIZE 4096
 
 #endif
 

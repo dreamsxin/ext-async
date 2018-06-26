@@ -5,6 +5,10 @@ if test "$PHP_TASK" != "no"; then
   AC_DEFINE(HAVE_TASK, 1, [ ])
   
   TASK_CFLAGS="-Wall -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1"
+  
+  AC_CHECK_HEADER(ucontext.h, [
+    TASK_CFLAGS="$TASK_CFLAGS -DHAVE_UCONTEXT_H=1"
+  ])
 
   task_source_files="src/php_task.c \
     src/fiber.c \

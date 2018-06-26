@@ -54,12 +54,12 @@ static void concurrent_task_start(concurrent_task *task)
 		return;
 	}
 
-	task->stack = (zend_vm_stack) emalloc(ZEND_FIBER_VM_STACK_SIZE);
+	task->stack = (zend_vm_stack) emalloc(CONCURRENT_FIBER_VM_STACK_SIZE);
 	task->stack->top = ZEND_VM_STACK_ELEMENTS(task->stack) + 1;
-	task->stack->end = (zval *) ((char *) task->stack + ZEND_FIBER_VM_STACK_SIZE);
+	task->stack->end = (zval *) ((char *) task->stack + CONCURRENT_FIBER_VM_STACK_SIZE);
 	task->stack->prev = NULL;
 
-	task->status = ZEND_FIBER_STATUS_RUNNING;
+	task->status = CONCURRENT_FIBER_STATUS_RUNNING;
 
 	if (!concurrent_fiber_switch_to((concurrent_fiber *) task)) {
 		zend_throw_error(NULL, "Failed switching to fiber");
@@ -72,14 +72,14 @@ static void concurrent_task_resume(concurrent_task *task)
 {
 	printf("RESUME TASK...\n");
 
-	task->status = ZEND_FIBER_STATUS_RUNNING;
+	task->status = CONCURRENT_FIBER_STATUS_RUNNING;
 }
 
 static void concurrent_task_resume_error(concurrent_task *task)
 {
 	printf("ERROR TASK...\n");
 
-	task->status = ZEND_FIBER_STATUS_RUNNING;
+	task->status = CONCURRENT_FIBER_STATUS_RUNNING;
 }
 
 static void concurrent_task_notify_success(concurrent_task *task, zval *result)
@@ -166,13 +166,13 @@ static void concurrent_task_object_destroy(zend_object *object)
 
 	task = (concurrent_task *) object;
 
-	if (task->status == ZEND_FIBER_STATUS_SUSPENDED) {
-		task->status = ZEND_FIBER_STATUS_DEAD;
+	if (task->status == CONCURRENT_FIBER_STATUS_SUSPENDED) {
+		task->status = CONCURRENT_FIBER_STATUS_DEAD;
 
 		concurrent_fiber_switch_to((concurrent_fiber *) task);
 	}
 
-	if (task->status == ZEND_FIBER_STATUS_INIT) {
+	if (task->status == CONCURRENT_FIBER_STATUS_INIT) {
 		zend_fcall_info_args_clear(&task->fci, 1);
 
 		if (task->fci.object) {
@@ -215,7 +215,7 @@ ZEND_METHOD(Task, __construct)
 		stack_size = 4096 * (((sizeof(void *)) < 8) ? 16 : 128);
 	}
 
-	task->status = ZEND_FIBER_STATUS_INIT;
+	task->status = CONCURRENT_FIBER_STATUS_INIT;
 	task->stack_size = stack_size;
 	task->fci.no_separation = 1;
 
@@ -384,14 +384,14 @@ ZEND_METHOD(TaskScheduler, run)
 
 			zend_clear_exception();
 
-			task->status = ZEND_FIBER_STATUS_DEAD;
+			task->status = CONCURRENT_FIBER_STATUS_DEAD;
 			concurrent_task_notify_failure(task, &result);
 
 			GC_DELREF(Z_OBJ_P(&result));
 		} else {
-			if (task->status == ZEND_FIBER_STATUS_FINISHED) {
+			if (task->status == CONCURRENT_FIBER_STATUS_FINISHED) {
 				concurrent_task_notify_success(task, &result);
-			} else if (task->status == ZEND_FIBER_STATUS_DEAD) {
+			} else if (task->status == CONCURRENT_FIBER_STATUS_DEAD) {
 				concurrent_task_notify_failure(task, &result);
 			}
 		}

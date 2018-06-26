@@ -23,7 +23,7 @@ typedef struct _concurrent_fiber_stack {
 	void *pointer;
 	size_t size;
 
-#ifdef ZEND_FIBER_VALGRIND
+#ifdef HAVE_VALGRIND_H
 	int valgrind;
 #endif
 } concurrent_fiber_stack;
@@ -32,7 +32,7 @@ zend_bool concurrent_fiber_stack_allocate(concurrent_fiber_stack *stack, unsigne
 void concurrent_fiber_stack_free(concurrent_fiber_stack *stack);
 
 #if _POSIX_MAPPED_FILES
-#define ZEND_FIBER_MMAP 1
+#define HAVE_MMAP 1
 
 #include <sys/mman.h>
 #include <limits.h>
@@ -41,24 +41,24 @@ void concurrent_fiber_stack_free(concurrent_fiber_stack *stack);
 #ifdef MAP_ANON
 #define MAP_ANONYMOUS MAP_ANON
 #else
-#undef ZEND_FIBER_MMAP
+#undef HAVE_MMAP
 #endif
 #endif
 
 #endif
 
 #if _POSIX_MEMORY_PROTECTION
-#define ZEND_FIBER_GUARDPAGES 4
+#define CONCURRENT_FIBER_GUARDPAGES 4
 #endif
 
-#ifndef ZEND_FIBER_GUARDPAGES
-#define ZEND_FIBER_GUARDPAGES 0
+#ifndef CONCURRENT_FIBER_GUARDPAGES
+#define CONCURRENT_FIBER_GUARDPAGES 0
 #endif
 
-#ifdef ZEND_FIBER_MMAP
-#define ZEND_FIBER_PAGESIZE sysconf(_SC_PAGESIZE)
+#ifdef HAVE_MMAP
+#define CONCURRENT_STACK_PAGESIZE sysconf(_SC_PAGESIZE)
 #else
-#define ZEND_FIBER_PAGESIZE 4096
+#define CONCURRENT_STACK_PAGESIZE 4096
 #endif
 
 #endif
