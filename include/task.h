@@ -98,6 +98,13 @@ struct _concurrent_task_scheduler {
 
 	/* Points to the last task to be run (needed to insert tasks into the run queue. */
 	concurrent_task *last;
+
+	zend_bool running;
+	zend_bool activate;
+
+	zend_bool activator;
+	zend_fcall_info activator_fci;
+	zend_fcall_info_cache activator_fcc;
 };
 
 struct _concurrent_task_continuation {

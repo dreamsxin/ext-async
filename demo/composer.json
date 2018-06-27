@@ -1,0 +1,6 @@
+{
+	"name" : "concurrent-php/task-demo",
+	"require" : {
+		"react/event-loop" : "~0.5"
+	}
+}
