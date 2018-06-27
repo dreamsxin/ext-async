@@ -99,10 +99,6 @@ void concurrent_fiber_run()
 
 	fiber->value = NULL;
 
-	if (fiber->fci.object) {
-		GC_DELREF(fiber->fci.object);
-	}
-
 	zval_ptr_dtor(&fiber->fci.function_name);
 
 	zend_vm_stack_destroy();
@@ -173,18 +169,12 @@ static void concurrent_fiber_object_destroy(zend_object *object)
 	}
 
 	if (fiber->status == CONCURRENT_FIBER_STATUS_INIT) {
-		if (fiber->fci.object) {
-			GC_DELREF(fiber->fci.object);
-		}
-
 		zval_ptr_dtor(&fiber->fci.function_name);
 	}
 
 	concurrent_fiber_destroy(fiber->context);
 
 	zend_object_std_dtor(&fiber->std);
-
-	efree(fiber);
 }
 
 
@@ -213,10 +203,6 @@ ZEND_METHOD(Fiber, __construct)
 
 	// Keep a reference to closures or callable objects as long as the fiber lives.
 	Z_TRY_ADDREF_P(&fiber->fci.function_name);
-
-	if (fiber->fci.object) {
-		GC_ADDREF(fiber->fci.object);
-	}
 }
 /* }}} */
 

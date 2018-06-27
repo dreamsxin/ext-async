@@ -22,3 +22,6 @@ modules
 missing
 mkinstalldirs
 run-*
+
+tests/*
+!tests/*.phpt
