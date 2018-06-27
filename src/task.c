@@ -33,8 +33,6 @@ zend_class_entry *concurrent_task_ce;
 zend_class_entry *concurrent_task_scheduler_ce;
 zend_class_entry *concurrent_task_continuation_ce;
 
-zend_class_entry *concurrent_fiber_ce;
-
 static zend_object_handlers concurrent_task_handlers;
 static zend_object_handlers concurrent_task_scheduler_handlers;
 static zend_object_handlers concurrent_task_continuation_handlers;
@@ -173,6 +171,9 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_awaitable_continue_with, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, continuation, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO(arginfo_wakeup, 0)
+ZEND_END_ARG_INFO()
+
 static const zend_function_entry awaitable_functions[] = {
 	ZEND_ME(Awaitable, continueWith, arginfo_awaitable_continue_with, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_FE_END
@@ -262,6 +263,13 @@ ZEND_METHOD(TaskContinuation, __invoke)
 	GC_DELREF(&task->std);
 }
 
+ZEND_METHOD(TaskContinuation, __wakeup)
+{
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	zend_throw_error(NULL, "Unserialization of a task continuation is not allowed");
+}
+
 ZEND_BEGIN_ARG_INFO(arginfo_task_continuation_ctor, 0)
 ZEND_END_ARG_INFO()
 
@@ -273,6 +281,7 @@ ZEND_END_ARG_INFO()
 static const zend_function_entry task_continuation_functions[] = {
 	ZEND_ME(TaskContinuation, __construct, arginfo_task_continuation_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
 	ZEND_ME(TaskContinuation, __invoke, arginfo_task_continuation_invoke, ZEND_ACC_PUBLIC)
+	ZEND_ME(TaskContinuation, __wakeup, arginfo_wakeup, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -551,12 +560,19 @@ ZEND_METHOD(Task, await)
 	}
 }
 
+ZEND_METHOD(Task, __wakeup)
+{
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	zend_throw_error(NULL, "Unserialization of a task is not allowed");
+}
+
 ZEND_BEGIN_ARG_INFO(arginfo_task_ctor, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_async, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-	ZEND_ARG_ARRAY_INFO(0, args, 0)
+	ZEND_ARG_ARRAY_INFO(0, arguments, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_await, 0, 0, 1)
@@ -568,6 +584,7 @@ static const zend_function_entry task_functions[] = {
 	ZEND_ME(Task, continueWith, arginfo_awaitable_continue_with, ZEND_ACC_PUBLIC)
 	ZEND_ME(Task, async, arginfo_task_async, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, await, arginfo_task_await, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Task, __wakeup, arginfo_wakeup, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -724,6 +741,13 @@ ZEND_METHOD(TaskScheduler, run)
 	TASK_G(scheduler) = prev;
 }
 
+ZEND_METHOD(TaskScheduler, __wakeup)
+{
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	zend_throw_error(NULL, "Unserialization of a task scheduler is not allowed");
+}
+
 ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_count, 0)
 ZEND_END_ARG_INFO()
 
@@ -739,6 +763,7 @@ static const zend_function_entry task_scheduler_functions[] = {
 	ZEND_ME(TaskScheduler, count, arginfo_task_scheduler_count, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, task, arginfo_task_scheduler_task, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, run, arginfo_task_scheduler_run, ZEND_ACC_PUBLIC)
+	ZEND_ME(TaskScheduler, __wakeup, arginfo_wakeup, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -753,6 +778,8 @@ void concurrent_task_ce_register()
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Task", task_functions);
 	concurrent_task_ce = zend_register_internal_class(&ce);
 	concurrent_task_ce->ce_flags |= ZEND_ACC_FINAL;
+	concurrent_task_ce->serialize = zend_class_serialize_deny;
+	concurrent_task_ce->unserialize = zend_class_unserialize_deny;
 
 	memcpy(&concurrent_task_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	concurrent_task_handlers.free_obj = concurrent_task_object_destroy;
@@ -764,6 +791,8 @@ void concurrent_task_ce_register()
 	concurrent_task_scheduler_ce = zend_register_internal_class(&ce);
 	concurrent_task_scheduler_ce->ce_flags |= ZEND_ACC_FINAL;
 	concurrent_task_scheduler_ce->create_object = concurrent_task_scheduler_object_create;
+	concurrent_task_scheduler_ce->serialize = zend_class_serialize_deny;
+	concurrent_task_scheduler_ce->unserialize = zend_class_unserialize_deny;
 
 	zend_class_implements(concurrent_task_scheduler_ce, 1, zend_ce_countable);
 
@@ -774,6 +803,8 @@ void concurrent_task_ce_register()
 	INIT_CLASS_ENTRY(ce, "Concurrent\\TaskContinuation", task_continuation_functions);
 	concurrent_task_continuation_ce = zend_register_internal_class(&ce);
 	concurrent_task_continuation_ce->ce_flags |= ZEND_ACC_FINAL;
+	concurrent_task_continuation_ce->serialize = zend_class_serialize_deny;
+	concurrent_task_continuation_ce->unserialize = zend_class_unserialize_deny;
 
 	memcpy(&concurrent_task_continuation_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	concurrent_task_continuation_handlers.free_obj = concurrent_task_continuation_object_destroy;

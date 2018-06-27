@@ -411,30 +411,26 @@ ZEND_METHOD(Fiber, yield)
 /* {{{ proto Fiber::__wakeup() */
 ZEND_METHOD(Fiber, __wakeup)
 {
-	/* Just specifying the zend_class_unserialize_deny handler is not enough,
-	 * because it is only invoked for C unserialization. For O the error has
-	 * to be thrown in __wakeup. */
-
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	zend_throw_exception(NULL, "Unserialization of 'Fiber' is not allowed", 0);
+	zend_throw_error(NULL, "Unserialization of a fiber is not allowed");
 }
 /* }}} */
 
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_create, 0, 0, 1)
-	ZEND_ARG_CALLABLE_INFO(0, callable, 0)
+	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 	ZEND_ARG_TYPE_INFO(0, stack_size, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_fiber_status, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_fiber_start, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_start, 0, 0, 1)
 	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_resume, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_resume, 0, 0, 0)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
@@ -445,7 +441,7 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO(arginfo_fiber_void, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_fiber_yield, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_yield, 0, 0, 0)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
