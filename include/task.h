@@ -62,7 +62,7 @@ struct _concurrent_task {
 
 	size_t id;
 
-	/* Reference to the task scheduler being used to run the task. */
+	/* Reference to the task scheduler being used to start or resume the task the next time. */
 	concurrent_task_scheduler *scheduler;
 
 	/* Next task scheduled for execution. */
@@ -71,14 +71,15 @@ struct _concurrent_task {
 	/* Next operation to be performed by the scheduler. */
 	zend_uchar operation;
 
-	zend_bool await;
-	zend_fcall_info awaiter;
-	zend_fcall_info_cache awaiter_cache;
-
+	/* Error to be thrown into a task, must be set to UNDEF to resume tasks with a value. */
 	zval error;
 
 	/* Return value of the task, may also be an error object, check status for outcome. */
 	zval result;
+
+	zend_bool await;
+	zend_fcall_info awaiter;
+	zend_fcall_info_cache awaiter_cache;
 };
 
 static const zend_uchar CONCURRENT_TASK_OPERATION_NONE = 0;
@@ -89,10 +90,13 @@ struct _concurrent_task_scheduler {
 	/* Task PHP object handle. */
 	zend_object std;
 
+	/* Number of tasks scheduled to run. */
 	size_t scheduled;
 
+	/* Points to the next task to be run. */
 	concurrent_task *first;
 
+	/* Points to the last task to be run (needed to insert tasks into the run queue. */
 	concurrent_task *last;
 };
 
@@ -100,7 +104,10 @@ struct _concurrent_task_continuation {
 	/* Task PHP object handle. */
 	zend_object std;
 
+	/* The task to be scheduled. */
 	concurrent_task *task;
+
+	/* The scheduler to be used to resume the task. */
 	concurrent_task_scheduler *scheduler;
 };
 

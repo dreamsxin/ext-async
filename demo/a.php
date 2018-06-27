@@ -4,17 +4,9 @@ use Concurrent\Awaitable;
 use Concurrent\Task;
 use Concurrent\TaskScheduler;
 
-$work = function (int $a, int $b): int {
-    return $a + $b;
-};
-
-$continuation = function (?\Throwable $e, $v = null): void {
-    var_dump('CONTINUE WITH', $e, $v);
-};
-
 $scheduler = new TaskScheduler();
 
-$task = new Task(function () {
+$scheduler->task(function (): int {
     $a = new class() implements Awaitable {
 
         public function continueWith(callable $continuation): void
@@ -23,15 +15,13 @@ $task = new Task(function () {
         }
     };
     
-    var_dump(Task::await($a));
+    $t = Task::async(function () use ($a): int {
+        return min(123, Task::await($a));
+    });
     
-    return 2 * Task::await($a);
+    return max(2 * Task::await($t), Task::await($a));
+})->continueWith(function (?\Throwable $e, ?int $v = null): void {
+    var_dump('CONTINUE WITH', $e, $v);
 });
-
-$scheduler->start(new Task(function () use ($scheduler, $task, $continuation) {
-    $scheduler->start($task);
-    
-    $task->continueWith($continuation);
-}));
 
 $scheduler->run();
