@@ -84,7 +84,6 @@ struct _concurrent_task {
 static const zend_uchar CONCURRENT_TASK_OPERATION_NONE = 0;
 static const zend_uchar CONCURRENT_TASK_OPERATION_START = 1;
 static const zend_uchar CONCURRENT_TASK_OPERATION_RESUME = 2;
-static const zend_uchar CONCURRENT_TASK_OPERATION_ERROR = 3;
 
 struct _concurrent_task_scheduler {
 	/* Task PHP object handle. */

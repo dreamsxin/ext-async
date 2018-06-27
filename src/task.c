@@ -134,6 +134,37 @@ static void concurrent_task_notify_failure(concurrent_task *task, zval *error)
 	zval_ptr_dtor(&task->awaiter.function_name);
 }
 
+static zend_bool concurrent_task_schedule(concurrent_task *task, concurrent_task_scheduler *scheduler)
+{
+	if (task->next != NULL) {
+		return 0;
+	}
+
+	if (task->status == CONCURRENT_FIBER_STATUS_INIT) {
+		task->operation = CONCURRENT_TASK_OPERATION_START;
+	} else if (task->status == CONCURRENT_FIBER_STATUS_SUSPENDED) {
+		task->operation = CONCURRENT_TASK_OPERATION_RESUME;
+	} else {
+		return 0;
+	}
+
+	task->scheduler = scheduler;
+
+	if (scheduler->last == NULL) {
+		scheduler->first = task;
+		scheduler->last = task;
+	} else {
+		scheduler->last->next = task;
+		scheduler->last = task;
+	}
+
+	GC_ADDREF(&task->std);
+
+	scheduler->scheduled++;
+
+	return 1;
+}
+
 
 ZEND_METHOD(Awaitable, continueWith) { }
 
@@ -181,10 +212,10 @@ ZEND_METHOD(TaskContinuation, __construct)
 ZEND_METHOD(TaskContinuation, __invoke)
 {
 	concurrent_task_continuation *cont;
+	concurrent_task *task;
+
 	zval *error;
 	zval *val;
-	concurrent_task *task;
-	concurrent_task_scheduler *scheduler;
 
 	cont = (concurrent_task_continuation *) Z_OBJ_P(getThis());
 	error = NULL;
@@ -197,33 +228,19 @@ ZEND_METHOD(TaskContinuation, __invoke)
 	ZEND_PARSE_PARAMETERS_END();
 
 	task = cont->task;
-	scheduler = cont->scheduler;
 
 	if (error == NULL || Z_TYPE_P(error) == IS_NULL) {
-		task->operation = CONCURRENT_TASK_OPERATION_RESUME;
-
 		if (task->value != NULL) {
 			ZVAL_COPY(task->value, val);
 		}
 	} else {
-		task->operation = CONCURRENT_TASK_OPERATION_ERROR;
 		ZVAL_COPY(&task->error, error);
 	}
 
 	task->value = NULL;
 
 	if (task->status == CONCURRENT_FIBER_STATUS_SUSPENDED) {
-		task->next = NULL;
-
-		if (scheduler->last == NULL) {
-			scheduler->first = task;
-			scheduler->last = task;
-		} else {
-			scheduler->last->next = task;
-			scheduler->last = task;
-		}
-
-		scheduler->scheduled++;
+		concurrent_task_schedule(task, cont->scheduler);
 	}
 }
 
@@ -337,6 +354,19 @@ ZEND_METHOD(Task, __construct)
 	Z_TRY_ADDREF_P(&task->fci.function_name);
 }
 
+ZEND_METHOD(Task, start)
+{
+	concurrent_task *task;
+
+	task = (concurrent_task *) Z_OBJ_P(getThis());
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	if (task->status != CONCURRENT_FIBER_STATUS_INIT) {
+		return;
+	}
+}
+
 ZEND_METHOD(Task, continueWith)
 {
 	concurrent_task *task;
@@ -388,6 +418,18 @@ ZEND_METHOD(Task, continueWith)
 	}
 
 	Z_TRY_ADDREF_P(&task->awaiter.function_name);
+}
+
+ZEND_METHOD(Task, async)
+{
+	concurrent_task_scheduler *scheduler;
+
+	scheduler = TASK_G(scheduler);
+
+	if (UNEXPECTED(scheduler == NULL)) {
+		zend_throw_error(NULL, "Cannot create an async task while no task scheduler is running");
+		return;
+	}
 }
 
 ZEND_METHOD(Task, await)
@@ -448,11 +490,11 @@ ZEND_METHOD(Task, await)
 	value = task->value;
 	task->value = USED_RET() ? return_value : NULL;
 
-	ZVAL_OBJ(&cont, concurrent_task_continuation_object_create(task, TASK_G(scheduler)));
+	ZVAL_OBJ(&cont, concurrent_task_continuation_object_create(task, task->scheduler));
 	zend_call_method_with_1_params(val, NULL, NULL, "continueWith", NULL, &cont);
 	zval_ptr_dtor(&cont);
 
-	if (task->operation != CONCURRENT_TASK_OPERATION_NONE) {
+	if (task->operation == CONCURRENT_TASK_OPERATION_NONE) {
 		task->value = value;
 
 		return;
@@ -488,13 +530,23 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_task_ctor, 0, 0, 1)
 	ZEND_ARG_ARRAY_INFO(0, params, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO(arginfo_task_start, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_task_async, 0, 0, 1)
+	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
+	ZEND_ARG_ARRAY_INFO(0, args, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_await, 0, 0, 1)
-	ZEND_ARG_INFO(0, awaitable)
+	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_functions[] = {
 	ZEND_ME(Task, __construct, arginfo_task_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(Task, start, arginfo_task_start, ZEND_ACC_PUBLIC)
 	ZEND_ME(Task, continueWith, arginfo_awaitable_continue_with, ZEND_ACC_PUBLIC)
+	ZEND_ME(Task, async, arginfo_task_async, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, await, arginfo_task_await, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_FE_END
 };
@@ -541,21 +593,7 @@ ZEND_METHOD(TaskScheduler, start)
 		return;
 	}
 
-	task->scheduler = scheduler;
-	task->operation = CONCURRENT_TASK_OPERATION_START;
-	task->next = NULL;
-
-	if (scheduler->last == NULL) {
-		scheduler->first = task;
-		scheduler->last = task;
-	} else {
-		scheduler->last->next = task;
-		scheduler->last = task;
-	}
-
-	GC_ADDREF(&task->std);
-
-	scheduler->scheduled++;
+	concurrent_task_schedule(task, scheduler);
 }
 
 ZEND_METHOD(TaskScheduler, schedule)
@@ -581,19 +619,7 @@ ZEND_METHOD(TaskScheduler, schedule)
 		task->value = NULL;
 	}
 
-	task->scheduler = scheduler;
-	task->operation = CONCURRENT_TASK_OPERATION_RESUME;
-	task->next = NULL;
-
-	if (scheduler->last == NULL) {
-		scheduler->first = task;
-		scheduler->last = task;
-	} else {
-		scheduler->last->next = task;
-		scheduler->last = task;
-	}
-
-	scheduler->scheduled++;
+	concurrent_task_schedule(task, scheduler);
 }
 
 ZEND_METHOD(TaskScheduler, scheduleError)
@@ -615,19 +641,7 @@ ZEND_METHOD(TaskScheduler, scheduleError)
 	ZVAL_ZVAL(&task->error, error, 0, 1);
 	task->value = NULL;
 
-	task->scheduler = scheduler;
-	task->operation = CONCURRENT_TASK_OPERATION_ERROR;
-	task->next = NULL;
-
-	if (scheduler->last == NULL) {
-		scheduler->first = task;
-		scheduler->last = task;
-	} else {
-		scheduler->last->next = task;
-		scheduler->last = task;
-	}
-
-	scheduler->scheduled++;
+	concurrent_task_schedule(task, scheduler);
 }
 
 ZEND_METHOD(TaskScheduler, run)
@@ -652,7 +666,6 @@ ZEND_METHOD(TaskScheduler, run)
 			scheduler->last = NULL;
 		}
 
-		task->scheduler = NULL;
 		task->next = NULL;
 		task->value = &result;
 
@@ -660,6 +673,10 @@ ZEND_METHOD(TaskScheduler, run)
 			concurrent_task_start(task);
 		} else {
 			concurrent_task_continue(task);
+		}
+
+		if (task->operation == CONCURRENT_TASK_OPERATION_NONE) {
+			task->scheduler = NULL;
 		}
 
 		if (UNEXPECTED(EG(exception))) {

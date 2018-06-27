@@ -17,7 +17,7 @@ $scheduler = new TaskScheduler();
 $task = new Task(function () {
     $a = new class() implements Awaitable {
 
-        public function continueWith(callable $continuation)
+        public function continueWith(callable $continuation): void
         {
             $continuation(null, 321);
         }
@@ -34,5 +34,4 @@ $scheduler->start(new Task(function () use ($scheduler, $task, $continuation) {
     $task->continueWith($continuation);
 }));
 
-$scheduler->run();
 $scheduler->run();

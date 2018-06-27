@@ -19,17 +19,40 @@ final class Fiber
 
 interface Awaitable
 {
-    public function continueWith(callable $continuation);
+    public function continueWith(callable $continuation): void;
 }
 
-class Task implements Awaitable
+final class Task
 {
+    public function __construct(TaskScheduler $scheduler, callable $callback, ?array $args = null) { }
+    
+    public static function async(callable $callback, ?array $args = null): Task { }
+    
+    public static function await($a) { }
+    
+    public function continueWith(callable $continuation): void { }
+}
+
+final class TaskScheduler
+{
+    public function task(callable $callback, ?array $args = null): Task { }
+    
+    public function run(): void { }
+}
+
+
+/* 
+// API v0.1
+final class TaskOld implements Awaitable
+{
+    public function __construct(callable $callback, ?array $args = null) { }
+    
     public function continueWith(callable $continuation) { }
     
     public static function await($a) { }
 }
 
-class TaskScheduler
+final class TaskSchedulerOld
 {
     public function start(Task $task): void { }
     
@@ -39,3 +62,4 @@ class TaskScheduler
     
     public function run(): void { }
 }
+*/
