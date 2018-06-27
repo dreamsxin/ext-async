@@ -212,6 +212,8 @@ static void concurrent_task_continuation_object_destroy(zend_object *object)
 
 ZEND_METHOD(TaskContinuation, __construct)
 {
+	ZEND_PARSE_PARAMETERS_NONE();
+
 	zend_throw_error(NULL, "Task continuations must not be constructed from userland code");
 }
 
@@ -621,6 +623,17 @@ static void concurrent_task_scheduler_object_destroy(zend_object *object)
 	zend_object_std_dtor(&scheduler->std);
 }
 
+ZEND_METHOD(TaskScheduler, count)
+{
+	concurrent_task_scheduler *scheduler;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	scheduler = (concurrent_task_scheduler *)Z_OBJ_P(getThis());
+
+	RETURN_LONG(scheduler->scheduled);
+}
+
 ZEND_METHOD(TaskScheduler, task)
 {
 	concurrent_task_scheduler *scheduler;
@@ -668,6 +681,8 @@ ZEND_METHOD(TaskScheduler, run)
 	zval result;
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
+
+	ZEND_PARSE_PARAMETERS_NONE();
 
 	prev = TASK_G(scheduler);
 	TASK_G(scheduler) = scheduler;
@@ -726,6 +741,9 @@ ZEND_METHOD(TaskScheduler, run)
 	TASK_G(scheduler) = prev;
 }
 
+ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_count, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_task, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 	ZEND_ARG_ARRAY_INFO(0, arguments, 0)
@@ -735,6 +753,7 @@ ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_run, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_scheduler_functions[] = {
+	ZEND_ME(TaskScheduler, count, arginfo_task_scheduler_count, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, task, arginfo_task_scheduler_task, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, run, arginfo_task_scheduler_run, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
@@ -762,6 +781,8 @@ void concurrent_task_ce_register()
 	concurrent_task_scheduler_ce = zend_register_internal_class(&ce);
 	concurrent_task_scheduler_ce->ce_flags |= ZEND_ACC_FINAL;
 	concurrent_task_scheduler_ce->create_object = concurrent_task_scheduler_object_create;
+
+	zend_class_implements(concurrent_task_scheduler_ce, 1, zend_ce_countable);
 
 	memcpy(&concurrent_task_scheduler_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	concurrent_task_scheduler_handlers.free_obj = concurrent_task_scheduler_object_destroy;
