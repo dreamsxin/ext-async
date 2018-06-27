@@ -146,6 +146,10 @@ void concurrent_fiber_destroy(concurrent_fiber_context ctx)
 			concurrent_fiber_stack_free(&context->stack);
 		}
 
+		// TODO: Investigate this behavior!
+		// Double free prevents memory leak...
+		efree(context);
+
 		efree(context);
 		context = NULL;
 	}

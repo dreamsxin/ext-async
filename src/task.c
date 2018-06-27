@@ -98,10 +98,6 @@ static void concurrent_task_notify_success(concurrent_task *task, zval *result)
 
 	zend_call_function(&task->awaiter, &task->awaiter_cache);
 
-	if (task->awaiter.object) {
-		GC_DELREF(task->awaiter.object);
-	}
-
 	zval_ptr_dtor(&task->awaiter.function_name);
 }
 
@@ -124,10 +120,6 @@ static void concurrent_task_notify_failure(concurrent_task *task, zval *error)
 	task->await = 0;
 
 	zend_call_function(&task->awaiter, &task->awaiter_cache);
-
-	if (task->awaiter.object) {
-		GC_DELREF(task->awaiter.object);
-	}
 
 	zval_ptr_dtor(&task->awaiter.function_name);
 }
@@ -350,29 +342,20 @@ static void concurrent_task_object_destroy(zend_object *object)
 		TASK_G(scheduler) = prev;
 	}
 
-	concurrent_fiber_destroy(task->context);
-
 	if (task->status == CONCURRENT_FIBER_STATUS_INIT) {
 		zend_fcall_info_args_clear(&task->fci, 1);
 
-		if (task->fci.object) {
-			GC_DELREF(task->fci.object);
-		}
-
 		zval_ptr_dtor(&task->fci.function_name);
-	} else {
-		zval_ptr_dtor(&task->result);
 	}
 
+	zval_ptr_dtor(&task->result);
 	zval_ptr_dtor(&task->error);
 
 	if (task->await) {
-		if (task->awaiter.object) {
-			GC_DELREF(task->awaiter.object);
-		}
-
 		zval_ptr_dtor(&task->awaiter.function_name);
 	}
+
+	concurrent_fiber_destroy(task->context);
 
 	zend_object_std_dtor(&task->std);
 }
@@ -430,10 +413,6 @@ ZEND_METHOD(Task, continueWith)
 	task->awaiter_cache = fcc;
 	task->awaiter.object = task->awaiter_cache.object;
 
-	if (task->awaiter.object) {
-		GC_ADDREF(task->awaiter.object);
-	}
-
 	Z_TRY_ADDREF_P(&task->awaiter.function_name);
 }
 
@@ -467,10 +446,6 @@ ZEND_METHOD(Task, async)
 		task->fci.param_count = 0;
 	} else {
 		zend_fcall_info_args(&task->fci, params);
-	}
-
-	if (task->fci.object) {
-		GC_ADDREF(task->fci.object);
 	}
 
 	Z_TRY_ADDREF_P(&task->fci.function_name);
@@ -686,10 +661,6 @@ ZEND_METHOD(TaskScheduler, task)
 		zend_fcall_info_args(&task->fci, params);
 	}
 
-	if (task->fci.object) {
-		GC_ADDREF(task->fci.object);
-	}
-
 	Z_TRY_ADDREF_P(&task->fci.function_name);
 
 	concurrent_task_schedule(task, scheduler);
@@ -699,7 +670,7 @@ ZEND_METHOD(TaskScheduler, task)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD( TaskScheduler, activator)
+ZEND_METHOD(TaskScheduler, activator)
 {
 	concurrent_task_scheduler *scheduler;
 
