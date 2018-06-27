@@ -359,19 +359,6 @@ ZEND_METHOD(Task, __construct)
 	zend_throw_error(NULL, "Tasks must not be constructed by userland code");
 }
 
-ZEND_METHOD(Task, start)
-{
-	concurrent_task *task;
-
-	task = (concurrent_task *) Z_OBJ_P(getThis());
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	if (task->status != CONCURRENT_FIBER_STATUS_INIT) {
-		return;
-	}
-}
-
 ZEND_METHOD(Task, continueWith)
 {
 	concurrent_task *task;
@@ -567,9 +554,6 @@ ZEND_METHOD(Task, await)
 ZEND_BEGIN_ARG_INFO(arginfo_task_ctor, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_task_start, 0)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_async, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 	ZEND_ARG_ARRAY_INFO(0, args, 0)
@@ -581,7 +565,6 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_functions[] = {
 	ZEND_ME(Task, __construct, arginfo_task_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
-	ZEND_ME(Task, start, arginfo_task_start, ZEND_ACC_PUBLIC)
 	ZEND_ME(Task, continueWith, arginfo_awaitable_continue_with, ZEND_ACC_PUBLIC)
 	ZEND_ME(Task, async, arginfo_task_async, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, await, arginfo_task_await, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)

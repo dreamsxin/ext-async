@@ -26,15 +26,17 @@ final class Task
 {
     public function __construct(TaskScheduler $scheduler, callable $callback, ?array $args = null) { }
     
+    public function continueWith(callable $continuation): void { }
+    
     public static function async(callable $callback, ?array $args = null): Task { }
     
     public static function await($a) { }
-    
-    public function continueWith(callable $continuation): void { }
 }
 
-final class TaskScheduler
+final class TaskScheduler implements \Countable
 {
+    public function count(): int { }
+    
     public function task(callable $callback, ?array $args = null): Task { }
     
     public function run(): void { }
