@@ -717,6 +717,8 @@ ZEND_METHOD(TaskScheduler, run)
 			scheduler->last = NULL;
 		}
 
+		ZVAL_NULL(&result);
+
 		task->next = NULL;
 		task->value = &result;
 
