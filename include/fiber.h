@@ -71,6 +71,8 @@ typedef void (* concurrent_fiber_func)();
 zend_bool concurrent_fiber_switch_to(concurrent_fiber *fiber);
 void concurrent_fiber_run();
 
+char *concurrent_fiber_backend_info();
+
 concurrent_fiber_context concurrent_fiber_create_root_context();
 concurrent_fiber_context concurrent_fiber_create_context();
 

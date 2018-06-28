@@ -6,16 +6,17 @@ if test "$PHP_TASK" != "no"; then
   
   TASK_CFLAGS="-Wall -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1"
   
+  task_use_asm="yes"
+  task_use_ucontext="no"
+  
   AC_CHECK_HEADER(ucontext.h, [
-    TASK_CFLAGS="$TASK_CFLAGS -DHAVE_UCONTEXT_H=1"
+    task_use_ucontext="yes"
   ])
 
   task_source_files="php_task.c \
     src/fiber.c \
     src/fiber_stack.c \
     src/task.c"
-  
-  task_use_asm="yes"
   
   AS_CASE([$host_cpu],
     [x86_64*], [task_cpu="x86_64"],
@@ -65,6 +66,9 @@ if test "$PHP_TASK" != "no"; then
       src/fiber_asm.c \
       boost/asm/make_${task_asm_file} \
       boost/asm/jump_${task_asm_file}"
+  elif test "$task_use_ucontext" = 'yes'; then
+    task_source_files="$task_source_files \
+      src/fiber_ucontext.c" 
   fi
   
   PHP_NEW_EXTENSION(task, $task_source_files, $ext_shared,, \\$(TASK_CFLAGS))

@@ -44,12 +44,12 @@ $work = function (string $title): void {
     var_dump($title);
 };
 
+$scheduler->task($work, ['A']);
+$scheduler->task($work, ['B']);
+
 $scheduler->task(function () use ($a) {
     var_dump(Task::await($a));
 });
-
-$scheduler->task($work, ['A']);
-$scheduler->task($work, ['B']);
 
 $loop->addTimer(.05, function () use ($scheduler, $work) {
     $scheduler->task($work, ['F']);

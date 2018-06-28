@@ -32,6 +32,11 @@ typedef struct _concurrent_fiber_context_win32 {
 	zend_bool initialized;
 } concurrent_fiber_context_win32;
 
+char *concurrent_fiber_backend_info()
+{
+	return "winfib (Windows Fiber API)";
+}
+
 concurrent_fiber_context concurrent_fiber_create_root_context()
 {
 	concurrent_fiber_context_win32 *context;
