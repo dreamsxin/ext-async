@@ -31,13 +31,10 @@ $scheduler->task(function () use ($a, & $b) {
 
 $scheduler->run();
 
-var_dump($a->continuation instanceof Taskcontinuation);
+var_dump($a->continuation instanceof TaskContinuation);
 var_dump(count($scheduler));
 
 $a->continuation = null;
-$scheduler = null;
-
-gc_collect_cycles();
 
 var_dump($b);
 

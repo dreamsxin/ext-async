@@ -58,16 +58,14 @@ zend_bool concurrent_fiber_switch_to(concurrent_fiber *fiber)
 		TASK_G(root) = root;
 	}
 
-	CONCURRENT_FIBER_BACKUP_EG(stack, stack_page_size, exec);
-
 	prev = TASK_G(current_fiber);
 	TASK_G(current_fiber) = fiber;
 
+	CONCURRENT_FIBER_BACKUP_EG(stack, stack_page_size, exec);
 	result = concurrent_fiber_switch_context((prev == NULL) ? root : prev->context, fiber->context);
+	CONCURRENT_FIBER_RESTORE_EG(stack, stack_page_size, exec);
 
 	TASK_G(current_fiber) = prev;
-
-	CONCURRENT_FIBER_RESTORE_EG(stack, stack_page_size, exec);
 
 	return result;
 }
@@ -147,7 +145,7 @@ static zend_object *concurrent_fiber_object_create(zend_class_entry *ce)
 	concurrent_fiber *fiber;
 
 	fiber = emalloc(sizeof(concurrent_fiber));
-	memset(fiber, 0, sizeof(concurrent_fiber));
+	ZEND_SECURE_ZERO(fiber, sizeof(concurrent_fiber));
 
 	zend_object_std_init(&fiber->std, ce);
 	fiber->std.handlers = &concurrent_fiber_handlers;
@@ -370,9 +368,7 @@ ZEND_METHOD(Fiber, yield)
 	fiber->value = USED_RET() ? return_value : NULL;
 
 	CONCURRENT_FIBER_BACKUP_EG(fiber->stack, stack_page_size, fiber->exec);
-
 	concurrent_fiber_yield(fiber->context);
-
 	CONCURRENT_FIBER_RESTORE_EG(fiber->stack, stack_page_size, fiber->exec);
 
 	if (fiber->status == CONCURRENT_FIBER_STATUS_DEAD) {

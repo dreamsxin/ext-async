@@ -99,6 +99,7 @@ static void concurrent_task_notify_success(concurrent_task *task, zval *result)
 	zend_call_function(&task->awaiter, &task->awaiter_cache);
 
 	zval_ptr_dtor(&task->awaiter.function_name);
+	zval_ptr_dtor(&retval);
 }
 
 static void concurrent_task_notify_failure(concurrent_task *task, zval *error)
@@ -122,16 +123,13 @@ static void concurrent_task_notify_failure(concurrent_task *task, zval *error)
 	zend_call_function(&task->awaiter, &task->awaiter_cache);
 
 	zval_ptr_dtor(&task->awaiter.function_name);
+	zval_ptr_dtor(&retval);
 }
 
 static zend_bool concurrent_task_schedule(concurrent_task *task, concurrent_task_scheduler *scheduler)
 {
 	zval args[1];
 	zval retval;
-
-	if (task->next != NULL) {
-		return 0;
-	}
 
 	if (task->status == CONCURRENT_FIBER_STATUS_INIT) {
 		task->operation = CONCURRENT_TASK_OPERATION_START;
@@ -193,7 +191,7 @@ static zend_object *concurrent_task_continuation_object_create(concurrent_task *
 	concurrent_task_continuation *cont;
 
 	cont = emalloc(sizeof(concurrent_task_continuation));
-	memset(cont, 0, sizeof(concurrent_task_continuation));
+	ZEND_SECURE_ZERO(cont, sizeof(concurrent_task_continuation));
 
 	cont->task = task;
 	cont->scheduler = scheduler;
@@ -213,7 +211,7 @@ static void concurrent_task_continuation_object_destroy(zend_object *object)
 	cont = (concurrent_task_continuation *) object;
 
 	if (cont->task != NULL) {
-		GC_DELREF(&cont->task->std);
+		OBJ_RELEASE(&cont->task->std);
 	}
 
 	zend_object_std_dtor(&cont->std);
@@ -268,7 +266,7 @@ ZEND_METHOD(TaskContinuation, __invoke)
 		task->operation = CONCURRENT_TASK_OPERATION_RESUME;
 	}
 
-	GC_DELREF(&task->std);
+	OBJ_RELEASE(&task->std);
 }
 
 ZEND_METHOD(TaskContinuation, __wakeup)
@@ -300,7 +298,7 @@ static concurrent_task *concurrent_task_object_create()
 	zend_long stack_size;
 
 	task = emalloc(sizeof(concurrent_task));
-	memset(task, 0, sizeof(concurrent_task));
+	ZEND_SECURE_ZERO(task, sizeof(concurrent_task));
 
 	task->status = CONCURRENT_FIBER_STATUS_INIT;
 
@@ -392,6 +390,7 @@ ZEND_METHOD(Task, continueWith)
 		fci.retval = &result;
 
 		zend_call_function(&fci, &fcc);
+		zval_ptr_dtor(&result);
 
 		return;
 	}
@@ -404,6 +403,7 @@ ZEND_METHOD(Task, continueWith)
 		fci.retval = &result;
 
 		zend_call_function(&fci, &fcc);
+		zval_ptr_dtor(&result);
 
 		return;
 	}
@@ -482,6 +482,7 @@ ZEND_METHOD(Task, await)
 
 	if (UNEXPECTED(task->status != CONCURRENT_FIBER_STATUS_RUNNING)) {
 		zend_throw_error(NULL, "Cannot await in a task that is not running");
+		return;
 	}
 
 	if (Z_TYPE_P(val) != IS_OBJECT) {
@@ -508,7 +509,7 @@ ZEND_METHOD(Task, await)
 		}
 	}
 
-	if (!instanceof_function(ce, concurrent_awaitable_ce)) {
+	if (instanceof_function_ex(ce, concurrent_awaitable_ce, 1) != 1) {
 		RETURN_ZVAL(val, 1, 0);
 	}
 
@@ -586,7 +587,7 @@ static zend_object *concurrent_task_scheduler_object_create(zend_class_entry *ce
 	concurrent_task_scheduler *scheduler;
 
 	scheduler = emalloc(sizeof(concurrent_task_scheduler));
-	memset(scheduler, 0, sizeof(concurrent_task_scheduler));
+	ZEND_SECURE_ZERO(scheduler, sizeof(concurrent_task_scheduler));
 
 	scheduler->activate = 1;
 
@@ -615,7 +616,7 @@ static void concurrent_task_scheduler_object_destroy(zend_object *object)
 		scheduler->scheduled--;
 		scheduler->first = task->next;
 
-		GC_DELREF(&task->std);
+		OBJ_RELEASE(&task->std);
 
 		task = scheduler->first;
 	}
@@ -706,9 +707,9 @@ ZEND_METHOD(TaskScheduler, run)
 	scheduler->running = 1;
 	scheduler->activate = 0;
 
-	task = scheduler->first;
+	while (scheduler->first != NULL) {
+		task = scheduler->first;
 
-	while (task != NULL) {
 		scheduler->scheduled--;
 		scheduler->first = task->next;
 
@@ -725,9 +726,7 @@ ZEND_METHOD(TaskScheduler, run)
 			concurrent_task_continue(task);
 		}
 
-		if (task->operation == CONCURRENT_TASK_OPERATION_NONE) {
-			task->scheduler = NULL;
-		}
+		task->scheduler = NULL;
 
 		if (UNEXPECTED(EG(exception))) {
 			zval_ptr_dtor(&result);
@@ -749,10 +748,8 @@ ZEND_METHOD(TaskScheduler, run)
 			}
 		}
 
+		OBJ_RELEASE(&task->std);
 		zval_ptr_dtor(&result);
-		GC_DELREF(&task->std);
-
-		task = scheduler->first;
 	}
 
 	scheduler->last = NULL;

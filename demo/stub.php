@@ -18,6 +18,11 @@ final class Task implements Awaitable
     public static function await($a) { }
 }
 
+final class TaskContinuation
+{
+    public function __invoke(?\Throwable $e, $v = null) { }
+}
+
 class TaskScheduler implements \Countable
 {
     public function count(): int { }
