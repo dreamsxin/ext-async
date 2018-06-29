@@ -9,8 +9,6 @@ interface Awaitable
 
 final class Task implements Awaitable
 {
-    public function __construct(TaskScheduler $scheduler, callable $callback, ?array $args = null) { }
-    
     public function continueWith(callable $continuation): void { }
     
     public static function async(callable $callback, ?array $args = null): Task { }
@@ -29,11 +27,11 @@ final class TaskScheduler implements \Countable
     
     public function task(callable $callback, ?array $args = null): Task { }
     
+    public function run(): void { }
+    
     public function activator(callable $callback): void { }
     
     public function adapter(callable $callback): void { }
-    
-    public function run(): void { }
 }
 
 final class Fiber
