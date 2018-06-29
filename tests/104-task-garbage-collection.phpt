@@ -1,5 +1,5 @@
 --TEST--
-Task being garbage collected while supended.
+Task being garbage collected while supended due to continuation being destroyed.
 --SKIPIF--
 <?php
 if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
@@ -21,11 +21,11 @@ $b = null;
 
 $scheduler = new TaskScheduler();
 
-$scheduler->task(function () use ($a, & $b) {
+$t = $scheduler->task(function () use ($a, & $b) {
     try {
         var_dump(Task::await($a));
-    } finally {
-        $b = 321;
+    } catch (\Throwable $e) {
+        return $b = 321;
     }
 });
 
@@ -38,8 +38,14 @@ $a->continuation = null;
 
 var_dump($b);
 
+$t->continueWith(function ($e, $v) {
+    var_dump($e, $v);
+});
+
 ?>
 --EXPECTF--
 bool(true)
 int(0)
+int(321)
+NULL
 int(321)

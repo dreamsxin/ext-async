@@ -99,6 +99,7 @@ static void concurrent_task_notify_success(concurrent_task *task, zval *result)
 	zend_call_function(&task->awaiter, &task->awaiter_cache);
 
 	zval_ptr_dtor(&task->awaiter.function_name);
+	zval_ptr_dtor(args);
 	zval_ptr_dtor(&retval);
 }
 
@@ -123,12 +124,13 @@ static void concurrent_task_notify_failure(concurrent_task *task, zval *error)
 	zend_call_function(&task->awaiter, &task->awaiter_cache);
 
 	zval_ptr_dtor(&task->awaiter.function_name);
+	zval_ptr_dtor(args);
 	zval_ptr_dtor(&retval);
 }
 
 static zend_bool concurrent_task_schedule(concurrent_task *task, concurrent_task_scheduler *scheduler)
 {
-	zval args[1];
+	zval obj;
 	zval retval;
 
 	if (task->status == CONCURRENT_FIBER_STATUS_INIT) {
@@ -156,10 +158,10 @@ static zend_bool concurrent_task_schedule(concurrent_task *task, concurrent_task
 	if (scheduler->activator && scheduler->activate && !scheduler->running) {
 		scheduler->activate = 0;
 
-		ZVAL_OBJ(&args[0], &scheduler->std);
+		ZVAL_OBJ(&obj, &scheduler->std);
 
 		scheduler->activator_fci.param_count = 1;
-		scheduler->activator_fci.params = args;
+		scheduler->activator_fci.params = &obj;
 		scheduler->activator_fci.retval = &retval;
 
 		zend_call_function(&scheduler->activator_fci, &scheduler->activator_fcc);
@@ -167,6 +169,39 @@ static zend_bool concurrent_task_schedule(concurrent_task *task, concurrent_task
 	}
 
 	return 1;
+}
+
+static void concurrent_task_dispose(concurrent_task *task)
+{
+	concurrent_task_scheduler *prev;
+	zval result;
+
+	prev = TASK_G(scheduler);
+	TASK_G(scheduler) = NULL;
+
+	ZVAL_NULL(&result);
+
+	task->status = CONCURRENT_FIBER_STATUS_DEAD;
+	task->value = &result;
+
+	concurrent_fiber_switch_to((concurrent_fiber *) task);
+
+	TASK_G(scheduler) = prev;
+
+	if (UNEXPECTED(EG(exception))) {
+		zval_ptr_dtor(&result);
+
+		ZVAL_OBJ(&result, EG(exception));
+		Z_ADDREF_P(&result);
+
+		zend_clear_exception();
+
+		concurrent_task_notify_failure(task, &result);
+
+		zval_ptr_dtor(&result);
+	} else {
+		concurrent_task_notify_success(task, &result);
+	}
 }
 
 
@@ -210,6 +245,10 @@ static void concurrent_task_continuation_object_destroy(zend_object *object)
 	cont = (concurrent_task_continuation *) object;
 
 	if (cont->task != NULL) {
+		if (cont->task->status == CONCURRENT_FIBER_STATUS_SUSPENDED) {
+			concurrent_task_dispose(cont->task);
+		}
+
 		OBJ_RELEASE(&cont->task->std);
 	}
 
@@ -389,6 +428,7 @@ ZEND_METHOD(Task, continueWith)
 		fci.retval = &result;
 
 		zend_call_function(&fci, &fcc);
+		zval_ptr_dtor(args);
 		zval_ptr_dtor(&result);
 
 		return;
@@ -402,6 +442,7 @@ ZEND_METHOD(Task, continueWith)
 		fci.retval = &result;
 
 		zend_call_function(&fci, &fcc);
+		zval_ptr_dtor(args);
 		zval_ptr_dtor(&result);
 
 		return;
@@ -470,7 +511,7 @@ ZEND_METHOD(Task, await)
 	zval error;
 	zval *value;
 
-	ZEND_PARSE_PARAMETERS_START(1, 1)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_ZVAL(val);
 	ZEND_PARSE_PARAMETERS_END();
 
@@ -555,12 +596,12 @@ ZEND_METHOD(Task, await)
 	concurrent_fiber_yield(task->context);
 	CONCURRENT_FIBER_RESTORE_EG(task->stack, stack_page_size, task->exec);
 
-	task->value = value;
-
 	if (task->status == CONCURRENT_FIBER_STATUS_DEAD) {
 		zend_throw_error(NULL, "Task has been destroyed");
 		return;
 	}
+
+	task->value = value;
 
 	if (Z_TYPE_P(&task->error) != IS_UNDEF) {
 		error = task->error;
@@ -776,16 +817,12 @@ ZEND_METHOD(TaskScheduler, run)
 
 		if (UNEXPECTED(EG(exception))) {
 			zval_ptr_dtor(&result);
-
 			ZVAL_OBJ(&result, EG(exception));
-			GC_ADDREF(EG(exception));
 
 			zend_clear_exception();
 
 			task->status = CONCURRENT_FIBER_STATUS_DEAD;
 			concurrent_task_notify_failure(task, &result);
-
-			GC_DELREF(Z_OBJ_P(&result));
 		} else {
 			if (task->status == CONCURRENT_FIBER_STATUS_FINISHED) {
 				concurrent_task_notify_success(task, &result);
