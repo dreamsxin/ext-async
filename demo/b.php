@@ -36,7 +36,7 @@ class PromiseAdapter implements Awaitable
 
     public function continueWith(callable $continuation): void
     {
-        $this->promise->then(function ($v) use ($continuation) {
+        $this->promise->done(function ($v) use ($continuation) {
             var_dump('RESOLVE => SUCCESS');
             $continuation(null, $v);
         }, function ($e) use ($continuation) {

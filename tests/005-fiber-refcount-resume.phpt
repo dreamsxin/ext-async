@@ -2,7 +2,7 @@
 Fiber preserves refcount of objects passed to resume().
 --SKIPIF--
 <?php
-if (!extension_loaded('task')) echo 'skip';
+if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
 ?>
 --FILE--
 <?php

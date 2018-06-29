@@ -2,7 +2,7 @@
 Fiber can return object to main thread.
 --SKIPIF--
 <?php
-if (!extension_loaded('task')) echo 'skip';
+if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
 ?>
 --FILE--
 <?php

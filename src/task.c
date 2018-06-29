@@ -172,7 +172,6 @@ static zend_bool concurrent_task_schedule(concurrent_task *task, concurrent_task
 
 ZEND_METHOD(Awaitable, continueWith) { }
 
-
 ZEND_BEGIN_ARG_INFO_EX(arginfo_awaitable_continue_with, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, continuation, 0)
 ZEND_END_ARG_INFO()
