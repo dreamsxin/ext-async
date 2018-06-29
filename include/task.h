@@ -33,6 +33,13 @@ void concurrent_task_ce_unregister();
 typedef struct _concurrent_task concurrent_task;
 typedef struct _concurrent_task_scheduler concurrent_task_scheduler;
 typedef struct _concurrent_task_continuation concurrent_task_continuation;
+typedef struct _concurrent_task_continuation_cb concurrent_task_continuation_cb;
+
+struct _concurrent_task_continuation_cb {
+	/* Callback and info / cache of an continuation callback. */
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+};
 
 struct _concurrent_task {
 	/* Task PHP object handle. */
@@ -77,9 +84,11 @@ struct _concurrent_task {
 	/* Return value of the task, may also be an error object, check status for outcome. */
 	zval result;
 
-	zend_bool await;
-	zend_fcall_info awaiter;
-	zend_fcall_info_cache awaiter_cache;
+	/* Number of registered awaiter callbacks. */
+	zend_uchar continuation_count;
+
+	/* Array of awaiters to be called upon completion of the task. */
+	concurrent_task_continuation_cb *continuations;
 };
 
 static const zend_uchar CONCURRENT_TASK_OPERATION_NONE = 0;

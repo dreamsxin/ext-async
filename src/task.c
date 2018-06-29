@@ -79,53 +79,71 @@ static void concurrent_task_continue(concurrent_task *task)
 
 static void concurrent_task_notify_success(concurrent_task *task, zval *result)
 {
+	concurrent_task_continuation_cb *continuation;
+	zend_uchar i;
+
 	zval args[2];
 	zval retval;
 
 	ZVAL_COPY(&task->result, result);
 
-	if (!task->await) {
-		return;
+	for (i = 0; i < task->continuation_count; i++) {
+		ZVAL_NULL(&args[0]);
+		ZVAL_COPY(&args[1], result);
+
+		continuation = &task->continuations[i];
+
+		continuation->fci.param_count = 2;
+		continuation->fci.params = args;
+		continuation->fci.retval = &retval;
+
+		zend_call_function(&continuation->fci, &continuation->fcc);
+
+		zval_ptr_dtor(args);
+		zval_ptr_dtor(&retval);
+		zval_ptr_dtor(&continuation->fci.function_name);
 	}
 
-	ZVAL_NULL(&args[0]);
-	ZVAL_COPY(&args[1], result);
+	if (task->continuation_count > 0) {
+		task->continuation_count = 0;
 
-	task->awaiter.param_count = 2;
-	task->awaiter.params = args;
-	task->awaiter.retval = &retval;
-	task->await = 0;
-
-	zend_call_function(&task->awaiter, &task->awaiter_cache);
-
-	zval_ptr_dtor(&task->awaiter.function_name);
-	zval_ptr_dtor(args);
-	zval_ptr_dtor(&retval);
+		efree(task->continuations);
+		task->continuations = NULL;
+	}
 }
 
 static void concurrent_task_notify_failure(concurrent_task *task, zval *error)
 {
+	concurrent_task_continuation_cb *continuation;
+	zend_uchar i;
+
 	zval args[1];
 	zval retval;
 
 	ZVAL_COPY(&task->result, error);
 
-	if (!task->await) {
-		return;
+	for (i = 0; i < task->continuation_count; i++) {
+		ZVAL_COPY(&args[0], error);
+
+		continuation = &task->continuations[i];
+
+		continuation->fci.param_count = 1;
+		continuation->fci.params = args;
+		continuation->fci.retval = &retval;
+
+		zend_call_function(&continuation->fci, &continuation->fcc);
+
+		zval_ptr_dtor(args);
+		zval_ptr_dtor(&retval);
+		zval_ptr_dtor(&continuation->fci.function_name);
 	}
 
-	ZVAL_COPY(&args[0], error);
+	if (task->continuation_count > 0) {
+		task->continuation_count = 0;
 
-	task->awaiter.param_count = 1;
-	task->awaiter.params = args;
-	task->awaiter.retval = &retval;
-	task->await = 0;
-
-	zend_call_function(&task->awaiter, &task->awaiter_cache);
-
-	zval_ptr_dtor(&task->awaiter.function_name);
-	zval_ptr_dtor(args);
-	zval_ptr_dtor(&retval);
+		efree(task->continuations);
+		task->continuations = NULL;
+	}
 }
 
 static zend_bool concurrent_task_schedule(concurrent_task *task, concurrent_task_scheduler *scheduler)
@@ -364,6 +382,7 @@ static void concurrent_task_object_destroy(zend_object *object)
 {
 	concurrent_task *task;
 	concurrent_task_scheduler *prev;
+	zend_uchar i;
 
 	task = (concurrent_task *) object;
 
@@ -387,8 +406,13 @@ static void concurrent_task_object_destroy(zend_object *object)
 	zval_ptr_dtor(&task->result);
 	zval_ptr_dtor(&task->error);
 
-	if (task->await) {
-		zval_ptr_dtor(&task->awaiter.function_name);
+	for (i = 0; i < task->continuation_count; i++) {
+		zval_ptr_dtor(&task->continuations[i].fci.function_name);
+	}
+
+	if (task->continuations != NULL) {
+		efree(task->continuations);
+		task->continuations = NULL;
 	}
 
 	concurrent_fiber_destroy(task->context);
@@ -406,6 +430,8 @@ ZEND_METHOD(Task, __construct)
 ZEND_METHOD(Task, continueWith)
 {
 	concurrent_task *task;
+	concurrent_task_continuation_cb *continuations;
+
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
 	zval args[2];
@@ -448,12 +474,20 @@ ZEND_METHOD(Task, continueWith)
 		return;
 	}
 
-	task->await = 1;
-	task->awaiter = fci;
-	task->awaiter_cache = fcc;
-	task->awaiter.object = task->awaiter_cache.object;
+	continuations = (concurrent_task_continuation_cb *) emalloc(sizeof(concurrent_task_continuation_cb) * (task->continuation_count + 1));
 
-	Z_TRY_ADDREF_P(&task->awaiter.function_name);
+	if (task->continuation_count > 0) {
+		memcpy(continuations, task->continuations, sizeof(concurrent_task_continuation_cb) * task->continuation_count);
+		efree(task->continuations);
+	}
+
+	continuations[task->continuation_count].fci = fci;
+	continuations[task->continuation_count].fcc = fcc;
+
+	task->continuation_count++;
+	task->continuations = continuations;
+
+	Z_TRY_ADDREF_P(&fci.function_name);
 }
 
 ZEND_METHOD(Task, async)
