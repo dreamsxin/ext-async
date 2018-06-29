@@ -23,13 +23,15 @@ final class TaskContinuation
     public function __invoke(?\Throwable $e, $v = null) { }
 }
 
-class TaskScheduler implements \Countable
+final class TaskScheduler implements \Countable
 {
     public function count(): int { }
     
     public function task(callable $callback, ?array $args = null): Task { }
     
     public function activator(callable $callback): void { }
+    
+    public function adapter(callable $callback): void { }
     
     public function run(): void { }
 }
