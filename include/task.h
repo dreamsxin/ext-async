@@ -39,6 +39,9 @@ struct _concurrent_task_continuation_cb {
 	/* Callback and info / cache of an continuation callback. */
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
+
+	/* Points to next callback, NULL if this is the last callback. */
+	concurrent_task_continuation_cb *next;
 };
 
 struct _concurrent_task {
@@ -84,11 +87,8 @@ struct _concurrent_task {
 	/* Return value of the task, may also be an error object, check status for outcome. */
 	zval result;
 
-	/* Number of registered awaiter callbacks. */
-	zend_uchar continuation_count;
-
-	/* Array of awaiters to be called upon completion of the task. */
-	concurrent_task_continuation_cb *continuations;
+	/* Linked list of registered continuation callbacks. */
+	concurrent_task_continuation_cb *continuation;
 };
 
 static const zend_uchar CONCURRENT_TASK_OPERATION_NONE = 0;

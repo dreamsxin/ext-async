@@ -61,7 +61,7 @@ typedef struct _concurrent_fiber_record_asm {
 
 char *concurrent_fiber_backend_info()
 {
-	return "assembler (boost.context v1.67.0)";
+	return "asm (boost.context v1.67.0)";
 }
 
 void concurrent_fiber_asm_start(transfer_t trans)

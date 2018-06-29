@@ -79,70 +79,76 @@ static void concurrent_task_continue(concurrent_task *task)
 
 static void concurrent_task_notify_success(concurrent_task *task, zval *result)
 {
-	concurrent_task_continuation_cb *continuation;
-	zend_uchar i;
+	concurrent_task_continuation_cb *cont;
+	concurrent_task_continuation_cb *next;
 
 	zval args[2];
 	zval retval;
 
 	ZVAL_COPY(&task->result, result);
 
-	for (i = 0; i < task->continuation_count; i++) {
+	if (task->continuation == NULL) {
+		return;
+	}
+
+	cont = task->continuation;
+	task->continuation = NULL;
+
+	while (cont != NULL) {
+		next = cont->next;
+
 		ZVAL_NULL(&args[0]);
 		ZVAL_COPY(&args[1], result);
 
-		continuation = &task->continuations[i];
+		cont->fci.param_count = 2;
+		cont->fci.params = args;
+		cont->fci.retval = &retval;
 
-		continuation->fci.param_count = 2;
-		continuation->fci.params = args;
-		continuation->fci.retval = &retval;
-
-		zend_call_function(&continuation->fci, &continuation->fcc);
+		zend_call_function(&cont->fci, &cont->fcc);
 
 		zval_ptr_dtor(args);
 		zval_ptr_dtor(&retval);
-		zval_ptr_dtor(&continuation->fci.function_name);
-	}
+		zval_ptr_dtor(&cont->fci.function_name);
 
-	if (task->continuation_count > 0) {
-		task->continuation_count = 0;
-
-		efree(task->continuations);
-		task->continuations = NULL;
+		efree(cont);
+		cont = next;
 	}
 }
 
 static void concurrent_task_notify_failure(concurrent_task *task, zval *error)
 {
-	concurrent_task_continuation_cb *continuation;
-	zend_uchar i;
+	concurrent_task_continuation_cb *cont;
+	concurrent_task_continuation_cb *next;
 
 	zval args[1];
 	zval retval;
 
 	ZVAL_COPY(&task->result, error);
 
-	for (i = 0; i < task->continuation_count; i++) {
+	if (task->continuation == NULL) {
+		return;
+	}
+
+	cont = task->continuation;
+	task->continuation = NULL;
+
+	while (cont != NULL) {
+		next = cont->next;
+
 		ZVAL_COPY(&args[0], error);
 
-		continuation = &task->continuations[i];
+		cont->fci.param_count = 1;
+		cont->fci.params = args;
+		cont->fci.retval = &retval;
 
-		continuation->fci.param_count = 1;
-		continuation->fci.params = args;
-		continuation->fci.retval = &retval;
-
-		zend_call_function(&continuation->fci, &continuation->fcc);
+		zend_call_function(&cont->fci, &cont->fcc);
 
 		zval_ptr_dtor(args);
 		zval_ptr_dtor(&retval);
-		zval_ptr_dtor(&continuation->fci.function_name);
-	}
+		zval_ptr_dtor(&cont->fci.function_name);
 
-	if (task->continuation_count > 0) {
-		task->continuation_count = 0;
-
-		efree(task->continuations);
-		task->continuations = NULL;
+		efree(cont);
+		cont = next;
 	}
 }
 
@@ -382,7 +388,8 @@ static void concurrent_task_object_destroy(zend_object *object)
 {
 	concurrent_task *task;
 	concurrent_task_scheduler *prev;
-	zend_uchar i;
+	concurrent_task_continuation_cb *cont;
+	concurrent_task_continuation_cb *next;
 
 	task = (concurrent_task *) object;
 
@@ -406,13 +413,15 @@ static void concurrent_task_object_destroy(zend_object *object)
 	zval_ptr_dtor(&task->result);
 	zval_ptr_dtor(&task->error);
 
-	for (i = 0; i < task->continuation_count; i++) {
-		zval_ptr_dtor(&task->continuations[i].fci.function_name);
-	}
+	cont = task->continuation;
 
-	if (task->continuations != NULL) {
-		efree(task->continuations);
-		task->continuations = NULL;
+	while (cont != NULL) {
+		next = cont->next;
+
+		zval_ptr_dtor(&cont->fci.function_name);
+
+		efree(cont);
+		cont = next;
 	}
 
 	concurrent_fiber_destroy(task->context);
@@ -430,7 +439,8 @@ ZEND_METHOD(Task, __construct)
 ZEND_METHOD(Task, continueWith)
 {
 	concurrent_task *task;
-	concurrent_task_continuation_cb *continuations;
+	concurrent_task_continuation_cb *cont;
+	concurrent_task_continuation_cb *tmp;
 
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
@@ -474,18 +484,22 @@ ZEND_METHOD(Task, continueWith)
 		return;
 	}
 
-	continuations = (concurrent_task_continuation_cb *) emalloc(sizeof(concurrent_task_continuation_cb) * (task->continuation_count + 1));
+	cont = emalloc(sizeof(concurrent_task_continuation_cb));
+	cont->fci = fci;
+	cont->fcc = fcc;
+	cont->next = NULL;
 
-	if (task->continuation_count > 0) {
-		memcpy(continuations, task->continuations, sizeof(concurrent_task_continuation_cb) * task->continuation_count);
-		efree(task->continuations);
+	if (task->continuation == NULL) {
+		task->continuation = cont;
+	} else {
+		tmp = task->continuation;
+
+		while (tmp->next != NULL) {
+			tmp = tmp->next;
+		}
+
+		tmp->next = cont;
 	}
-
-	continuations[task->continuation_count].fci = fci;
-	continuations[task->continuation_count].fcc = fcc;
-
-	task->continuation_count++;
-	task->continuations = continuations;
 
 	Z_TRY_ADDREF_P(&fci.function_name);
 }
