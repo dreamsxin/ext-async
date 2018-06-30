@@ -112,6 +112,7 @@ void concurrent_fiber_run()
 static int fiber_run_opcode_handler(zend_execute_data *exec)
 {
 	concurrent_fiber *fiber;
+
 	zval retval;
 
 	fiber = TASK_G(current_fiber);
@@ -221,8 +222,9 @@ ZEND_METHOD(Fiber, status)
 ZEND_METHOD(Fiber, start)
 {
 	concurrent_fiber *fiber;
-	zval *params;
 	uint32_t param_count;
+
+	zval *params;
 
 	ZEND_PARSE_PARAMETERS_START(0, -1)
 		Z_PARAM_VARIADIC('+', params, param_count)
@@ -269,6 +271,7 @@ ZEND_METHOD(Fiber, start)
 ZEND_METHOD(Fiber, resume)
 {
 	concurrent_fiber *fiber;
+
 	zval *val;
 
 	val = NULL;
@@ -304,6 +307,7 @@ ZEND_METHOD(Fiber, resume)
 ZEND_METHOD(Fiber, throw)
 {
 	concurrent_fiber *fiber;
+
 	zval *error;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
@@ -337,6 +341,7 @@ ZEND_METHOD(Fiber, yield)
 	concurrent_fiber *fiber;
 	zend_execute_data *exec;
 	size_t stack_page_size;
+
 	zval *val;
 	zval *error;
 

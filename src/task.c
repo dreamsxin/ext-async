@@ -80,22 +80,15 @@ static void concurrent_task_continue(concurrent_task *task)
 static void concurrent_task_notify_success(concurrent_task *task, zval *result)
 {
 	concurrent_task_continuation_cb *cont;
-	concurrent_task_continuation_cb *next;
 
 	zval args[2];
 	zval retval;
 
 	ZVAL_COPY(&task->result, result);
 
-	if (task->continuation == NULL) {
-		return;
-	}
-
-	cont = task->continuation;
-	task->continuation = NULL;
-
-	while (cont != NULL) {
-		next = cont->next;
+	while (task->continuation != NULL) {
+		cont = task->continuation;
+		task->continuation = cont->next;
 
 		ZVAL_NULL(&args[0]);
 		ZVAL_COPY(&args[1], result);
@@ -111,29 +104,21 @@ static void concurrent_task_notify_success(concurrent_task *task, zval *result)
 		zval_ptr_dtor(&cont->fci.function_name);
 
 		efree(cont);
-		cont = next;
 	}
 }
 
 static void concurrent_task_notify_failure(concurrent_task *task, zval *error)
 {
 	concurrent_task_continuation_cb *cont;
-	concurrent_task_continuation_cb *next;
 
 	zval args[1];
 	zval retval;
 
 	ZVAL_COPY(&task->result, error);
 
-	if (task->continuation == NULL) {
-		return;
-	}
-
-	cont = task->continuation;
-	task->continuation = NULL;
-
-	while (cont != NULL) {
-		next = cont->next;
+	while (task->continuation != NULL) {
+		cont = task->continuation;
+		task->continuation = cont->next;
 
 		ZVAL_COPY(&args[0], error);
 
@@ -148,7 +133,6 @@ static void concurrent_task_notify_failure(concurrent_task *task, zval *error)
 		zval_ptr_dtor(&cont->fci.function_name);
 
 		efree(cont);
-		cont = next;
 	}
 }
 
@@ -198,6 +182,7 @@ static zend_bool concurrent_task_schedule(concurrent_task *task, concurrent_task
 static void concurrent_task_dispose(concurrent_task *task)
 {
 	concurrent_task_scheduler *prev;
+
 	zval result;
 
 	prev = TASK_G(scheduler);
@@ -389,7 +374,6 @@ static void concurrent_task_object_destroy(zend_object *object)
 	concurrent_task *task;
 	concurrent_task_scheduler *prev;
 	concurrent_task_continuation_cb *cont;
-	concurrent_task_continuation_cb *next;
 
 	task = (concurrent_task *) object;
 
@@ -413,15 +397,13 @@ static void concurrent_task_object_destroy(zend_object *object)
 	zval_ptr_dtor(&task->result);
 	zval_ptr_dtor(&task->error);
 
-	cont = task->continuation;
-
-	while (cont != NULL) {
-		next = cont->next;
+	while (task->continuation != NULL) {
+		cont = task->continuation;
+		task->continuation = cont->next;
 
 		zval_ptr_dtor(&cont->fci.function_name);
 
 		efree(cont);
-		cont = next;
 	}
 
 	concurrent_fiber_destroy(task->context);
@@ -547,13 +529,13 @@ ZEND_METHOD(Task, async)
 
 ZEND_METHOD(Task, await)
 {
-	zval *val;
 	zend_class_entry *ce;
 	concurrent_task *task;
 	concurrent_task *inner;
 	zend_execute_data *exec;
 	size_t stack_page_size;
 
+	zval *val;
 	zval retval;
 	zval cont;
 	zval error;
@@ -828,6 +810,7 @@ ZEND_METHOD(TaskScheduler, run)
 	concurrent_task_scheduler *scheduler;
 	concurrent_task_scheduler *prev;
 	concurrent_task *task;
+
 	zval result;
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
