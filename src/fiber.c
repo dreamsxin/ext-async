@@ -335,6 +335,16 @@ ZEND_METHOD(Fiber, throw)
 /* }}} */
 
 
+/* {{{ proto bool Fiber::isRunning() */
+ZEND_METHOD(Fiber, isRunning)
+{
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	RETURN_BOOL(TASK_G(current_fiber) != NULL);
+}
+/* }}} */
+
+
 /* {{{ proto mixed Fiber::yield([$value]) */
 ZEND_METHOD(Fiber, yield)
 {
@@ -428,6 +438,9 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO(arginfo_fiber_void, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_fiber_is_running, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_yield, 0, 0, 0)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
@@ -438,6 +451,7 @@ static const zend_function_entry fiber_functions[] = {
 	ZEND_ME(Fiber, start, arginfo_fiber_start, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, resume, arginfo_fiber_resume, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, throw, arginfo_fiber_throw, ZEND_ACC_PUBLIC)
+	ZEND_ME(Fiber, isRunning, arginfo_fiber_is_running, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Fiber, yield, arginfo_fiber_yield, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Fiber, __wakeup, arginfo_fiber_void, ZEND_ACC_PUBLIC)
 	ZEND_FE_END

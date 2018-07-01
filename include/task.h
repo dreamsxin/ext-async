@@ -126,9 +126,6 @@ struct _concurrent_task_continuation {
 
 	/* The task to be scheduled. */
 	concurrent_task *task;
-
-	/* The scheduler to be used to resume the task. */
-	concurrent_task_scheduler *scheduler;
 };
 
 END_EXTERN_C()

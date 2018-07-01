@@ -30,8 +30,12 @@ final class Task implements Awaitable
 {
     public function continueWith(callable<?\Throwable, mixed = null> $continuation): void { }
     
+    public static function isRunning(): bool;
+    
+    /* Should be replaced with async keyword if merged into PHP core. */
     public static function async(callable $callback, ?array $args = null): Task { }
     
+    /* Should be replaced with await keyword if merged into PHP core. */
     public static function await($a) { }
 }
 ```
@@ -55,8 +59,10 @@ final class TaskScheduler implements \Countable
     
     public function run(): void { }
     
+    /* Used for event loop integration, should be dropped if merged into PHP core. */
     public function activator(callable<TaskScheduler> $callback): void { }
     
+    /* Used for promise-API bridging, should be dropped if merged into PHP core. */
     public function adapter(callable<mixed> $callback): void { }
 }
 ```
@@ -80,6 +86,8 @@ final class Fiber
     
     public function throw(\Throwable $e) { }
     
+    public static function isRunning(): bool;
+    
     public static function yield($val = null) { }
 }
 ```
@@ -92,7 +100,7 @@ The extension provides `Task::async()` and `Task::await()` static methods that a
 $task = async $this->sendRequest($request, $timeout);
 $response = await $task;
 
-// This would be equivalent to the following:
+// The above code would be equivalent to the following:
 $task = Task::async(Closure::fromCallable($this, 'sendRequest'), [$request, $timeout]);
 $response = Task::await($task);
 ```

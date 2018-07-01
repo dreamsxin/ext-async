@@ -136,10 +136,18 @@ static void concurrent_task_notify_failure(concurrent_task *task, zval *error)
 	}
 }
 
-static zend_bool concurrent_task_schedule(concurrent_task *task, concurrent_task_scheduler *scheduler)
+static zend_bool concurrent_task_schedule(concurrent_task *task)
 {
+	concurrent_task_scheduler *scheduler;
+
 	zval obj;
 	zval retval;
+
+	scheduler = task->scheduler;
+
+	if (UNEXPECTED(scheduler == NULL)) {
+		return 0;
+	}
 
 	if (task->status == CONCURRENT_FIBER_STATUS_INIT) {
 		task->operation = CONCURRENT_TASK_OPERATION_START;
@@ -148,8 +156,6 @@ static zend_bool concurrent_task_schedule(concurrent_task *task, concurrent_task
 	} else {
 		return 0;
 	}
-
-	task->scheduler = scheduler;
 
 	if (scheduler->last == NULL) {
 		scheduler->first = task;
@@ -229,7 +235,7 @@ static const zend_function_entry awaitable_functions[] = {
 };
 
 
-static zend_object *concurrent_task_continuation_object_create(concurrent_task *task, concurrent_task_scheduler *scheduler)
+static zend_object *concurrent_task_continuation_object_create(concurrent_task *task)
 {
 	concurrent_task_continuation *cont;
 
@@ -237,7 +243,6 @@ static zend_object *concurrent_task_continuation_object_create(concurrent_task *
 	ZEND_SECURE_ZERO(cont, sizeof(concurrent_task_continuation));
 
 	cont->task = task;
-	cont->scheduler = scheduler;
 
 	GC_ADDREF(&task->std);
 
@@ -308,7 +313,7 @@ ZEND_METHOD(TaskContinuation, __invoke)
 	task->value = NULL;
 
 	if (task->status != CONCURRENT_FIBER_STATUS_RUNNING) {
-		concurrent_task_schedule(task, cont->scheduler);
+		concurrent_task_schedule(task);
 	} else {
 		task->operation = CONCURRENT_TASK_OPERATION_RESUME;
 	}
@@ -486,6 +491,13 @@ ZEND_METHOD(Task, continueWith)
 	Z_TRY_ADDREF_P(&fci.function_name);
 }
 
+ZEND_METHOD(Task, isRunning)
+{
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	RETURN_BOOL(TASK_G(current_fiber) != NULL && TASK_G(scheduler) != NULL);
+}
+
 ZEND_METHOD(Task, async)
 {
 	concurrent_task_scheduler *scheduler;
@@ -502,6 +514,8 @@ ZEND_METHOD(Task, async)
 	}
 
 	task = concurrent_task_object_create();
+	task->scheduler = scheduler;
+
 	params = NULL;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
@@ -520,7 +534,7 @@ ZEND_METHOD(Task, async)
 
 	Z_TRY_ADDREF_P(&task->fci.function_name);
 
-	concurrent_task_schedule(task, scheduler);
+	concurrent_task_schedule(task);
 
 	ZVAL_OBJ(&obj, &task->std);
 
@@ -608,7 +622,7 @@ ZEND_METHOD(Task, await)
 	value = task->value;
 	task->value = USED_RET() ? return_value : NULL;
 
-	ZVAL_OBJ(&cont, concurrent_task_continuation_object_create(task, task->scheduler));
+	ZVAL_OBJ(&cont, concurrent_task_continuation_object_create(task));
 	zend_call_method_with_1_params(val, NULL, NULL, "continueWith", NULL, &cont);
 	zval_ptr_dtor(&cont);
 
@@ -655,6 +669,9 @@ ZEND_METHOD(Task, __wakeup)
 ZEND_BEGIN_ARG_INFO(arginfo_task_ctor, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_is_running, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_async, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 	ZEND_ARG_ARRAY_INFO(0, arguments, 0)
@@ -667,6 +684,7 @@ ZEND_END_ARG_INFO()
 static const zend_function_entry task_functions[] = {
 	ZEND_ME(Task, __construct, arginfo_task_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
 	ZEND_ME(Task, continueWith, arginfo_awaitable_continue_with, ZEND_ACC_PUBLIC)
+	ZEND_ME(Task, isRunning, arginfo_task_is_running, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, async, arginfo_task_async, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, await, arginfo_task_await, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, __wakeup, arginfo_wakeup, ZEND_ACC_PUBLIC)
@@ -740,7 +758,9 @@ ZEND_METHOD(TaskScheduler, task)
 	zval obj;
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
+
 	task = concurrent_task_object_create();
+	task->scheduler = scheduler;
 
 	params = NULL;
 
@@ -760,7 +780,7 @@ ZEND_METHOD(TaskScheduler, task)
 
 	Z_TRY_ADDREF_P(&task->fci.function_name);
 
-	concurrent_task_schedule(task, scheduler);
+	concurrent_task_schedule(task);
 
 	ZVAL_OBJ(&obj, &task->std);
 
@@ -843,8 +863,6 @@ ZEND_METHOD(TaskScheduler, run)
 		} else {
 			concurrent_task_continue(task);
 		}
-
-		task->scheduler = NULL;
 
 		if (UNEXPECTED(EG(exception))) {
 			zval_ptr_dtor(&result);
