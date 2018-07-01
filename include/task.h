@@ -30,19 +30,13 @@ extern zend_class_entry *concurrent_awaitable_ce;
 void concurrent_task_ce_register();
 void concurrent_task_ce_unregister();
 
+END_EXTERN_C()
+
 typedef struct _concurrent_task concurrent_task;
 typedef struct _concurrent_task_scheduler concurrent_task_scheduler;
 typedef struct _concurrent_task_continuation concurrent_task_continuation;
 typedef struct _concurrent_task_continuation_cb concurrent_task_continuation_cb;
-
-struct _concurrent_task_continuation_cb {
-	/* Callback and info / cache of an continuation callback. */
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
-
-	/* Points to next callback, NULL if this is the last callback. */
-	concurrent_task_continuation_cb *next;
-};
+typedef struct _concurrent_task_context concurrent_task_context;
 
 struct _concurrent_task {
 	/* Task PHP object handle. */
@@ -56,7 +50,7 @@ struct _concurrent_task {
 	zend_fcall_info_cache fci_cache;
 
 	/* Native fiber context of this task, will be created during call to start(). */
-	concurrent_fiber_context context;
+	concurrent_fiber_context fiber;
 
 	/* Destination for a PHP value being passed into or returned from the task. */
 	zval *value;
@@ -89,6 +83,8 @@ struct _concurrent_task {
 
 	/* Linked list of registered continuation callbacks. */
 	concurrent_task_continuation_cb *continuation;
+
+	concurrent_task_context *context;
 };
 
 static const zend_uchar CONCURRENT_TASK_OPERATION_NONE = 0;
@@ -107,6 +103,8 @@ struct _concurrent_task_scheduler {
 
 	/* Points to the last task to be run (needed to insert tasks into the run queue. */
 	concurrent_task *last;
+
+	concurrent_task_context *context;
 
 	zend_bool running;
 	zend_bool activate;
@@ -128,7 +126,22 @@ struct _concurrent_task_continuation {
 	concurrent_task *task;
 };
 
-END_EXTERN_C()
+struct _concurrent_task_continuation_cb {
+	/* Callback and info / cache of an continuation callback. */
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+
+	/* Points to next callback, NULL if this is the last callback. */
+	concurrent_task_continuation_cb *next;
+};
+
+struct _concurrent_task_context {
+	zend_object std;
+
+	concurrent_task_context *parent;
+
+	HashTable *params;
+};
 
 #endif
 

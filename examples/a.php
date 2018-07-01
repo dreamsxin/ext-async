@@ -1,6 +1,7 @@
 <?php
 
 use Concurrent\Awaitable;
+use Concurrent\Context;
 use Concurrent\Task;
 use Concurrent\TaskScheduler;
 
@@ -15,8 +16,12 @@ $scheduler->task(function (): int {
         }
     };
     
-    $t = Task::async(function () use ($a): int {
-        return min(123, Task::await($a));
+    $context = Context::inherit([
+        'num' => 123
+    ]);
+    
+    $t = Task::asyncWithContext($context, function () use ($a): int {
+        return min(Context::var('num'), Task::await($a));
     });
     
     return max(2 * Task::await($t), Task::await($a));

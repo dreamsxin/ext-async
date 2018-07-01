@@ -7,6 +7,17 @@ interface Awaitable
     public function continueWith(callable $continuation): void;
 }
 
+class Context
+{
+    public function get(string $name) { }
+
+    public static function lookup(string $name) { }
+
+    public static function current(): Context { }
+
+    public static function inherit(array $variables): Context { }
+}
+
 final class Task implements Awaitable
 {
     public function continueWith(callable $continuation): void { }
@@ -14,6 +25,8 @@ final class Task implements Awaitable
     public static function isRunning(): bool;
     
     public static function async(callable $callback, ?array $args = null): Task { }
+    
+    public static function asyncWithContext(Context $context, callable $callback, ?array $args = null): Task { }
     
     public static function await($a) { }
 }
@@ -25,6 +38,8 @@ final class TaskContinuation
 
 final class TaskScheduler implements \Countable
 {
+    public function __construct(?array $context = null) { }
+
     public function count(): int { }
     
     public function task(callable $callback, ?array $args = null): Task { }
