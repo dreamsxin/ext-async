@@ -82,6 +82,38 @@ static void concurrent_task_continue(concurrent_task *task)
 	}
 }
 
+static void concurrent_task_delegate_error(concurrent_task_context *context)
+{
+	zval error;
+	zval args[1];
+	zval retval;
+
+	while (context != NULL && EG(exception) != NULL) {
+		if (context->error) {
+			ZVAL_OBJ(&error, EG(exception));
+			EG(exception) = NULL;
+
+			ZVAL_COPY(&args[0], &error);
+
+			context->error_fci.param_count = 1;
+			context->error_fci.params = args;
+			context->error_fci.retval = &retval;
+
+			zend_call_function(&context->error_fci, &context->error_fcc);
+
+			zval_ptr_dtor(args);
+			zval_ptr_dtor(&retval);
+			zval_ptr_dtor(&error);
+		}
+
+		context = context->parent;
+	}
+
+	if (UNEXPECTED(EG(exception))) {
+		zend_error_noreturn(E_ERROR, "Uncaught awaitable continuation error");
+	}
+}
+
 static void concurrent_task_notify_success(concurrent_task *task, zval *result)
 {
 	concurrent_task_continuation_cb *cont;
@@ -109,6 +141,10 @@ static void concurrent_task_notify_success(concurrent_task *task, zval *result)
 		zval_ptr_dtor(&cont->fci.function_name);
 
 		efree(cont);
+
+		if (UNEXPECTED(EG(exception))) {
+			concurrent_task_delegate_error(task->context);
+		}
 	}
 }
 
@@ -138,6 +174,10 @@ static void concurrent_task_notify_failure(concurrent_task *task, zval *error)
 		zval_ptr_dtor(&cont->fci.function_name);
 
 		efree(cont);
+
+		if (UNEXPECTED(EG(exception))) {
+			concurrent_task_delegate_error(task->context);
+		}
 	}
 }
 
@@ -350,6 +390,10 @@ ZEND_METHOD(Task, continueWith)
 		zval_ptr_dtor(args);
 		zval_ptr_dtor(&result);
 
+		if (UNEXPECTED(EG(exception))) {
+			concurrent_task_delegate_error(task->context);
+		}
+
 		return;
 	}
 
@@ -363,6 +407,10 @@ ZEND_METHOD(Task, continueWith)
 		zend_call_function(&fci, &fcc);
 		zval_ptr_dtor(args);
 		zval_ptr_dtor(&result);
+
+		if (UNEXPECTED(EG(exception))) {
+			concurrent_task_delegate_error(task->context);
+		}
 
 		return;
 	}
@@ -697,19 +745,36 @@ static void concurrent_task_scheduler_object_destroy(zend_object *object)
 ZEND_METHOD(TaskScheduler, __construct)
 {
 	concurrent_task_scheduler *scheduler;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
 
-	HashTable *params;
+	zval *params;
+	HashTable *table;
 
 	scheduler = (concurrent_task_scheduler *)Z_OBJ_P(getThis());
 
 	params = NULL;
+	table = NULL;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 2)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ARRAY_OR_OBJECT_HT(params)
+		Z_PARAM_ZVAL(params)
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
-	scheduler->context = concurrent_task_context_object_create(params);
+	if (params != NULL && Z_TYPE_P(params) == IS_ARRAY) {
+		table = Z_ARRVAL_P(params);
+	}
+
+	scheduler->context = concurrent_task_context_object_create(table);
+
+	if (ZEND_NUM_ARGS() > 1) {
+		scheduler->context->error = 1;
+		scheduler->context->error_fci = fci;
+		scheduler->context->error_fcc = fcc;
+
+		Z_TRY_ADDREF_P(&fci.function_name);
+	}
 }
 
 ZEND_METHOD(TaskScheduler, count)
@@ -878,6 +943,7 @@ ZEND_METHOD(TaskScheduler, __wakeup)
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_ctor, 0, 0, 0)
 	ZEND_ARG_ARRAY_INFO(0, context, 1)
+	ZEND_ARG_CALLABLE_INFO(0, errorHandler, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_count, 0)
@@ -1050,6 +1116,10 @@ static void concurrent_task_context_object_destroy(zend_object *object)
 		FREE_HASHTABLE(context->params);
 	}
 
+	if (context->error) {
+		zval_ptr_dtor(&context->error_fci.function_name);
+	}
+
 	if (context->parent != NULL) {
 		OBJ_RELEASE(&context->parent->std);
 	}
@@ -1062,6 +1132,37 @@ ZEND_METHOD(Context, __construct)
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	zend_throw_error(NULL, "Context must not be constructed from userland code");
+}
+
+ZEND_METHOD(Context, withErrorHandler)
+{
+	concurrent_task_context *context;
+	concurrent_task_context *current;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+
+	zval obj;
+
+	current = (concurrent_task_context *) Z_OBJ_P(getThis());
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
+	ZEND_PARSE_PARAMETERS_END();
+
+	context = concurrent_task_context_object_create(current->params);
+	context->parent = current->parent;
+
+	context->error = 1;
+	context->error_fci = fci;
+	context->error_fcc = fcc;
+
+	Z_TRY_ADDREF_P(&fci.function_name);
+
+	GC_ADDREF(&context->parent->std);
+
+	ZVAL_OBJ(&obj, &context->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
 }
 
 ZEND_METHOD(Context, run)
@@ -1145,14 +1246,16 @@ ZEND_METHOD(Context, inherit)
 	concurrent_task_context *context;
 	concurrent_task *task;
 
-	HashTable *params;
+	zval *params;
+	HashTable *table;
 	zval obj;
 
 	params = NULL;
+	table = NULL;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ARRAY_OR_OBJECT_HT(params)
+		Z_PARAM_ZVAL(params)
 	ZEND_PARSE_PARAMETERS_END();
 
 	task = (concurrent_task *) TASK_G(current_fiber);
@@ -1162,7 +1265,11 @@ ZEND_METHOD(Context, inherit)
 		return;
 	}
 
-	context = concurrent_task_context_object_create(params);
+	if (params != NULL && Z_TYPE_P(params) == IS_ARRAY) {
+		table = Z_ARRVAL_P(params);
+	}
+
+	context = concurrent_task_context_object_create(table);
 	context->parent = task->context;
 
 	GC_ADDREF(&context->parent->std);
@@ -1178,14 +1285,16 @@ ZEND_METHOD(Context, background)
 	concurrent_task_context *current;
 	concurrent_task *task;
 
-	HashTable *params;
+	zval *params;
+	HashTable *table;
 	zval obj;
 
 	params = NULL;
+	table = NULL;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ARRAY_OR_OBJECT_HT(params)
+		Z_PARAM_ZVAL(params)
 	ZEND_PARSE_PARAMETERS_END();
 
 	task = (concurrent_task *) TASK_G(current_fiber);
@@ -1201,7 +1310,11 @@ ZEND_METHOD(Context, background)
 		current = current->parent;
 	}
 
-	context = concurrent_task_context_object_create(params);
+	if (params != NULL && Z_TYPE_P(params) == IS_ARRAY) {
+		table = Z_ARRVAL_P(params);
+	}
+
+	context = concurrent_task_context_object_create(table);
 	context->parent = current;
 
 	GC_ADDREF(&current->std);
@@ -1211,7 +1324,33 @@ ZEND_METHOD(Context, background)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
+ZEND_METHOD(Context, handleError)
+{
+	concurrent_task *task;
+
+	zval *error;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ZVAL(error)
+	ZEND_PARSE_PARAMETERS_END();
+
+	task = (concurrent_task *) TASK_G(current_fiber);
+
+	if (UNEXPECTED(task == NULL)) {
+		zend_throw_error(NULL, "Cannot access context when no task or fiber is running");
+		return;
+	}
+
+	zend_throw_exception_object(error);
+
+	concurrent_task_delegate_error(task->context);
+}
+
 ZEND_BEGIN_ARG_INFO(arginfo_task_context_ctor, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_context_err, 0, 1, Concurrent\\Context, 0)
+	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_context_run, 0, 0, 1)
@@ -1231,12 +1370,18 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_context_background, 0, 0, Co
 	ZEND_ARG_ARRAY_INFO(0, params, 1)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(arginfo_task_context_he, 0, 0, 1)
+	ZEND_ARG_OBJ_INFO(0, error, Throwable, 0)
+ZEND_END_ARG_INFO()
+
 static const zend_function_entry task_context_functions[] = {
 	ZEND_ME(Context, __construct, arginfo_task_context_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
+	ZEND_ME(Context, withErrorHandler, arginfo_task_context_err, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, run, arginfo_task_context_run, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, get, arginfo_task_context_get, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, inherit, arginfo_task_context_inherit, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, background, arginfo_task_context_background, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Context, handleError, arginfo_task_context_he, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_FE_END
 };
 

@@ -39,7 +39,7 @@ final class Task implements Awaitable
     public static function asyncWithContext(Context $context, callable $callback, ?array $args = null): Task { }
     
     /* Should be replaced with await keyword if merged into PHP core. */
-    public static function await($a) { }
+    public static function await($a): mixed { }
 }
 ```
 
@@ -58,7 +58,7 @@ namespace Concurrent;
 
 final class TaskScheduler implements \Countable
 {
-    public function __construct(?array $context = null) { }
+    public function __construct(?array $context = null, ?callable<\Throwable> $errorHandler = null) { }
 
     public function count(): int { }
     
@@ -85,13 +85,17 @@ namespace Concurrent;
 
 final class Context
 {
+    public function withErrorHandler(callable $handler): Context { }
+    
     public function run(callable $callback, ...$args): Context { }
     
-    public static function get(string $name) { }
+    public static function get(string $name): mixed { }
     
     public static function inherit(?array $variables = null): Context { }
     
     public static function background(?array $variables = null): Context { }
+    
+    public static function handleError(\Throwable $e): void { }
 }
 ```
 
@@ -108,15 +112,15 @@ final class Fiber
     
     public function status(): int { }
     
-    public function start(...$args) { }
+    public function start(...$args): mixed { }
     
-    public function resume($val = null) { }
+    public function resume($val = null): mixed { }
     
-    public function throw(\Throwable $e) { }
+    public function throw(\Throwable $e): mixed { }
     
     public static function isRunning(): bool { }
     
-    public static function yield($val = null) { }
+    public static function yield($val = null): mixed { }
 }
 ```
 

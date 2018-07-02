@@ -141,6 +141,10 @@ struct _concurrent_task_context {
 	concurrent_task_context *parent;
 
 	HashTable *params;
+
+	zend_bool error;
+	zend_fcall_info error_fci;
+	zend_fcall_info_cache error_fcc;
 };
 
 #endif
