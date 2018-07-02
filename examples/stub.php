@@ -11,7 +11,7 @@ final class Task implements Awaitable
 {
     public function continueWith(callable $continuation): void { }
     
-    public static function isRunning(): bool;
+    public static function isRunning(): bool { }
     
     public static function async(callable $callback, ?array $args = null): Task { }
     
@@ -48,7 +48,7 @@ final class Fiber
     
     public function throw(\Throwable $e) { }
     
-    public static function isRunning(): bool;
+    public static function isRunning(): bool { }
     
     public static function yield($val = null) { }
 }
