@@ -1134,6 +1134,85 @@ ZEND_METHOD(Context, __construct)
 	zend_throw_error(NULL, "Context must not be constructed from userland code");
 }
 
+ZEND_METHOD(Context, with)
+{
+	concurrent_task_context *context;
+	concurrent_task_context *current;
+	zend_string *str;
+
+	zval *key;
+	zval *value;
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 2)
+		Z_PARAM_ZVAL(key)
+		Z_PARAM_ZVAL(value)
+	ZEND_PARSE_PARAMETERS_END();
+
+	current = (concurrent_task_context *) Z_OBJ_P(getThis());
+
+	context = concurrent_task_context_object_create(current->params);
+	context->parent = current->parent;
+
+	str = Z_STR_P(key);
+
+	if (context->params == NULL) {
+		ALLOC_HASHTABLE(context->params);
+		zend_hash_init(context->params, 0, NULL, ZVAL_PTR_DTOR, 0);
+		zend_hash_add(context->params, str, value);
+	} else {
+		if (zend_hash_exists_ind(context->params, str)) {
+			zend_hash_update_ind(context->params, str, value);
+		} else {
+			zend_hash_add(context->params, str, value);
+		}
+	}
+
+	GC_ADDREF(&context->parent->std);
+
+	ZVAL_OBJ(&obj, &context->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
+ZEND_METHOD(Context, without)
+{
+	concurrent_task_context *context;
+	concurrent_task_context *current;
+	zend_string *str;
+
+	zval *key;
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ZVAL(key)
+	ZEND_PARSE_PARAMETERS_END();
+
+	current = (concurrent_task_context *) Z_OBJ_P(getThis());
+
+	context = concurrent_task_context_object_create(current->params);
+	context->parent = current->parent;
+
+	str = Z_STR_P(key);
+
+	if (context->params != NULL && zend_hash_exists_ind(context->params, str)) {
+		zend_hash_del_ind(context->params, str);
+
+		if (zend_hash_num_elements(context->params) < 1) {
+			zend_hash_destroy(context->params);
+			FREE_HASHTABLE(context->params);
+
+			context->params = NULL;
+		}
+	}
+
+	GC_ADDREF(&context->parent->std);
+
+	ZVAL_OBJ(&obj, &context->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
 ZEND_METHOD(Context, withErrorHandler)
 {
 	concurrent_task_context *context;
@@ -1349,6 +1428,15 @@ ZEND_METHOD(Context, handleError)
 ZEND_BEGIN_ARG_INFO(arginfo_task_context_ctor, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_context_with, 0, 2, Concurrent\\Context, 0)
+	ZEND_ARG_TYPE_INFO(0, var, IS_STRING, 0)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_context_without, 0, 1, Concurrent\\Context, 0)
+	ZEND_ARG_TYPE_INFO(0, var, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_context_err, 0, 1, Concurrent\\Context, 0)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 ZEND_END_ARG_INFO()
@@ -1359,7 +1447,7 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_task_context_run, 0, 0, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_context_get, 0, 0, 1)
-	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, var, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_context_inherit, 0, 0, Concurrent\\Context, 0)
@@ -1376,6 +1464,8 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_context_functions[] = {
 	ZEND_ME(Context, __construct, arginfo_task_context_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
+	ZEND_ME(Context, with, arginfo_task_context_with, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, without, arginfo_task_context_without, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, withErrorHandler, arginfo_task_context_err, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, run, arginfo_task_context_run, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, get, arginfo_task_context_get, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)

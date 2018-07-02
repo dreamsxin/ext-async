@@ -85,6 +85,10 @@ namespace Concurrent;
 
 final class Context
 {
+    public function with(string $var, $value): Context { }
+    
+    public function without(string $var): Context { }
+
     public function withErrorHandler(callable $handler): Context { }
     
     public function run(callable $callback, ...$args): Context { }

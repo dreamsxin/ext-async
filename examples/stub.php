@@ -9,9 +9,9 @@ interface Awaitable
 
 final class Context
 {
-//     public function with(string $var, $value): Context { }
+    public function with(string $var, $value): Context { }
     
-//     public function without(string $var): Context { }
+    public function without(string $var): Context { }
     
     public function withErrorHandler(callable $handler): Context { }
     

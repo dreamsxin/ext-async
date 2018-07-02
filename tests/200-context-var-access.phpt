@@ -19,6 +19,18 @@ $scheduler->task(function () {
     ]), function () {
         var_dump(Context::get('foo'));
     });
+    
+    $context = Context::inherit()->with('foo', 'baz');
+    
+    $context->run(function () {
+        var_dump(Context::get('foo'));
+    });
+    
+    $context = Context::inherit()->without('foo')->without('bar');
+    
+    $context->run(function () {
+        var_dump(Context::get('foo'));
+    });
 });
 
 var_dump(Context::get('foo'));
@@ -38,6 +50,8 @@ $scheduler->run();
 ?>
 --EXPECTF--
 NULL
+NULL
+string(3) "baz"
 NULL
 int(321)
 string(3) "bar"
