@@ -45,7 +45,7 @@ struct _concurrent_fiber {
 	zend_fcall_info_cache fci_cache;
 
 	/* Native fiber context of this fiber, will be created during call to start(). */
-	concurrent_fiber_context context;
+	concurrent_fiber_context fiber;
 
 	/* Destination for a PHP value being passed into or returned from the fiber. */
 	zval *value;
