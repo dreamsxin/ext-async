@@ -47,6 +47,8 @@ final class Task implements Awaitable
 
 The task scheduler is based on a queue of scheduled tasks that are run whenever `TaskScheduler->run()` is called. The scheduler will start (or resume) all tasks that are scheduled for execution and return when no more tasks are scheduled. Tasks may be re-scheduled (an hence run multiple times) during a single call to the run method. The scheduler implements `Countable` and will return the current number of scheduled tasks.
 
+The constructor takes an associative array of context variables that will be used by the root `Context`. Each task being run by the scheduler will be bound to the root context by default.
+
 You can set an `activator` callback, that will be called whenever the scheduler is not running and the first task is scheduled for execution. This allows for easy integration of the task scheduler with event loops as you can register the run method as future tick (react) or defer watcher (amp).
 
 The `adapter` callback is called whenever an object that does not implement `Awaitable` is passed to `Task::await()`. This provides an easy way to adapt promises (react, amp, ...) to the `Awaitable` interface using adapter classes.
@@ -56,6 +58,8 @@ namespace Concurrent;
 
 final class TaskScheduler implements \Countable
 {
+    public function __construct(?array $context = null) { }
+
     public function count(): int { }
     
     public function task(callable $callback, ?array $args = null): Task { }
@@ -131,7 +135,7 @@ $response = Task::await($task);
 
 The example shows a possible syntax for a keyword-based async execution model. The `async` keyword can be prepended to any function or method call to create a `Task` object instead of executing the call directly. The calling scope should be preserved by this operation, hence being consistent with the way method calls work in PHP (no need to create a closure in userland code). The `await` keyword is equivalent to calling `Task::await()` but does not require a function call, it can be implemented as an opcode handler in the Zend VM.
 
-```
+```php
 $context = Context::inherit(['foo' => 'bar']);
 
 $task = async $context => doSomething($a, $b);
