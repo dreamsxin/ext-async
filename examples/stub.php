@@ -7,22 +7,22 @@ interface Awaitable
     public function continueWith(callable $continuation): void;
 }
 
-class Context
+final class Context
 {
-    public function get(string $name) { }
-
-    public static function lookup(string $name) { }
-
-    public static function current(): Context { }
-
-    public static function inherit(array $variables): Context { }
+    public function run(callable $callback, ...$args): Context { }
+    
+    public static function get(string $name) { }
+    
+    public static function inherit(?array $variables = null): Context { }
+    
+    public static function background(?array $variables = null): Context { }
 }
 
 final class Task implements Awaitable
 {
     public function continueWith(callable $continuation): void { }
     
-    public static function isRunning(): bool;
+    public static function isRunning(): bool { }
     
     public static function async(callable $callback, ?array $args = null): Task { }
     
@@ -63,7 +63,7 @@ final class Fiber
     
     public function throw(\Throwable $e) { }
     
-    public static function isRunning(): bool;
+    public static function isRunning(): bool { }
     
     public static function yield($val = null) { }
 }

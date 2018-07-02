@@ -621,13 +621,13 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_async, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-	ZEND_ARG_ARRAY_INFO(0, arguments, 0)
+	ZEND_ARG_ARRAY_INFO(0, arguments, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_async_with_context, 0, 0, 2)
 	ZEND_ARG_OBJ_INFO(0, context, Concurrent\\Context, 0)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-	ZEND_ARG_ARRAY_INFO(0, arguments, 0)
+	ZEND_ARG_ARRAY_INFO(0, arguments, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_await, 0, 0, 1)
@@ -885,7 +885,7 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_task, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-	ZEND_ARG_ARRAY_INFO(0, arguments, 0)
+	ZEND_ARG_ARRAY_INFO(0, arguments, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_activator, 0, 0, 1)
@@ -1057,7 +1057,51 @@ static void concurrent_task_context_object_destroy(zend_object *object)
 	zend_object_std_dtor(&context->std);
 }
 
-ZEND_METHOD(Context, var)
+ZEND_METHOD(Context, run)
+{
+	concurrent_task_context *context;
+	concurrent_task_context *prev;
+	concurrent_task *task;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+	uint32_t param_count;
+
+	zval *params;
+	zval result;
+
+	params = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_VARIADIC('+', params, param_count)
+	ZEND_PARSE_PARAMETERS_END();
+
+	task = (concurrent_task *) TASK_G(current_fiber);
+
+	if (UNEXPECTED(task == NULL)) {
+		zend_throw_error(NULL, "Cannot access context when no task or fiber is running");
+		return;
+	}
+
+	context = (concurrent_task_context *) Z_OBJ_P(getThis());
+
+	fci.params = params;
+	fci.param_count = param_count;
+	fci.retval = &result;
+	fci.no_separation = 1;
+
+	prev = task->context;
+	task->context = context;
+
+	zend_call_function(&fci, &fcc);
+
+	task->context = prev;
+
+	RETURN_ZVAL(&result, 1, 1);
+}
+
+ZEND_METHOD(Context, get)
 {
 	concurrent_task *task;
 	concurrent_task_context *context;
@@ -1072,7 +1116,6 @@ ZEND_METHOD(Context, var)
 	task = (concurrent_task *) TASK_G(current_fiber);
 
 	if (UNEXPECTED(task == NULL)) {
-		zend_throw_error(NULL, "Cannot access context when no task or fiber is running");
 		return;
 	}
 
@@ -1090,26 +1133,6 @@ ZEND_METHOD(Context, var)
 	}
 }
 
-ZEND_METHOD(Context, current)
-{
-	concurrent_task *task;
-
-	zval obj;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	task = (concurrent_task *) TASK_G(current_fiber);
-
-	if (UNEXPECTED(task == NULL)) {
-		zend_throw_error(NULL, "Cannot access context when no task or fiber is running");
-		return;
-	}
-
-	ZVAL_OBJ(&obj, &task->context->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
-}
-
 ZEND_METHOD(Context, inherit)
 {
 	concurrent_task_context *context;
@@ -1120,7 +1143,8 @@ ZEND_METHOD(Context, inherit)
 
 	params = NULL;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
 		Z_PARAM_ARRAY_OR_OBJECT_HT(params)
 	ZEND_PARSE_PARAMETERS_END();
 
@@ -1141,21 +1165,67 @@ ZEND_METHOD(Context, inherit)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_task_context_var, 0, 0, 1)
+ZEND_METHOD(Context, background)
+{
+	concurrent_task_context *context;
+	concurrent_task_context *current;
+	concurrent_task *task;
+
+	HashTable *params;
+	zval obj;
+
+	params = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ARRAY_OR_OBJECT_HT(params)
+	ZEND_PARSE_PARAMETERS_END();
+
+	task = (concurrent_task *) TASK_G(current_fiber);
+
+	if (UNEXPECTED(task == NULL)) {
+		zend_throw_error(NULL, "Cannot access context when no task or fiber is running");
+		return;
+	}
+
+	current = task->context;
+
+	while (current->parent != NULL) {
+		current = current->parent;
+	}
+
+	context = concurrent_task_context_object_create(params);
+	context->parent = current;
+
+	GC_ADDREF(&current->std);
+
+	ZVAL_OBJ(&obj, &context->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_task_context_run, 0, 0, 1)
+	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
+	ZEND_ARG_VARIADIC_INFO(0, arguments)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_task_context_get, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_context_current, 0, 0, Concurrent\\Context, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_context_inherit, 0, 0, Concurrent\\Context, 0)
+	ZEND_ARG_ARRAY_INFO(0, params, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_context_inherit, 0, 0, Concurrent\\Context, 0)
-	ZEND_ARG_ARRAY_INFO(0, params, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_context_background, 0, 0, Concurrent\\Context, 0)
+	ZEND_ARG_ARRAY_INFO(0, params, 1)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_context_functions[] = {
-	ZEND_ME(Context, var, arginfo_task_context_var, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Context, current, arginfo_task_context_current, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Context, run, arginfo_task_context_run, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, get, arginfo_task_context_get, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, inherit, arginfo_task_context_inherit, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Context, background, arginfo_task_context_background, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_FE_END
 };
 

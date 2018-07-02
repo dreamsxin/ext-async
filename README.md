@@ -30,10 +30,13 @@ final class Task implements Awaitable
 {
     public function continueWith(callable<?\Throwable, mixed = null> $continuation): void { }
     
-    public static function isRunning(): bool;
+    public static function isRunning(): bool { }
     
     /* Should be replaced with async keyword if merged into PHP core. */
     public static function async(callable $callback, ?array $args = null): Task { }
+    
+    /* Should be replaced with extended async keyword expression if merged into PHP core. */
+    public static function asyncWithContext(Context $context, callable $callback, ?array $args = null): Task { }
     
     /* Should be replaced with await keyword if merged into PHP core. */
     public static function await($a) { }
@@ -67,6 +70,27 @@ final class TaskScheduler implements \Countable
 }
 ```
 
+### Context
+
+Each task runs in a `Context` that provides access to task-local variables. These variables are are also available to every `Task` re-using the same context or an inherited context. The `TaskScheduler` creates an implicit root context that every created task will use by default. You can access a contextual value by calling `Context::get()` which will lookup the value in the context of the running task. The lookup call will return `null` when the value is not set in the active context or no task context is active during the method call.
+
+You need to inherit a new context whenever you want to set task-local variables. In order for your new context to be used you need have to pass it to a task using `Task::asyncWithContext()` or you can enable it for the duration of a function / method call by calling `run()`. The later is preferred if your code is executing in a single task and you just want to add some variables.
+
+```php
+namespace Concurrent;
+
+final class Context
+{
+    public function run(callable $callback, ...$args): Context { }
+    
+    public static function get(string $name) { }
+    
+    public static function inherit(?array $variables = null): Context { }
+    
+    public static function background(?array $variables = null): Context { }
+}
+```
+
 ### Fiber
 
 A lower-level API for concurrent callback execution is available through the `Fiber` API. The underlying stack-switching is the same as in the `Task` implementation but fibers do not come with a scheduler or a higher level abstraction of continuations. A fiber must be started and resumed by the caller in PHP userland. Calling `Fiber::yield()` will suspend the fiber and return the yielded value to `start()`, `resume()` or `throw()`. The `status()` method is needed to check if the fiber has been run to completion yet.
@@ -86,7 +110,7 @@ final class Fiber
     
     public function throw(\Throwable $e) { }
     
-    public static function isRunning(): bool;
+    public static function isRunning(): bool { }
     
     public static function yield($val = null) { }
 }
@@ -106,3 +130,16 @@ $response = Task::await($task);
 ```
 
 The example shows a possible syntax for a keyword-based async execution model. The `async` keyword can be prepended to any function or method call to create a `Task` object instead of executing the call directly. The calling scope should be preserved by this operation, hence being consistent with the way method calls work in PHP (no need to create a closure in userland code). The `await` keyword is equivalent to calling `Task::await()` but does not require a function call, it can be implemented as an opcode handler in the Zend VM.
+
+```
+$context = Context::inherit(['foo' => 'bar']);
+
+$task = async $context => doSomething($a, $b);
+$result = await $task;
+
+// The above code would be equivalent to the following:
+$task = Task::asyncWithContext($context, 'doSomething', [$a, $b]);
+$result = Task::await($task);
+```
+
+The second example shows how passing a new context to a task would also be possible using the `async` keyword. This would allow for a very simple and readable way to setup tasks in a specific context using a keyword-based syntax.
