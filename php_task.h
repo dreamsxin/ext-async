@@ -31,17 +31,11 @@ extern zend_module_entry task_module_entry;
 #define PHP_TASK_VERSION "0.1.0"
 
 #ifdef PHP_WIN32
-#if defined(TASK_EXPORTS) || (!defined(COMPILE_DL_TASK))
-#define TASK_API __declspec(dllexport)
-#elif defined(COMPILE_DL_TASK)
-#define TASK_API __declspec(dllimport)
-#else
-#define TASK_API
-#endif
+# define TASK_API __declspec(dllexport)
 #elif defined(__GNUC__) && __GNUC__ >= 4
-#define TASK_API __attribute__ ((visibility("default")))
+# define TASK_API __attribute__ ((visibility("default")))
 #else
-#define TASK_API
+# define TASK_API
 #endif
 
 #ifdef ZTS
