@@ -16,7 +16,10 @@ if test "$PHP_TASK" != "no"; then
   task_source_files="php_task.c \
     src/fiber.c \
     src/fiber_stack.c \
-    src/task.c"
+    src/awaitable.c \
+    src/context.c \
+    src/task.c \
+    src/task_scheduler.c"
   
   AS_CASE([$host_cpu],
     [x86_64*], [task_cpu="x86_64"],

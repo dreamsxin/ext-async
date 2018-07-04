@@ -16,27 +16,21 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef TASK_H
-#define TASK_H
+#ifndef CONCURRENT_TASK_H
+#define CONCURRENT_TASK_H
 
 #include "php.h"
 
-#include "fiber.h"
+typedef struct _concurrent_task_continuation concurrent_task_continuation;
+typedef struct _concurrent_task_continuation_cb concurrent_task_continuation_cb;
+
+typedef void* concurrent_fiber_context;
+typedef struct _concurrent_context concurrent_context;
+typedef struct _concurrent_task_scheduler concurrent_task_scheduler;
 
 BEGIN_EXTERN_C()
 
-extern zend_class_entry *concurrent_awaitable_ce;
-
-void concurrent_task_ce_register();
-void concurrent_task_ce_unregister();
-
-END_EXTERN_C()
-
 typedef struct _concurrent_task concurrent_task;
-typedef struct _concurrent_task_scheduler concurrent_task_scheduler;
-typedef struct _concurrent_task_continuation concurrent_task_continuation;
-typedef struct _concurrent_task_continuation_cb concurrent_task_continuation_cb;
-typedef struct _concurrent_task_context concurrent_task_context;
 
 struct _concurrent_task {
 	/* Task PHP object handle. */
@@ -84,39 +78,24 @@ struct _concurrent_task {
 	/* Linked list of registered continuation callbacks. */
 	concurrent_task_continuation_cb *continuation;
 
-	concurrent_task_context *context;
+	concurrent_context *context;
 };
 
 static const zend_uchar CONCURRENT_TASK_OPERATION_NONE = 0;
 static const zend_uchar CONCURRENT_TASK_OPERATION_START = 1;
 static const zend_uchar CONCURRENT_TASK_OPERATION_RESUME = 2;
 
-struct _concurrent_task_scheduler {
-	/* Task PHP object handle. */
-	zend_object std;
+concurrent_task *concurrent_task_object_create();
 
-	/* Number of tasks scheduled to run. */
-	size_t scheduled;
+void concurrent_task_start(concurrent_task *task);
+void concurrent_task_continue(concurrent_task *task);
 
-	/* Points to the next task to be run. */
-	concurrent_task *first;
+void concurrent_task_notify_success(concurrent_task *task, zval *result);
+void concurrent_task_notify_failure(concurrent_task *task, zval *error);
 
-	/* Points to the last task to be run (needed to insert tasks into the run queue. */
-	concurrent_task *last;
+void concurrent_task_ce_register();
 
-	concurrent_task_context *context;
-
-	zend_bool running;
-	zend_bool activate;
-
-	zend_bool activator;
-	zend_fcall_info activator_fci;
-	zend_fcall_info_cache activator_fcc;
-
-	zend_bool adapter;
-	zend_fcall_info adapter_fci;
-	zend_fcall_info_cache adapter_fcc;
-};
+END_EXTERN_C()
 
 struct _concurrent_task_continuation {
 	/* Task PHP object handle. */
@@ -133,18 +112,6 @@ struct _concurrent_task_continuation_cb {
 
 	/* Points to next callback, NULL if this is the last callback. */
 	concurrent_task_continuation_cb *next;
-};
-
-struct _concurrent_task_context {
-	zend_object std;
-
-	concurrent_task_context *parent;
-
-	HashTable *params;
-
-	zend_bool error;
-	zend_fcall_info error_fci;
-	zend_fcall_info_cache error_fcc;
 };
 
 #endif

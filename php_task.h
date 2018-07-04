@@ -20,16 +20,34 @@
 #define PHP_TASK_H
 
 #include "fiber.h"
+#include "awaitable.h"
+#include "context.h"
 #include "task.h"
+#include "task_scheduler.h"
 
 extern zend_module_entry task_module_entry;
 #define phpext_task_ptr &task_module_entry
 
 #define PHP_TASK_VERSION "0.1.0"
 
-#if defined(ZTS) && defined(COMPILE_DL_TASK)
-ZEND_TSRMLS_CACHE_EXTERN()
+#ifdef PHP_WIN32
+#if defined(TASK_EXPORTS) || (!defined(COMPILE_DL_TASK))
+#define TASK_API __declspec(dllexport)
+#elif defined(COMPILE_DL_TASK)
+#define TASK_API __declspec(dllimport)
+#else
+#define TASK_API
 #endif
+#elif defined(__GNUC__) && __GNUC__ >= 4
+#define TASK_API __attribute__ ((visibility("default")))
+#else
+#define TASK_API
+#endif
+
+#ifdef ZTS
+#include "TSRM.h"
+#endif
+
 
 ZEND_BEGIN_MODULE_GLOBALS(task)
 	/* Root fiber context (main thread). */
@@ -51,7 +69,12 @@ ZEND_BEGIN_MODULE_GLOBALS(task)
 
 ZEND_END_MODULE_GLOBALS(task)
 
+TASK_API ZEND_EXTERN_MODULE_GLOBALS(task)
 #define TASK_G(v) ZEND_MODULE_GLOBALS_ACCESSOR(task, v)
+
+#if defined(ZTS) && defined(COMPILE_DL_TASK)
+ZEND_TSRMLS_CACHE_EXTERN()
+#endif
 
 #endif
 

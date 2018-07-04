@@ -5,6 +5,26 @@ if (PHP_TASK != 'no') {
 
 	ADD_FLAG("CFLAGS", "/I " + configure_module_dirname);
 	ADD_FLAG("CFLAGS", "/I " + configure_module_dirname + "\\include");
+	
+	var task_source_files = [
+		'php_task.c',
+		'src\\fiber.c',
+		'src\\fiber_winfib.c',
+		'src\\awaitable.c',
+		'src\\context.c',
+		'src\\task.c',
+		'src\\task_scheduler.c'
+	];
+	
+	var task_header_files = [
+		'include\\fiber.h',
+		'include\\awaitable.h',
+		'include\\context.h',
+		'include\\task.h',
+		'include\\task_scheduler.h'
+	];
 
-	EXTENSION('task', 'php_task.c src\\fiber.c src\\fiber_winfib.c src\\task.c', null, '/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1');
+	PHP_INSTALL_HEADERS('ext/task', task_header_files.join(' '));
+
+	EXTENSION('task', task_source_files.join(' '), PHP_TASK_SHARED, '/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1');
 }

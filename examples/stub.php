@@ -17,8 +17,6 @@ final class Context
     
     public function run(callable $callback, ...$args): Context { }
     
-//     public function cancel(string $reason, ?\Throwable $e = null) { }
-    
     public static function get(string $name) { }
     
     public static function inherit(?array $variables = null): Context { }

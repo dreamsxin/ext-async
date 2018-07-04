@@ -25,7 +25,6 @@
 #include "zend_closures.h"
 
 #include "php_task.h"
-#include "fiber.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(task)
 

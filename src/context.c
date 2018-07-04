@@ -1,0 +1,476 @@
+/*
+  +----------------------------------------------------------------------+
+  | PHP Version 7                                                        |
+  +----------------------------------------------------------------------+
+  | Copyright (c) 1997-2018 The PHP Group                                |
+  +----------------------------------------------------------------------+
+  | This source file is subject to version 3.01 of the PHP license,      |
+  | that is bundled with this package in the file LICENSE, and is        |
+  | available through the world-wide-web at the following url:           |
+  | http://www.php.net/license/3_01.txt                                  |
+  | If you did not receive a copy of the PHP license and are unable to   |
+  | obtain it through the world-wide-web, please send a note to          |
+  | license@php.net so we can mail you a copy immediately.               |
+  +----------------------------------------------------------------------+
+  | Authors: Martin Schröder <m.schroeder2007@gmail.com>                 |
+  +----------------------------------------------------------------------+
+*/
+
+#include "php.h"
+#include "zend.h"
+#include "zend_API.h"
+#include "zend_interfaces.h"
+#include "zend_exceptions.h"
+
+#include "php_task.h"
+
+ZEND_DECLARE_MODULE_GLOBALS(task)
+
+zend_class_entry *concurrent_context_ce;
+
+static zend_object_handlers concurrent_context_handlers;
+
+
+void concurrent_context_delegate_error(concurrent_context *context)
+{
+	zval error;
+	zval args[1];
+	zval retval;
+
+	while (context != NULL && EG(exception) != NULL) {
+		if (context->error) {
+			ZVAL_OBJ(&error, EG(exception));
+			EG(exception) = NULL;
+
+			ZVAL_COPY(&args[0], &error);
+
+			context->error_fci.param_count = 1;
+			context->error_fci.params = args;
+			context->error_fci.retval = &retval;
+
+			zend_call_function(&context->error_fci, &context->error_fcc);
+
+			zval_ptr_dtor(args);
+			zval_ptr_dtor(&retval);
+			zval_ptr_dtor(&error);
+		}
+
+		context = context->parent;
+	}
+
+	if (UNEXPECTED(EG(exception))) {
+		zend_error_noreturn(E_ERROR, "Uncaught awaitable continuation error");
+	}
+}
+
+
+concurrent_context *concurrent_context_object_create(HashTable *params)
+{
+	concurrent_context *context;
+
+	context = emalloc(sizeof(concurrent_context));
+	ZEND_SECURE_ZERO(context, sizeof(concurrent_context));
+
+	GC_ADDREF(&context->std);
+
+	zend_object_std_init(&context->std, concurrent_context_ce);
+	context->std.handlers = &concurrent_context_handlers;
+
+	if (params != NULL && zend_hash_num_elements(params) > 0) {
+		context->params = zend_array_dup(params);
+	}
+
+	return context;
+}
+
+static void concurrent_context_object_destroy(zend_object *object)
+{
+	concurrent_context *context;
+
+	context = (concurrent_context *) object;
+
+	if (context->params != NULL) {
+		zend_hash_destroy(context->params);
+		FREE_HASHTABLE(context->params);
+	}
+
+	if (context->error) {
+		zval_ptr_dtor(&context->error_fci.function_name);
+	}
+
+	if (context->parent != NULL) {
+		OBJ_RELEASE(&context->parent->std);
+	}
+
+	zend_object_std_dtor(&context->std);
+}
+
+ZEND_METHOD(Context, __construct)
+{
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	zend_throw_error(NULL, "Context must not be constructed from userland code");
+}
+
+ZEND_METHOD(Context, with)
+{
+	concurrent_context *context;
+	concurrent_context *current;
+	zend_string *str;
+
+	zval *key;
+	zval *value;
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 2)
+		Z_PARAM_ZVAL(key)
+		Z_PARAM_ZVAL(value)
+	ZEND_PARSE_PARAMETERS_END();
+
+	current = (concurrent_context *) Z_OBJ_P(getThis());
+
+	context = concurrent_context_object_create(current->params);
+	context->parent = current->parent;
+
+	str = Z_STR_P(key);
+
+	if (context->params == NULL) {
+		ALLOC_HASHTABLE(context->params);
+		zend_hash_init(context->params, 0, NULL, ZVAL_PTR_DTOR, 0);
+		zend_hash_add(context->params, str, value);
+	} else {
+		if (zend_hash_exists_ind(context->params, str)) {
+			zend_hash_update_ind(context->params, str, value);
+		} else {
+			zend_hash_add(context->params, str, value);
+		}
+	}
+
+	GC_ADDREF(&context->parent->std);
+
+	ZVAL_OBJ(&obj, &context->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
+ZEND_METHOD(Context, without)
+{
+	concurrent_context *context;
+	concurrent_context *current;
+	zend_string *str;
+
+	zval *key;
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ZVAL(key)
+	ZEND_PARSE_PARAMETERS_END();
+
+	current = (concurrent_context *) Z_OBJ_P(getThis());
+
+	context = concurrent_context_object_create(current->params);
+	context->parent = current->parent;
+
+	str = Z_STR_P(key);
+
+	if (context->params != NULL && zend_hash_exists_ind(context->params, str)) {
+		zend_hash_del_ind(context->params, str);
+
+		if (zend_hash_num_elements(context->params) < 1) {
+			zend_hash_destroy(context->params);
+			FREE_HASHTABLE(context->params);
+
+			context->params = NULL;
+		}
+	}
+
+	GC_ADDREF(&context->parent->std);
+
+	ZVAL_OBJ(&obj, &context->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
+ZEND_METHOD(Context, withErrorHandler)
+{
+	concurrent_context *context;
+	concurrent_context *current;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+
+	zval obj;
+
+	current = (concurrent_context *) Z_OBJ_P(getThis());
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
+	ZEND_PARSE_PARAMETERS_END();
+
+	context = concurrent_context_object_create(current->params);
+	context->parent = current->parent;
+
+	context->error = 1;
+	context->error_fci = fci;
+	context->error_fcc = fcc;
+
+	Z_TRY_ADDREF_P(&fci.function_name);
+
+	GC_ADDREF(&context->parent->std);
+
+	ZVAL_OBJ(&obj, &context->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
+ZEND_METHOD(Context, run)
+{
+	concurrent_context *context;
+	concurrent_context *prev;
+	concurrent_task *task;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+	uint32_t param_count;
+
+	zval *params;
+	zval result;
+
+	params = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_VARIADIC('+', params, param_count)
+	ZEND_PARSE_PARAMETERS_END();
+
+	task = (concurrent_task *) TASK_G(current_fiber);
+
+	if (UNEXPECTED(task == NULL)) {
+		zend_throw_error(NULL, "Cannot access context when no task or fiber is running");
+		return;
+	}
+
+	context = (concurrent_context *) Z_OBJ_P(getThis());
+
+	fci.params = params;
+	fci.param_count = param_count;
+	fci.retval = &result;
+	fci.no_separation = 1;
+
+	prev = task->context;
+	task->context = context;
+
+	zend_call_function(&fci, &fcc);
+
+	task->context = prev;
+
+	RETURN_ZVAL(&result, 1, 1);
+}
+
+ZEND_METHOD(Context, get)
+{
+	concurrent_task *task;
+	concurrent_context *context;
+	zend_string *key;
+
+	zval *val;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ZVAL(val)
+	ZEND_PARSE_PARAMETERS_END();
+
+	task = (concurrent_task *) TASK_G(current_fiber);
+
+	if (UNEXPECTED(task == NULL)) {
+		return;
+	}
+
+	key = Z_STR_P(val);
+	ZSTR_HASH(key);
+
+	context = task->context;
+
+	while (context != NULL) {
+		if (context->params != NULL && zend_hash_exists_ind(context->params, key)) {
+			RETURN_ZVAL(zend_hash_find_ex_ind(context->params, key, 1), 1, 0);
+		}
+
+		context = context->parent;
+	}
+}
+
+ZEND_METHOD(Context, inherit)
+{
+	concurrent_context *context;
+	concurrent_task *task;
+
+	zval *params;
+	HashTable *table;
+	zval obj;
+
+	params = NULL;
+	table = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(params)
+	ZEND_PARSE_PARAMETERS_END();
+
+	task = (concurrent_task *) TASK_G(current_fiber);
+
+	if (UNEXPECTED(task == NULL)) {
+		zend_throw_error(NULL, "Cannot access context when no task or fiber is running");
+		return;
+	}
+
+	if (params != NULL && Z_TYPE_P(params) == IS_ARRAY) {
+		table = Z_ARRVAL_P(params);
+	}
+
+	context = concurrent_context_object_create(table);
+	context->parent = task->context;
+
+	GC_ADDREF(&context->parent->std);
+
+	ZVAL_OBJ(&obj, &context->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
+ZEND_METHOD(Context, background)
+{
+	concurrent_context *context;
+	concurrent_context *current;
+	concurrent_task *task;
+
+	zval *params;
+	HashTable *table;
+	zval obj;
+
+	params = NULL;
+	table = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(params)
+	ZEND_PARSE_PARAMETERS_END();
+
+	task = (concurrent_task *) TASK_G(current_fiber);
+
+	if (UNEXPECTED(task == NULL)) {
+		zend_throw_error(NULL, "Cannot access context when no task or fiber is running");
+		return;
+	}
+
+	current = task->context;
+
+	while (current->parent != NULL) {
+		current = current->parent;
+	}
+
+	if (params != NULL && Z_TYPE_P(params) == IS_ARRAY) {
+		table = Z_ARRVAL_P(params);
+	}
+
+	context = concurrent_context_object_create(table);
+	context->parent = current;
+
+	GC_ADDREF(&current->std);
+
+	ZVAL_OBJ(&obj, &context->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
+ZEND_METHOD(Context, handleError)
+{
+	concurrent_task *task;
+
+	zval *error;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ZVAL(error)
+	ZEND_PARSE_PARAMETERS_END();
+
+	task = (concurrent_task *) TASK_G(current_fiber);
+
+	if (UNEXPECTED(task == NULL)) {
+		zend_throw_error(NULL, "Cannot access context when no task or fiber is running");
+		return;
+	}
+
+	zend_throw_exception_object(error);
+
+	concurrent_context_delegate_error(task->context);
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_context_ctor, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_with, 0, 2, Concurrent\\Context, 0)
+	ZEND_ARG_TYPE_INFO(0, var, IS_STRING, 0)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_without, 0, 1, Concurrent\\Context, 0)
+	ZEND_ARG_TYPE_INFO(0, var, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_err, 0, 1, Concurrent\\Context, 0)
+	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_context_run, 0, 0, 1)
+	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
+	ZEND_ARG_VARIADIC_INFO(0, arguments)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_context_get, 0, 0, 1)
+	ZEND_ARG_TYPE_INFO(0, var, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_inherit, 0, 0, Concurrent\\Context, 0)
+	ZEND_ARG_ARRAY_INFO(0, params, 1)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_background, 0, 0, Concurrent\\Context, 0)
+	ZEND_ARG_ARRAY_INFO(0, params, 1)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_context_he, 0, 0, 1)
+	ZEND_ARG_OBJ_INFO(0, error, Throwable, 0)
+ZEND_END_ARG_INFO()
+
+static const zend_function_entry task_context_functions[] = {
+	ZEND_ME(Context, __construct, arginfo_context_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
+	ZEND_ME(Context, with, arginfo_context_with, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, without, arginfo_context_without, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, withErrorHandler, arginfo_context_err, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, run, arginfo_context_run, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, get, arginfo_context_get, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Context, inherit, arginfo_context_inherit, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Context, background, arginfo_context_background, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Context, handleError, arginfo_context_he, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_FE_END
+};
+
+
+void concurrent_context_ce_register()
+{
+	zend_class_entry ce;
+
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Context", task_context_functions);
+	concurrent_context_ce = zend_register_internal_class(&ce);
+	concurrent_context_ce->ce_flags |= ZEND_ACC_FINAL;
+	concurrent_context_ce->serialize = zend_class_serialize_deny;
+	concurrent_context_ce->unserialize = zend_class_unserialize_deny;
+
+	memcpy(&concurrent_context_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	concurrent_context_handlers.free_obj = concurrent_context_object_destroy;
+	concurrent_context_handlers.clone_obj = NULL;
+}
+
+
+/*
+ * vim: sw=4 ts=4
+ * vim600: fdm=marker
+ */
