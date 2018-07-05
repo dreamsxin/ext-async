@@ -286,35 +286,39 @@ ZEND_METHOD(TaskScheduler, run)
 			scheduler->last = NULL;
 		}
 
-		ZVAL_NULL(&result);
+		// A task scheduled for start might have been inlined, do not take action in this case.
+		if (task->operation != CONCURRENT_TASK_OPERATION_NONE) {
+			ZVAL_NULL(&result);
 
-		task->next = NULL;
-		task->value = &result;
+			task->next = NULL;
+			task->value = &result;
 
-		if (task->operation == CONCURRENT_TASK_OPERATION_START) {
-			concurrent_task_start(task);
-		} else {
-			concurrent_task_continue(task);
-		}
-
-		if (UNEXPECTED(EG(exception))) {
-			zval_ptr_dtor(&result);
-			ZVAL_OBJ(&result, EG(exception));
-
-			EG(exception) = NULL;
-
-			task->status = CONCURRENT_FIBER_STATUS_DEAD;
-			concurrent_task_notify_failure(task, &result);
-		} else {
-			if (task->status == CONCURRENT_FIBER_STATUS_FINISHED) {
-				concurrent_task_notify_success(task, &result);
-			} else if (task->status == CONCURRENT_FIBER_STATUS_DEAD) {
-				concurrent_task_notify_failure(task, &result);
+			if (task->operation == CONCURRENT_TASK_OPERATION_START) {
+				concurrent_task_start(task);
+			} else {
+				concurrent_task_continue(task);
 			}
+
+			if (UNEXPECTED(EG(exception))) {
+				zval_ptr_dtor(&result);
+				ZVAL_OBJ(&result, EG(exception));
+
+				EG(exception) = NULL;
+
+				task->status = CONCURRENT_FIBER_STATUS_DEAD;
+				concurrent_task_notify_failure(task, &result);
+			} else {
+				if (task->status == CONCURRENT_FIBER_STATUS_FINISHED) {
+					concurrent_task_notify_success(task, &result);
+				} else if (task->status == CONCURRENT_FIBER_STATUS_DEAD) {
+					concurrent_task_notify_failure(task, &result);
+				}
+			}
+
+			zval_ptr_dtor(&result);
 		}
 
 		OBJ_RELEASE(&task->std);
-		zval_ptr_dtor(&result);
 	}
 
 	scheduler->last = NULL;

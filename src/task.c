@@ -463,14 +463,49 @@ ZEND_METHOD(Task, await)
 		return;
 	}
 
+	ZVAL_NULL(&retval);
+	ZVAL_UNDEF(&error);
+
 	if (Z_TYPE_P(val) != IS_OBJECT) {
 		RETURN_ZVAL(val, 1, 0);
 	}
 
 	ce = Z_OBJCE_P(val);
 
+	// Optimized handling of awaited tasks.
 	if (ce == concurrent_task_ce) {
 		inner = (concurrent_task *) Z_OBJ_P(val);
+
+		// Task-inlining optimization, avoids allocating a native fiber and stack for the awaited task.
+		if (inner->status == CONCURRENT_FIBER_STATUS_INIT && inner->stack_size == task->stack_size) {
+			if (inner->scheduler == task->scheduler) {
+				inner->operation = CONCURRENT_TASK_OPERATION_NONE;
+
+				inner->fci.retval = &retval;
+
+				zend_call_function(&inner->fci, &inner->fci_cache);
+
+				zval_ptr_dtor(&inner->fci.function_name);
+				zend_fcall_info_args_clear(&inner->fci, 1);
+
+				if (UNEXPECTED(EG(exception))) {
+					inner->status = CONCURRENT_FIBER_STATUS_DEAD;
+
+					ZVAL_OBJ(&error, EG(exception));
+					EG(exception) = NULL;
+
+					concurrent_task_notify_failure(inner, &error);
+
+					zval_ptr_dtor(&error);
+				} else {
+					inner->status = CONCURRENT_FIBER_STATUS_FINISHED;
+
+					concurrent_task_notify_failure(inner, &retval);
+				}
+
+				zval_ptr_dtor(&retval);
+			}
+		}
 
 		if (inner->status == CONCURRENT_FIBER_STATUS_FINISHED) {
 			RETURN_ZVAL(&inner->result, 1, 0);
@@ -487,6 +522,7 @@ ZEND_METHOD(Task, await)
 		}
 	}
 
+	// Attempt to adapt non-awaitable objects to awaitables.
 	if (instanceof_function_ex(ce, concurrent_awaitable_ce, 1) != 1) {
 		if (task->scheduler->adapter) {
 			task->scheduler->adapter_fci.param_count = 1;
