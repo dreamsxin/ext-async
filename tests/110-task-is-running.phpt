@@ -36,7 +36,7 @@ var_dump(Task::isRunning());
 bool(false)
 bool(true)
 bool(true)
-bool(false)
+bool(true)
 bool(false)
 bool(true)
 bool(false)

@@ -299,13 +299,12 @@ ZEND_METHOD(TaskScheduler, run)
 				EG(exception) = NULL;
 
 				task->status = CONCURRENT_FIBER_STATUS_DEAD;
+			}
+
+			if (task->status == CONCURRENT_FIBER_STATUS_FINISHED) {
+				concurrent_task_notify_success(task);
+			} else if (task->status == CONCURRENT_FIBER_STATUS_DEAD) {
 				concurrent_task_notify_failure(task);
-			} else {
-				if (task->status == CONCURRENT_FIBER_STATUS_FINISHED) {
-					concurrent_task_notify_success(task);
-				} else if (task->status == CONCURRENT_FIBER_STATUS_DEAD) {
-					concurrent_task_notify_failure(task);
-				}
 			}
 		}
 

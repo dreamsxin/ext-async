@@ -78,9 +78,13 @@ void concurrent_task_continue(concurrent_task *task)
 void concurrent_task_notify_success(concurrent_task *task)
 {
 	concurrent_task_continuation_cb *cont;
+	concurrent_fiber *fiber;
 
 	zval args[2];
 	zval retval;
+
+	fiber = TASK_G(current_fiber);
+	TASK_G(current_fiber) = (concurrent_fiber *) task;
 
 	while (task->continuation != NULL) {
 		cont = task->continuation;
@@ -105,14 +109,20 @@ void concurrent_task_notify_success(concurrent_task *task)
 			concurrent_context_delegate_error(task->context);
 		}
 	}
+
+	TASK_G(current_fiber) = fiber;
 }
 
 void concurrent_task_notify_failure(concurrent_task *task)
 {
 	concurrent_task_continuation_cb *cont;
+	concurrent_fiber *fiber;
 
 	zval args[1];
 	zval retval;
+
+	fiber = TASK_G(current_fiber);
+	TASK_G(current_fiber) = (concurrent_fiber *) task;
 
 	while (task->continuation != NULL) {
 		cont = task->continuation;
@@ -136,6 +146,8 @@ void concurrent_task_notify_failure(concurrent_task *task)
 			concurrent_context_delegate_error(task->context);
 		}
 	}
+
+	TASK_G(current_fiber) = fiber;
 }
 
 static void concurrent_task_dispose(concurrent_task *task)
@@ -249,6 +261,7 @@ ZEND_METHOD(Task, __construct)
 ZEND_METHOD(Task, continueWith)
 {
 	concurrent_task *task;
+	concurrent_fiber *fiber;
 	concurrent_task_continuation_cb *cont;
 	concurrent_task_continuation_cb *tmp;
 
@@ -266,6 +279,9 @@ ZEND_METHOD(Task, continueWith)
 	fci.no_separation = 1;
 
 	if (task->status == CONCURRENT_FIBER_STATUS_FINISHED) {
+		fiber = TASK_G(current_fiber);
+		TASK_G(current_fiber) = (concurrent_fiber *) task;
+
 		ZVAL_NULL(&args[0]);
 		ZVAL_COPY(&args[1], &task->result);
 
@@ -281,10 +297,15 @@ ZEND_METHOD(Task, continueWith)
 			concurrent_context_delegate_error(task->context);
 		}
 
+		TASK_G(current_fiber) = fiber;
+
 		return;
 	}
 
 	if (task->status == CONCURRENT_FIBER_STATUS_DEAD) {
+		fiber = TASK_G(current_fiber);
+		TASK_G(current_fiber) = (concurrent_fiber *) task;
+
 		ZVAL_COPY(&args[0], &task->result);
 
 		fci.param_count = 1;
@@ -298,6 +319,8 @@ ZEND_METHOD(Task, continueWith)
 		if (UNEXPECTED(EG(exception))) {
 			concurrent_context_delegate_error(task->context);
 		}
+
+		TASK_G(current_fiber) = fiber;
 
 		return;
 	}
