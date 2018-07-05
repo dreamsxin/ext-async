@@ -67,6 +67,11 @@ void concurrent_context_delegate_error(concurrent_context *context)
 concurrent_context *concurrent_context_object_create(HashTable *params)
 {
 	concurrent_context *context;
+	HashPosition pos;
+	zend_string *name;
+	zend_ulong index;
+
+	name = NULL;
 
 	context = emalloc(sizeof(concurrent_context));
 	ZEND_SECURE_ZERO(context, sizeof(concurrent_context));
@@ -76,12 +81,43 @@ concurrent_context *concurrent_context_object_create(HashTable *params)
 	zend_object_std_init(&context->std, concurrent_context_ce);
 	context->std.handlers = &concurrent_context_handlers;
 
-	if (params != NULL && zend_hash_num_elements(params) > 0) {
-		context->params = zend_array_dup(params);
+	if (params != NULL) {
+		context->param_count = zend_hash_num_elements(params);
+
+		if (context->param_count == 1) {
+			zend_hash_internal_pointer_reset_ex(params, &pos);
+			zend_hash_get_current_key_ex(params, &name, &index, &pos);
+
+			context->data.var.name = zend_string_copy(name);
+			ZVAL_COPY(&context->data.var.value, zend_hash_get_current_data_ex(params, &pos));
+		} else if (context->param_count > 1) {
+			context->data.params = zend_array_dup(params);
+		}
 	}
 
 	return context;
 }
+
+static concurrent_context *concurrent_context_object_create_single_var(zend_string *name, zval *value)
+{
+	concurrent_context *context;
+
+	context = emalloc(sizeof(concurrent_context));
+	ZEND_SECURE_ZERO(context, sizeof(concurrent_context));
+
+	GC_ADDREF(&context->std);
+
+	zend_object_std_init(&context->std, concurrent_context_ce);
+	context->std.handlers = &concurrent_context_handlers;
+
+	context->param_count = 1;
+
+	context->data.var.name = zend_string_copy(name);
+	ZVAL_COPY(&context->data.var.value, value);
+
+	return context;
+}
+
 
 static void concurrent_context_object_destroy(zend_object *object)
 {
@@ -89,9 +125,12 @@ static void concurrent_context_object_destroy(zend_object *object)
 
 	context = (concurrent_context *) object;
 
-	if (context->params != NULL) {
-		zend_hash_destroy(context->params);
-		FREE_HASHTABLE(context->params);
+	if (context->param_count == 1) {
+		zend_string_release(context->data.var.name);
+		zval_ptr_dtor(&context->data.var.value);
+	} else if (context->param_count > 1 && context->data.params != NULL) {
+		zend_hash_destroy(context->data.params);
+		FREE_HASHTABLE(context->data.params);
 	}
 
 	if (context->error) {
@@ -128,23 +167,35 @@ ZEND_METHOD(Context, with)
 	ZEND_PARSE_PARAMETERS_END();
 
 	current = (concurrent_context *) Z_OBJ_P(getThis());
-
-	context = concurrent_context_object_create(current->params);
-	context->parent = current->parent;
-
 	str = Z_STR_P(key);
 
-	if (context->params == NULL) {
-		ALLOC_HASHTABLE(context->params);
-		zend_hash_init(context->params, 0, NULL, ZVAL_PTR_DTOR, 0);
-		zend_hash_add(context->params, str, value);
-	} else {
-		if (zend_hash_exists_ind(context->params, str)) {
-			zend_hash_update_ind(context->params, str, value);
+	if (current->param_count == 0) {
+		context = concurrent_context_object_create_single_var(str, value);
+	} else if (current->param_count == 1 && zend_string_equals(str, current->data.var.name)) {
+		if (zend_string_equals(str, current->data.var.name)) {
+			context = concurrent_context_object_create_single_var(str, value);
 		} else {
-			zend_hash_add(context->params, str, value);
+			context = concurrent_context_object_create(NULL);
+			context->param_count = 2;
+
+			ALLOC_HASHTABLE(context->data.params);
+			zend_hash_init(context->data.params, 0, NULL, ZVAL_PTR_DTOR, 0);
+
+			zend_hash_add(context->data.params, current->data.var.name, &current->data.var.value);
+			zend_hash_add(context->data.params, str, value);
+		}
+	} else {
+		context = concurrent_context_object_create(current->data.params);
+
+		if (zend_hash_exists_ind(context->data.params, str)) {
+			zend_hash_update_ind(context->data.params, str, value);
+		} else {
+			zend_hash_add(context->data.params, str, value);
+			context->param_count++;
 		}
 	}
+
+	context->parent = current->parent;
 
 	GC_ADDREF(&context->parent->std);
 
@@ -157,7 +208,9 @@ ZEND_METHOD(Context, without)
 {
 	concurrent_context *context;
 	concurrent_context *current;
+	HashPosition pos;
 	zend_string *str;
+	zend_ulong index;
 
 	zval *key;
 	zval obj;
@@ -168,21 +221,33 @@ ZEND_METHOD(Context, without)
 
 	current = (concurrent_context *) Z_OBJ_P(getThis());
 
-	context = concurrent_context_object_create(current->params);
-	context->parent = current->parent;
-
 	str = Z_STR_P(key);
 
-	if (context->params != NULL && zend_hash_exists_ind(context->params, str)) {
-		zend_hash_del_ind(context->params, str);
+	if (current->param_count == 1) {
+		if (zend_string_equals(str, current->data.var.name)) {
+			context = concurrent_context_object_create(NULL);
+		} else {
+			context = concurrent_context_object_create_single_var(current->data.var.name, &current->data.var.value);
+		}
+	} else {
+		context = concurrent_context_object_create(current->data.params);
 
-		if (zend_hash_num_elements(context->params) < 1) {
-			zend_hash_destroy(context->params);
-			FREE_HASHTABLE(context->params);
+		if (context->param_count > 1 && zend_hash_exists_ind(context->data.params, str)) {
+			context->param_count--;
 
-			context->params = NULL;
+			if (context->param_count == 1) {
+				zend_hash_internal_pointer_reset_ex(context->data.params, &pos);
+				zend_hash_get_current_key_ex(context->data.params, &str, &index, &pos);
+
+				context->data.var.name = zend_string_copy(str);
+				ZVAL_COPY(&context->data.var.value, zend_hash_get_current_data_ex(context->data.params, &pos));
+			} else {
+				zend_hash_del_ind(context->data.params, str);
+			}
 		}
 	}
+
+	context->parent = current->parent;
 
 	GC_ADDREF(&context->parent->std);
 
@@ -206,7 +271,7 @@ ZEND_METHOD(Context, withErrorHandler)
 		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
-	context = concurrent_context_object_create(current->params);
+	context = concurrent_context_object_create(current->data.params);
 	context->parent = current->parent;
 
 	context->error = 1;
@@ -290,8 +355,14 @@ ZEND_METHOD(Context, get)
 	context = task->context;
 
 	while (context != NULL) {
-		if (context->params != NULL && zend_hash_exists_ind(context->params, key)) {
-			RETURN_ZVAL(zend_hash_find_ex_ind(context->params, key, 1), 1, 0);
+		if (context->param_count == 1) {
+			if (zend_string_equals(key, context->data.var.name)) {
+				RETURN_ZVAL(&context->data.var.value, 1, 0);
+			}
+		} else if (context->param_count > 1) {
+			if (zend_hash_exists_ind(context->data.params, key)) {
+				RETURN_ZVAL(zend_hash_find_ex_ind(context->data.params, key, 1), 1, 0);
+			}
 		}
 
 		context = context->parent;

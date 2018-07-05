@@ -32,7 +32,15 @@ struct _concurrent_context {
 
 	concurrent_context *parent;
 
-	HashTable *params;
+	uint32_t param_count;
+
+	union {
+		struct {
+			zend_string *name;
+			zval value;
+		} var;
+		HashTable *params;
+	} data;
 
 	zend_bool error;
 	zend_fcall_info error_fci;
