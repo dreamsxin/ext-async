@@ -264,8 +264,6 @@ ZEND_METHOD(TaskScheduler, run)
 	concurrent_task_scheduler *prev;
 	concurrent_task *task;
 
-	zval result;
-
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
 	ZEND_PARSE_PARAMETERS_NONE();
@@ -288,10 +286,7 @@ ZEND_METHOD(TaskScheduler, run)
 
 		// A task scheduled for start might have been inlined, do not take action in this case.
 		if (task->operation != CONCURRENT_TASK_OPERATION_NONE) {
-			ZVAL_NULL(&result);
-
 			task->next = NULL;
-			task->value = &result;
 
 			if (task->operation == CONCURRENT_TASK_OPERATION_START) {
 				concurrent_task_start(task);
@@ -300,22 +295,18 @@ ZEND_METHOD(TaskScheduler, run)
 			}
 
 			if (UNEXPECTED(EG(exception))) {
-				zval_ptr_dtor(&result);
-				ZVAL_OBJ(&result, EG(exception));
-
+				ZVAL_OBJ(&task->result, EG(exception));
 				EG(exception) = NULL;
 
 				task->status = CONCURRENT_FIBER_STATUS_DEAD;
-				concurrent_task_notify_failure(task, &result);
+				concurrent_task_notify_failure(task);
 			} else {
 				if (task->status == CONCURRENT_FIBER_STATUS_FINISHED) {
-					concurrent_task_notify_success(task, &result);
+					concurrent_task_notify_success(task);
 				} else if (task->status == CONCURRENT_FIBER_STATUS_DEAD) {
-					concurrent_task_notify_failure(task, &result);
+					concurrent_task_notify_failure(task);
 				}
 			}
-
-			zval_ptr_dtor(&result);
 		}
 
 		OBJ_RELEASE(&task->std);

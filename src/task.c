@@ -75,14 +75,12 @@ void concurrent_task_continue(concurrent_task *task)
 	}
 }
 
-void concurrent_task_notify_success(concurrent_task *task, zval *result)
+void concurrent_task_notify_success(concurrent_task *task)
 {
 	concurrent_task_continuation_cb *cont;
 
 	zval args[2];
 	zval retval;
-
-	ZVAL_COPY(&task->result, result);
 
 	while (task->continuation != NULL) {
 		cont = task->continuation;
@@ -109,14 +107,12 @@ void concurrent_task_notify_success(concurrent_task *task, zval *result)
 	}
 }
 
-void concurrent_task_notify_failure(concurrent_task *task, zval *error)
+void concurrent_task_notify_failure(concurrent_task *task)
 {
 	concurrent_task_continuation_cb *cont;
 
 	zval args[1];
 	zval retval;
-
-	ZVAL_COPY(&task->result, error);
 
 	while (task->continuation != NULL) {
 		cont = task->continuation;
@@ -146,31 +142,22 @@ static void concurrent_task_dispose(concurrent_task *task)
 {
 	concurrent_task_scheduler *prev;
 
-	zval result;
-
 	prev = TASK_G(scheduler);
 	TASK_G(scheduler) = NULL;
 
-	ZVAL_NULL(&result);
-
 	task->status = CONCURRENT_FIBER_STATUS_DEAD;
-	task->value = &result;
 
 	concurrent_fiber_switch_to((concurrent_fiber *) task);
 
 	TASK_G(scheduler) = prev;
 
 	if (UNEXPECTED(EG(exception))) {
-		zval_ptr_dtor(&result);
-		ZVAL_OBJ(&result, EG(exception));
-
+		ZVAL_OBJ(&task->result, EG(exception));
 		EG(exception) = NULL;
 
-		concurrent_task_notify_failure(task, &result);
-
-		zval_ptr_dtor(&result);
+		concurrent_task_notify_failure(task);
 	} else {
-		concurrent_task_notify_success(task, &result);
+		concurrent_task_notify_success(task);
 	}
 }
 
@@ -198,6 +185,9 @@ concurrent_task *concurrent_task_object_create()
 
 	ZVAL_NULL(&task->result);
 	ZVAL_UNDEF(&task->error);
+
+	// The final send value is the task result, pointer will be overwritten and restored during await.
+	task->value = &task->result;
 
 	zend_object_std_init(&task->std, concurrent_task_ce);
 	task->std.handlers = &concurrent_task_handlers;
@@ -464,9 +454,6 @@ ZEND_METHOD(Task, await)
 		return;
 	}
 
-	ZVAL_NULL(&retval);
-	ZVAL_UNDEF(&error);
-
 	if (Z_TYPE_P(val) != IS_OBJECT) {
 		RETURN_ZVAL(val, 1, 0);
 	}
@@ -485,7 +472,7 @@ ZEND_METHOD(Task, await)
 				context = task->context;
 				task->context = inner->context;
 
-				inner->fci.retval = &retval;
+				inner->fci.retval = &inner->result;
 
 				zend_call_function(&inner->fci, &inner->fci_cache);
 
@@ -497,19 +484,15 @@ ZEND_METHOD(Task, await)
 				if (UNEXPECTED(EG(exception))) {
 					inner->status = CONCURRENT_FIBER_STATUS_DEAD;
 
-					ZVAL_OBJ(&error, EG(exception));
+					ZVAL_OBJ(&inner->result, EG(exception));
 					EG(exception) = NULL;
 
-					concurrent_task_notify_failure(inner, &error);
-
-					zval_ptr_dtor(&error);
+					concurrent_task_notify_failure(inner);
 				} else {
 					inner->status = CONCURRENT_FIBER_STATUS_FINISHED;
 
-					concurrent_task_notify_success(inner, &retval);
+					concurrent_task_notify_success(inner);
 				}
-
-				zval_ptr_dtor(&retval);
 			}
 		}
 
@@ -554,6 +537,8 @@ ZEND_METHOD(Task, await)
 	}
 
 	value = task->value;
+
+	// Switch the value pointer to the return value of await() until the task is continued.
 	task->value = USED_RET() ? return_value : NULL;
 
 	ZVAL_OBJ(&cont, concurrent_task_continuation_object_create(task));
@@ -574,12 +559,12 @@ ZEND_METHOD(Task, await)
 	concurrent_fiber_yield(task->fiber);
 	CONCURRENT_FIBER_RESTORE_EG(task->stack, stack_page_size, task->exec);
 
+	task->value = value;
+
 	if (task->status == CONCURRENT_FIBER_STATUS_DEAD) {
 		zend_throw_error(NULL, "Task has been destroyed");
 		return;
 	}
-
-	task->value = value;
 
 	if (Z_TYPE_P(&task->error) != IS_UNDEF) {
 		error = task->error;

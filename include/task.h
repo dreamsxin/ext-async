@@ -46,7 +46,7 @@ struct _concurrent_task {
 	/* Native fiber context of this task, will be created during call to start(). */
 	concurrent_fiber_context fiber;
 
-	/* Destination for a PHP value being passed into or returned from the task. */
+	/* Pointer to the zval that receives a value sent into the task. */
 	zval *value;
 
 	/* Current Zend VM execute data being run by the task. */
@@ -92,8 +92,8 @@ concurrent_task *concurrent_task_object_create();
 void concurrent_task_start(concurrent_task *task);
 void concurrent_task_continue(concurrent_task *task);
 
-void concurrent_task_notify_success(concurrent_task *task, zval *result);
-void concurrent_task_notify_failure(concurrent_task *task, zval *error);
+void concurrent_task_notify_success(concurrent_task *task);
+void concurrent_task_notify_failure(concurrent_task *task);
 
 void concurrent_task_ce_register();
 
