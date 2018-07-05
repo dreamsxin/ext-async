@@ -58,6 +58,7 @@ struct _concurrent_task {
 	/* Max size of the C stack being used by the task. */
 	size_t stack_size;
 
+	/* Unique identifier of this task. */
 	size_t id;
 
 	/* Reference to the task scheduler being used to start or resume the task the next time. */
@@ -66,7 +67,7 @@ struct _concurrent_task {
 	/* Next task scheduled for execution. */
 	concurrent_task *next;
 
-	/* Next operation to be performed by the scheduler. */
+	/* Next operation to be performed by the scheduler, one of the CONCURRENT_TASK_OPERATION_* constants. */
 	zend_uchar operation;
 
 	/* Error to be thrown into a task, must be set to UNDEF to resume tasks with a value. */
@@ -78,6 +79,7 @@ struct _concurrent_task {
 	/* Linked list of registered continuation callbacks. */
 	concurrent_task_continuation_cb *continuation;
 
+	/* Async execution context provided to the task. */
 	concurrent_context *context;
 };
 

@@ -89,7 +89,7 @@ void concurrent_task_notify_success(concurrent_task *task, zval *result)
 		task->continuation = cont->next;
 
 		ZVAL_NULL(&args[0]);
-		ZVAL_COPY(&args[1], result);
+		ZVAL_COPY(&args[1], &task->result);
 
 		cont->fci.param_count = 2;
 		cont->fci.params = args;
@@ -438,6 +438,7 @@ ZEND_METHOD(Task, await)
 	zend_class_entry *ce;
 	concurrent_task *task;
 	concurrent_task *inner;
+	concurrent_context *context;
 	zend_execute_data *exec;
 	size_t stack_page_size;
 
@@ -481,12 +482,17 @@ ZEND_METHOD(Task, await)
 			if (inner->scheduler == task->scheduler) {
 				inner->operation = CONCURRENT_TASK_OPERATION_NONE;
 
+				context = task->context;
+				task->context = inner->context;
+
 				inner->fci.retval = &retval;
 
 				zend_call_function(&inner->fci, &inner->fci_cache);
 
 				zval_ptr_dtor(&inner->fci.function_name);
 				zend_fcall_info_args_clear(&inner->fci, 1);
+
+				task->context = context;
 
 				if (UNEXPECTED(EG(exception))) {
 					inner->status = CONCURRENT_FIBER_STATUS_DEAD;
@@ -500,7 +506,7 @@ ZEND_METHOD(Task, await)
 				} else {
 					inner->status = CONCURRENT_FIBER_STATUS_FINISHED;
 
-					concurrent_task_notify_failure(inner, &retval);
+					concurrent_task_notify_success(inner, &retval);
 				}
 
 				zval_ptr_dtor(&retval);
