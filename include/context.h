@@ -21,6 +21,8 @@
 
 #include "php.h"
 
+typedef struct _concurrent_context_error_handler concurrent_context_error_handler;
+
 BEGIN_EXTERN_C()
 
 extern zend_class_entry *concurrent_context_ce;
@@ -32,6 +34,8 @@ struct _concurrent_context {
 
 	concurrent_context *parent;
 
+	concurrent_context_error_handler *error_handler;
+
 	uint32_t param_count;
 
 	union {
@@ -41,10 +45,6 @@ struct _concurrent_context {
 		} var;
 		HashTable *params;
 	} data;
-
-	zend_bool error;
-	zend_fcall_info error_fci;
-	zend_fcall_info_cache error_fcc;
 };
 
 void concurrent_context_delegate_error(concurrent_context *context);
@@ -53,6 +53,11 @@ concurrent_context *concurrent_context_object_create(HashTable *params);
 void concurrent_context_ce_register();
 
 END_EXTERN_C()
+
+struct _concurrent_context_error_handler {
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+};
 
 #endif
 

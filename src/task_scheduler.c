@@ -133,6 +133,7 @@ static void concurrent_task_scheduler_object_destroy(zend_object *object)
 ZEND_METHOD(TaskScheduler, __construct)
 {
 	concurrent_task_scheduler *scheduler;
+	concurrent_context_error_handler *handler;
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
 
@@ -157,11 +158,13 @@ ZEND_METHOD(TaskScheduler, __construct)
 	scheduler->context = concurrent_context_object_create(table);
 
 	if (ZEND_NUM_ARGS() > 1) {
-		scheduler->context->error = 1;
-		scheduler->context->error_fci = fci;
-		scheduler->context->error_fcc = fcc;
+		handler = emalloc(sizeof(concurrent_context_error_handler));
+		handler->fci = fci;
+		handler->fcc = fcc;
 
 		Z_TRY_ADDREF_P(&fci.function_name);
+
+		scheduler->context->error_handler = handler;
 	}
 }
 

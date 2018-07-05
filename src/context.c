@@ -38,17 +38,17 @@ void concurrent_context_delegate_error(concurrent_context *context)
 	zval retval;
 
 	while (context != NULL && EG(exception) != NULL) {
-		if (context->error) {
+		if (context->error_handler != NULL) {
 			ZVAL_OBJ(&error, EG(exception));
 			EG(exception) = NULL;
 
 			ZVAL_COPY(&args[0], &error);
 
-			context->error_fci.param_count = 1;
-			context->error_fci.params = args;
-			context->error_fci.retval = &retval;
+			context->error_handler->fci.param_count = 1;
+			context->error_handler->fci.params = args;
+			context->error_handler->fci.retval = &retval;
 
-			zend_call_function(&context->error_fci, &context->error_fcc);
+			zend_call_function(&context->error_handler->fci, &context->error_handler->fcc);
 
 			zval_ptr_dtor(args);
 			zval_ptr_dtor(&retval);
@@ -133,8 +133,11 @@ static void concurrent_context_object_destroy(zend_object *object)
 		FREE_HASHTABLE(context->data.params);
 	}
 
-	if (context->error) {
-		zval_ptr_dtor(&context->error_fci.function_name);
+	if (context->error_handler != NULL) {
+		zval_ptr_dtor(&context->error_handler->fci.function_name);
+		efree(context->error_handler);
+
+		context->error_handler = NULL;
 	}
 
 	if (context->parent != NULL) {
@@ -271,12 +274,17 @@ ZEND_METHOD(Context, withErrorHandler)
 		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
-	context = concurrent_context_object_create(current->data.params);
+	if (current->param_count == 1) {
+		context = concurrent_context_object_create_single_var(current->data.var.name, &current->data.var.value);
+	} else {
+		context = concurrent_context_object_create(current->data.params);
+	}
+
 	context->parent = current->parent;
 
-	context->error = 1;
-	context->error_fci = fci;
-	context->error_fcc = fcc;
+	context->error_handler = emalloc(sizeof(concurrent_context_error_handler));
+	context->error_handler->fci = fci;
+	context->error_handler->fcc = fcc;
 
 	Z_TRY_ADDREF_P(&fci.function_name);
 
