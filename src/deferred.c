@@ -377,7 +377,7 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_deferred_fail, 0, 0, 1)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry deferred_functions[] = {
-	ZEND_ME(Deferred, __construct, arginfo_deferred_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL | ZEND_ACC_CTOR)
+	ZEND_ME(Deferred, __construct, arginfo_deferred_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
 	ZEND_ME(Deferred, awaitable, arginfo_deferred_awaitable, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, succeed, arginfo_deferred_succeed, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, fail, arginfo_deferred_fail, ZEND_ACC_PUBLIC)
@@ -391,6 +391,7 @@ void concurrent_deferred_ce_register()
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Deferred", deferred_functions);
 	concurrent_deferred_ce = zend_register_internal_class(&ce);
+	concurrent_deferred_ce->ce_flags |= ZEND_ACC_FINAL;
 	concurrent_deferred_ce->create_object = concurrent_deferred_object_create;
 	concurrent_deferred_ce->serialize = zend_class_serialize_deny;
 	concurrent_deferred_ce->unserialize = zend_class_unserialize_deny;
