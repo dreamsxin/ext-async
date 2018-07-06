@@ -9,6 +9,8 @@ interface Awaitable
 
 final class Context
 {
+    public function get(string $name) { }
+    
     public function with(string $var, $value): Context { }
     
     public function without(string $var): Context { }
@@ -19,7 +21,7 @@ final class Context
     
     public function handleError(\Throwable $e): void { }
     
-    public static function get(string $name) { }
+    public static function var(string $name) { }
     
     public static function current(): Context { }
     

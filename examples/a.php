@@ -1,25 +1,44 @@
 <?php
 
 use Concurrent\Awaitable;
+use Concurrent\Context;
 use Concurrent\Task;
 use Concurrent\TaskScheduler;
+
+class Dummy implements Awaitable
+{
+    private $key;
+    
+    private $context;
+
+    public function __construct(string $key, ?Context $context = null)
+    {
+        $this->key = $key;
+        $this->context = $context ?? Context::current();
+    }
+
+    public function continueWith(callable $continuation): void
+    {
+        try {
+            $this->context->run($continuation, null, $this->context->get($this->key));
+        } catch (\Throwable $e) {
+            $this->context->handleError($e);
+        }
+    }
+}
 
 $scheduler = new TaskScheduler();
 
 $scheduler->task(function (): int {
-    $a = new class() implements Awaitable {
-
-        public function continueWith(callable $continuation): void
-        {
-            $continuation(null, 321);
-        }
-    };
+    $context = Context::inherit([
+        'result' => 321
+    ]);
     
-    $t = Task::async(function () use ($a): int {
-        return min(123, Task::await($a));
+    $t = Task::asyncWithContext($context, function (): int {
+        return max(123, Task::await(new Dummy('result')));
     });
     
-    return max(2 * Task::await($t), Task::await($a));
+    return 2 * Task::await($t);
 })->continueWith(function (?\Throwable $e, ?int $v = null): void {
     var_dump('CONTINUE WITH', $e, $v);
 });

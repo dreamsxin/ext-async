@@ -12,21 +12,21 @@ $t = $scheduler->task(function () {
     $context = Context::inherit()->with('num', 777);
     $context = $context->with('num', 888);
     
-    var_dump(Context::get('num'));
+    var_dump(Context::var('num'));
     
     $context->run(function () {
-        var_dump(Context::get('num'));
+        var_dump(Context::var('num'));
     });
     
-    var_dump(Context::get('num'));
+        var_dump(Context::var('num'));
     
     $context = $context->without('num');
     
     $context->run(function () {
-        var_dump(Context::get('num'));
+        var_dump(Context::var('num'));
     });
     
-    var_dump(Context::get('num'));
+        var_dump(Context::var('num'));
 });
 
 $scheduler->run();

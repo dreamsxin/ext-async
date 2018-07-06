@@ -154,6 +154,37 @@ ZEND_METHOD(Context, __construct)
 	zend_throw_error(NULL, "Context must not be constructed from userland code");
 }
 
+ZEND_METHOD(Context, get)
+{
+	concurrent_context *context;
+	zend_string *key;
+
+	zval *val;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ZVAL(val)
+	ZEND_PARSE_PARAMETERS_END();
+
+	key = Z_STR_P(val);
+	ZSTR_HASH(key);
+
+	context = (concurrent_context *) Z_OBJ_P(getThis());
+
+	do {
+		if (context->param_count == 1) {
+			if (zend_string_equals(key, context->data.var.name)) {
+				RETURN_ZVAL(&context->data.var.value, 1, 0);
+			}
+		} else if (context->param_count > 1) {
+			if (zend_hash_exists_ind(context->data.params, key)) {
+				RETURN_ZVAL(zend_hash_find_ex_ind(context->data.params, key, 1), 1, 0);
+			}
+		}
+
+		context = context->parent;
+	} while (context != NULL);
+}
+
 ZEND_METHOD(Context, with)
 {
 	concurrent_context *context;
@@ -351,7 +382,7 @@ ZEND_METHOD(Context, handleError)
 	concurrent_context_delegate_error(context);
 }
 
-ZEND_METHOD(Context, get)
+ZEND_METHOD(Context, var)
 {
 	concurrent_context *context;
 	zend_string *key;
@@ -487,6 +518,10 @@ ZEND_METHOD(Context, background)
 ZEND_BEGIN_ARG_INFO(arginfo_context_ctor, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(arginfo_context_get, 0, 0, 1)
+	ZEND_ARG_TYPE_INFO(0, var, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_with, 0, 2, Concurrent\\Context, 0)
 	ZEND_ARG_TYPE_INFO(0, var, IS_STRING, 0)
 	ZEND_ARG_INFO(0, value)
@@ -509,7 +544,7 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_context_he, 0, 0, 1)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_context_get, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_context_var, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, var, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
@@ -526,12 +561,13 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_context_functions[] = {
 	ZEND_ME(Context, __construct, arginfo_context_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
+	ZEND_ME(Context, get, arginfo_context_get, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, with, arginfo_context_with, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, without, arginfo_context_without, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, withErrorHandler, arginfo_context_err, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, run, arginfo_context_run, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, handleError, arginfo_context_he, ZEND_ACC_PUBLIC)
-	ZEND_ME(Context, get, arginfo_context_get, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Context, var, arginfo_context_var, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, current, arginfo_context_current, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, inherit, arginfo_context_inherit, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, background, arginfo_context_background, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)

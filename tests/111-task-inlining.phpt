@@ -15,7 +15,7 @@ $scheduler = new TaskScheduler([
 
 $scheduler->task(function () {
     $callback = function () {
-        return Context::get('num');
+        return Context::var('num');
     };
     
     $cont = function ($e, $v) {
@@ -33,7 +33,11 @@ $scheduler->task(function () {
 
     var_dump($callback());
 
-    var_dump(Task::await(Task::asyncWithContext(Context::inherit(['num' => 777]), $callback)));
+    $t = $t = Task::asyncWithContext(Context::inherit(['num' => 777]), $callback);
+
+    $t->continueWith($cont);
+    var_dump(Task::await($t));    
+    $t->continueWith($cont);
 
     var_dump($callback());
     
@@ -57,6 +61,10 @@ int(123)
 NULL
 int(123)
 int(123)
+NULL
+int(777)
+int(777)
+NULL
 int(777)
 int(123)
 string(5) "FAIL!"
