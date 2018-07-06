@@ -232,7 +232,9 @@ ZEND_METHOD(Context, with)
 	context->parent = current->parent;
 	context->scheduler = current->scheduler;
 
-	GC_ADDREF(&context->parent->std);
+	if (context->parent != NULL) {
+		GC_ADDREF(&context->parent->std);
+	}
 
 	ZVAL_OBJ(&obj, &context->std);
 
@@ -285,7 +287,9 @@ ZEND_METHOD(Context, without)
 	context->parent = current->parent;
 	context->scheduler = current->scheduler;
 
-	GC_ADDREF(&context->parent->std);
+	if (context->parent != NULL) {
+		GC_ADDREF(&context->parent->std);
+	}
 
 	ZVAL_OBJ(&obj, &context->std);
 
@@ -322,7 +326,9 @@ ZEND_METHOD(Context, withErrorHandler)
 
 	Z_TRY_ADDREF_P(&fci.function_name);
 
-	GC_ADDREF(&context->parent->std);
+	if (context->parent != NULL) {
+		GC_ADDREF(&context->parent->std);
+	}
 
 	ZVAL_OBJ(&obj, &context->std);
 
@@ -363,6 +369,96 @@ ZEND_METHOD(Context, run)
 	TASK_G(current_context) = prev;
 
 	RETURN_ZVAL(&result, 1, 1);
+}
+
+ZEND_METHOD(Context, continueSuccess)
+{
+	concurrent_context *context;
+	concurrent_context *prev;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+
+	zval *val;
+	zval args[2];
+	zval result;
+
+	val = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(val)
+	ZEND_PARSE_PARAMETERS_END();
+
+	context = (concurrent_context *) Z_OBJ_P(getThis());
+
+	ZVAL_NULL(&args[0]);
+
+	if (val == NULL) {
+		ZVAL_NULL(&args[1]);
+	} else {
+		ZVAL_COPY(&args[1], val);
+	}
+
+	fci.params = args;
+	fci.param_count = 2;
+	fci.retval = &result;
+	fci.no_separation = 1;
+
+	prev = TASK_G(current_context);
+	TASK_G(current_context) = context;
+
+	zend_call_function(&fci, &fcc);
+
+	TASK_G(current_context) = prev;
+
+	zval_ptr_dtor(&args[0]);
+	zval_ptr_dtor(&args[1]);
+	zval_ptr_dtor(&result);
+
+	if (UNEXPECTED(EG(exception))) {
+		concurrent_context_delegate_error(context);
+	}
+}
+
+ZEND_METHOD(Context, continueError)
+{
+	concurrent_context *context;
+	concurrent_context *prev;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+
+	zval *error;
+	zval args[1];
+	zval result;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 2)
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
+		Z_PARAM_ZVAL(error)
+	ZEND_PARSE_PARAMETERS_END();
+
+	context = (concurrent_context *) Z_OBJ_P(getThis());
+
+	ZVAL_COPY(&args[0], error);
+
+	fci.params = args;
+	fci.param_count = 1;
+	fci.retval = &result;
+	fci.no_separation = 1;
+
+	prev = TASK_G(current_context);
+	TASK_G(current_context) = context;
+
+	zend_call_function(&fci, &fcc);
+
+	TASK_G(current_context) = prev;
+
+	zval_ptr_dtor(&args[0]);
+	zval_ptr_dtor(&result);
+
+	if (UNEXPECTED(EG(exception))) {
+		concurrent_context_delegate_error(context);
+	}
 }
 
 ZEND_METHOD(Context, handleError)
@@ -540,7 +636,17 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_context_run, 0, 0, 1)
 	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_context_he, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_context_continue_success, 0, 0, 1)
+	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_context_continue_error, 0, 0, 2)
+	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
+	ZEND_ARG_OBJ_INFO(0, error, Throwable, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_context_handle_error, 0, 0, 1)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 0)
 ZEND_END_ARG_INFO()
 
@@ -566,7 +672,9 @@ static const zend_function_entry task_context_functions[] = {
 	ZEND_ME(Context, without, arginfo_context_without, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, withErrorHandler, arginfo_context_err, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, run, arginfo_context_run, ZEND_ACC_PUBLIC)
-	ZEND_ME(Context, handleError, arginfo_context_he, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, continueSuccess, arginfo_context_continue_success, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, continueError, arginfo_context_continue_error, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, handleError, arginfo_context_handle_error, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, var, arginfo_context_var, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, current, arginfo_context_current, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, inherit, arginfo_context_inherit, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)

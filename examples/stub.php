@@ -17,7 +17,11 @@ final class Context
     
     public function withErrorHandler(callable $handler): Context { }
     
-    public function run(callable $callback, ...$args): Context { }
+    public function run(callable $callback, ...$args) { }
+    
+    public function continueSuccess(callable $callback, $val = null): void { }
+    
+    public function continueError(callable $callback, \Throwable $e): void { }
     
     public function handleError(\Throwable $e): void { }
     

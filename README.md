@@ -28,16 +28,14 @@ class Example implements Awaitable
 {
     private $context;
     
-    public function __construct(?Context $context = null) {
+    public function __construct(?Context $context = null)
+    {
         $this->context = $context ?? Context::current();
     }
 
-    public function continueWith(callable $continuation): void {
-        try {
-            $this->context->run($continuation, null, 'DONE');
-        } catch (\Throwable $e) {
-            $this->context->handleError($e);
-        }
+    public function continueWith(callable $continuation): void
+    {
+        $this->context->continueSuccess($continuation, 'DONE');
     }
 }
 ```
@@ -116,7 +114,11 @@ final class Context
 
     public function withErrorHandler(callable $handler): Context { }
     
-    public function run(callable $callback, ...$args): Context { }
+    public function run(callable $callback, ...$args): mixed { }
+    
+    public function continueSuccess(callable $callback, $val = null): void { }
+    
+    public function continueError(callable $callback, \Throwable $e): void { }
     
     public function handleError(\Throwable $e): void { }
     

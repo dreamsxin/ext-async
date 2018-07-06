@@ -19,11 +19,7 @@ class Dummy implements Awaitable
 
     public function continueWith(callable $continuation): void
     {
-        try {
-            $this->context->run($continuation, null, $this->context->get($this->key));
-        } catch (\Throwable $e) {
-            $this->context->handleError($e);
-        }
+        $this->context->continueSuccess($continuation, $this->context->get($this->key));
     }
 }
 

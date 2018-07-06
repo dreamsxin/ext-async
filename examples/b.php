@@ -1,6 +1,7 @@
 <?php
 
 use Concurrent\Awaitable;
+use Concurrent\Context;
 use Concurrent\Task;
 use Concurrent\TaskScheduler;
 use React\EventLoop\Factory;
@@ -28,20 +29,23 @@ $scheduler->activator(function (TaskScheduler $scheduler) use ($loop) {
 class PromiseAdapter implements Awaitable
 {
     private $promise;
+    
+    private $context;
 
     public function __construct(PromiseInterface $promise)
     {
         $this->promise = $promise;
+        $this->context = Context::current();
     }
 
     public function continueWith(callable $continuation): void
     {
         $this->promise->done(function ($v) use ($continuation) {
             var_dump('RESOLVE => SUCCESS');
-            $continuation(null, $v);
+            $this->context->continueSuccess($continuation, $v);
         }, function ($e) use ($continuation) {
             var_dump('RESOLVE => ERROR');
-            $continuation(($e instanceof \Throwable) ? $e : new \Error((string) $e));
+            $this->context->continueError($continuation, ($e instanceof \Throwable) ? $e : new \Error((string) $e));
         });
     }
 }
@@ -52,19 +56,22 @@ $scheduler->adapter(function ($val) {
     return ($val instanceof PromiseInterface) ? new PromiseAdapter($val) : $val;
 });
 
-$a = new class($loop) implements Awaitable {
+class Example implements Awaitable {
 
     private $loop;
+    
+    private $context;
 
-    public function __construct(LoopInterface $loop)
+    public function __construct(LoopInterface $loop, ?Context $context = null)
     {
         $this->loop = $loop;
+        $this->context = $context ?? Context::current();
     }
 
     public function continueWith(callable $continuation): void
     {
         $this->loop->addTimer(.8, function () use ($continuation) {
-            $continuation(null, 'H :)');
+            $this->context->continueSuccess($continuation, 'H :)');
         });
     }
 };
@@ -78,9 +85,9 @@ $work = function (string $title): void {
 $scheduler->task($work, ['A']);
 $scheduler->task($work, ['B']);
 
-$scheduler->task(function (Awaitable $a) {
-    var_dump(Task::await($a));
-}, [$a]);
+$scheduler->task(function () use ($loop) {
+    var_dump(Task::await(new Example($loop)));
+});
 
 $scheduler->task(function () use ($defer) {
     var_dump(Task::await($defer->promise()));
