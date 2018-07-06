@@ -45,9 +45,9 @@ zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task)
 		return 0;
 	}
 
-	if (task->status == CONCURRENT_FIBER_STATUS_INIT) {
+	if (task->fiber.status == CONCURRENT_FIBER_STATUS_INIT) {
 		task->operation = CONCURRENT_TASK_OPERATION_START;
-	} else if (task->status == CONCURRENT_FIBER_STATUS_SUSPENDED) {
+	} else if (task->fiber.status == CONCURRENT_FIBER_STATUS_SUSPENDED) {
 		task->operation = CONCURRENT_TASK_OPERATION_RESUME;
 	} else {
 		return 0;
@@ -61,7 +61,7 @@ zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task)
 		scheduler->last = task;
 	}
 
-	GC_ADDREF(&task->std);
+	GC_ADDREF(&task->fiber.std);
 
 	scheduler->scheduled++;
 
@@ -110,7 +110,7 @@ static void concurrent_task_scheduler_object_destroy(zend_object *object)
 		scheduler->scheduled--;
 		scheduler->first = task->next;
 
-		OBJ_RELEASE(&task->std);
+		OBJ_RELEASE(&task->fiber.std);
 	}
 
 	if (scheduler->activator) {
@@ -195,27 +195,27 @@ ZEND_METHOD(TaskScheduler, task)
 	params = NULL;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
-		Z_PARAM_FUNC_EX(task->fci, task->fcc, 1, 0)
+		Z_PARAM_FUNC_EX(task->fiber.fci, task->fiber.fcc, 1, 0)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_ARRAY(params)
 	ZEND_PARSE_PARAMETERS_END();
 
-	task->fci.no_separation = 1;
+	task->fiber.fci.no_separation = 1;
 
 	if (params == NULL) {
-		task->fci.param_count = 0;
+		task->fiber.fci.param_count = 0;
 	} else {
-		zend_fcall_info_args(&task->fci, params);
+		zend_fcall_info_args(&task->fiber.fci, params);
 	}
 
-	Z_TRY_ADDREF_P(&task->fci.function_name);
+	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
 
 	task->context = scheduler->context;
 	GC_ADDREF(&task->context->std);
 
 	concurrent_task_scheduler_enqueue(task);
 
-	ZVAL_OBJ(&obj, &task->std);
+	ZVAL_OBJ(&obj, &task->fiber.std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
@@ -298,17 +298,17 @@ ZEND_METHOD(TaskScheduler, run)
 				ZVAL_OBJ(&task->result, EG(exception));
 				EG(exception) = NULL;
 
-				task->status = CONCURRENT_FIBER_STATUS_DEAD;
+				task->fiber.status = CONCURRENT_FIBER_STATUS_DEAD;
 			}
 
-			if (task->status == CONCURRENT_FIBER_STATUS_FINISHED) {
+			if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
 				concurrent_task_notify_success(task);
-			} else if (task->status == CONCURRENT_FIBER_STATUS_DEAD) {
+			} else if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
 				concurrent_task_notify_failure(task);
 			}
 		}
 
-		OBJ_RELEASE(&task->std);
+		OBJ_RELEASE(&task->fiber.std);
 	}
 
 	scheduler->last = NULL;

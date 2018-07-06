@@ -33,30 +33,8 @@ BEGIN_EXTERN_C()
 typedef struct _concurrent_task concurrent_task;
 
 struct _concurrent_task {
-	/* Task PHP object handle. */
-	zend_object std;
-
-	/* Status of the task, one of the CONCURRENT_FIBER_STATUS_* constants. */
-	zend_uchar status;
-
-	/* Callback and info / cache to be used when task is started. */
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
-
-	/* Native fiber context of this task, will be created during call to start(). */
-	concurrent_fiber_context fiber;
-
-	/* Pointer to the zval that receives a value sent into the task. */
-	zval *value;
-
-	/* Current Zend VM execute data being run by the task. */
-	zend_execute_data *exec;
-
-	/* VM stack being used by the task. */
-	zend_vm_stack stack;
-
-	/* Max size of the C stack being used by the task. */
-	size_t stack_size;
+	/* Embedded fiber. */
+	concurrent_fiber fiber;
 
 	/* Unique identifier of this task. */
 	size_t id;
