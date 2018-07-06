@@ -25,16 +25,16 @@ $scheduler->task(function () {
     var_dump($callback());
     
     $t = Task::async($callback);
-    $t->continueWith($cont);    
+    $t->continueWith($cont);
     
     var_dump(Task::await($t));
     
     $t->continueWith($cont);
 
     var_dump($callback());
-    
+
     var_dump(Task::await(Task::asyncWithContext(Context::inherit(['num' => 777]), $callback)));
-    
+
     var_dump($callback());
     
     try {

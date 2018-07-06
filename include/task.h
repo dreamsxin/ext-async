@@ -61,6 +61,8 @@ struct _concurrent_task {
 	concurrent_context *context;
 };
 
+extern const zend_uchar CONCURRENT_FIBER_TYPE_TASK;
+
 extern const zend_uchar CONCURRENT_TASK_OPERATION_NONE;
 extern const zend_uchar CONCURRENT_TASK_OPERATION_START;
 extern const zend_uchar CONCURRENT_TASK_OPERATION_RESUME;

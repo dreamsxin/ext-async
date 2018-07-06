@@ -17,13 +17,15 @@ final class Context
     
     public function run(callable $callback, ...$args): Context { }
     
+    public function handleError(\Throwable $e): void { }
+    
     public static function get(string $name) { }
+    
+    public static function current(): Context { }
     
     public static function inherit(?array $variables = null): Context { }
     
     public static function background(?array $variables = null): Context { }
-    
-    public static function handleError(\Throwable $e): void { }
 }
 
 final class Task implements Awaitable

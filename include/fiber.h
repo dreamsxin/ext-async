@@ -37,6 +37,9 @@ struct _concurrent_fiber {
 	/* Fiber PHP object handle. */
 	zend_object std;
 
+	/* Implementation-specific fiber type. */
+	zend_uchar type;
+
 	/* Status of the fiber, one of the CONCURRENT_FIBER_STATUS_* constants. */
 	zend_uchar status;
 
@@ -60,6 +63,8 @@ struct _concurrent_fiber {
 	size_t stack_size;
 };
 
+extern const zend_uchar CONCURRENT_FIBER_TYPE_DEFAULT;
+
 extern const zend_uchar CONCURRENT_FIBER_STATUS_INIT;
 extern const zend_uchar CONCURRENT_FIBER_STATUS_SUSPENDED;
 extern const zend_uchar CONCURRENT_FIBER_STATUS_RUNNING;
@@ -68,8 +73,8 @@ extern const zend_uchar CONCURRENT_FIBER_STATUS_DEAD;
 
 typedef void (* concurrent_fiber_func)();
 
-zend_bool concurrent_fiber_switch_to(concurrent_fiber *fiber);
 void concurrent_fiber_run();
+zend_bool concurrent_fiber_switch_to(concurrent_fiber *fiber);
 
 char *concurrent_fiber_backend_info();
 

@@ -156,6 +156,7 @@ ZEND_METHOD(TaskScheduler, __construct)
 	}
 
 	scheduler->context = concurrent_context_object_create(table);
+	scheduler->context->scheduler = scheduler;
 
 	if (ZEND_NUM_ARGS() > 1) {
 		handler = emalloc(sizeof(concurrent_context_error_handler));
@@ -261,15 +262,11 @@ ZEND_METHOD(TaskScheduler, adapter)
 ZEND_METHOD(TaskScheduler, run)
 {
 	concurrent_task_scheduler *scheduler;
-	concurrent_task_scheduler *prev;
 	concurrent_task *task;
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
 	ZEND_PARSE_PARAMETERS_NONE();
-
-	prev = TASK_G(scheduler);
-	TASK_G(scheduler) = scheduler;
 
 	scheduler->running = 1;
 	scheduler->activate = 0;
@@ -315,8 +312,6 @@ ZEND_METHOD(TaskScheduler, run)
 
 	scheduler->running = 0;
 	scheduler->activate = 1;
-
-	TASK_G(scheduler) = prev;
 }
 
 ZEND_METHOD(TaskScheduler, __wakeup)

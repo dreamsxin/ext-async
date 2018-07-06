@@ -34,9 +34,9 @@ var_dump(Task::isRunning());
 ?>
 --EXPECTF--
 bool(false)
+bool(false)
 bool(true)
-bool(true)
-bool(true)
+bool(false)
 bool(false)
 bool(true)
 bool(false)

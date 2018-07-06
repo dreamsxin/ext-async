@@ -14,7 +14,7 @@ $scheduler = new TaskScheduler(null, function (\Throwable $e) {
 });
 
 $scheduler->task(function () {
-	Context::handleError(new \Error('FOO!'));
+	Context::current()->handleError(new \Error('FOO!'));
 });
 
 var_dump('START');

@@ -21,6 +21,7 @@
 
 #include "php.h"
 
+typedef struct _concurrent_task_scheduler concurrent_task_scheduler;
 typedef struct _concurrent_context_error_handler concurrent_context_error_handler;
 
 BEGIN_EXTERN_C()
@@ -33,6 +34,8 @@ struct _concurrent_context {
 	zend_object std;
 
 	concurrent_context *parent;
+
+	concurrent_task_scheduler *scheduler;
 
 	concurrent_context_error_handler *error_handler;
 

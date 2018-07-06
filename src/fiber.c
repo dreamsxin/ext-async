@@ -30,6 +30,8 @@ ZEND_DECLARE_MODULE_GLOBALS(task)
 
 zend_class_entry *concurrent_fiber_ce;
 
+const zend_uchar CONCURRENT_FIBER_TYPE_DEFAULT = 0;
+
 const zend_uchar CONCURRENT_FIBER_STATUS_INIT = 0;
 const zend_uchar CONCURRENT_FIBER_STATUS_SUSPENDED = 1;
 const zend_uchar CONCURRENT_FIBER_STATUS_RUNNING = 2;
@@ -342,9 +344,13 @@ ZEND_METHOD(Fiber, throw)
 /* {{{ proto bool Fiber::isRunning() */
 ZEND_METHOD(Fiber, isRunning)
 {
+	concurrent_fiber *fiber;
+
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	RETURN_BOOL(TASK_G(current_fiber) != NULL);
+	fiber = TASK_G(current_fiber);
+
+	RETURN_BOOL(fiber != NULL && fiber->type == CONCURRENT_FIBER_TYPE_DEFAULT);
 }
 /* }}} */
 
