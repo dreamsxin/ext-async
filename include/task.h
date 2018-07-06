@@ -39,8 +39,8 @@ struct _concurrent_task {
 	/* Unique identifier of this task. */
 	size_t id;
 
-	/* Reference to the task scheduler being used to start or resume the task the next time. */
-	concurrent_task_scheduler *scheduler;
+	/* Async execution context provided to the task. */
+	concurrent_context *context;
 
 	/* Next task scheduled for execution. */
 	concurrent_task *next;
@@ -56,9 +56,6 @@ struct _concurrent_task {
 
 	/* Linked list of registered continuation callbacks. */
 	concurrent_task_continuation_cb *continuation;
-
-	/* Async execution context provided to the task. */
-	concurrent_context *context;
 };
 
 extern const zend_uchar CONCURRENT_FIBER_TYPE_TASK;

@@ -374,9 +374,8 @@ ZEND_METHOD(Task, async)
 
 	task = concurrent_task_object_create();
 	task->context = context;
-	task->scheduler = context->scheduler;
 
-	ZEND_ASSERT(task->scheduler != NULL);
+	ZEND_ASSERT(task->context->scheduler != NULL);
 
 	params = NULL;
 
@@ -435,9 +434,8 @@ ZEND_METHOD(Task, asyncWithContext)
 	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
 
 	task->context = (concurrent_context *) Z_OBJ_P(ctx);
-	task->scheduler = task->context->scheduler;
 
-	ZEND_ASSERT(task->scheduler != NULL);
+	ZEND_ASSERT(task->context->scheduler != NULL);
 
 	GC_ADDREF(&task->context->std);
 
@@ -454,6 +452,7 @@ ZEND_METHOD(Task, await)
 	concurrent_task *task;
 	concurrent_task *inner;
 	concurrent_context *context;
+	concurrent_task_scheduler *scheduler;
 	zend_execute_data *exec;
 	size_t stack_page_size;
 
@@ -479,6 +478,10 @@ ZEND_METHOD(Task, await)
 		return;
 	}
 
+	scheduler = task->context->scheduler;
+
+	ZEND_ASSERT(scheduler != NULL);
+
 	if (Z_TYPE_P(val) != IS_OBJECT) {
 		RETURN_ZVAL(val, 1, 0);
 	}
@@ -491,7 +494,7 @@ ZEND_METHOD(Task, await)
 
 		// Task-inlining optimization, avoids allocating a native fiber and stack for the awaited task.
 		if (inner->fiber.status == CONCURRENT_FIBER_STATUS_INIT && inner->fiber.stack_size == task->fiber.stack_size) {
-			if (inner->scheduler == task->scheduler) {
+			if (inner->context->scheduler == scheduler) {
 				inner->operation = CONCURRENT_TASK_OPERATION_NONE;
 
 				context = TASK_G(current_context);
@@ -538,12 +541,12 @@ ZEND_METHOD(Task, await)
 
 	// Attempt to adapt non-awaitable objects to awaitables.
 	if (instanceof_function_ex(ce, concurrent_awaitable_ce, 1) != 1) {
-		if (task->scheduler->adapter) {
-			task->scheduler->adapter_fci.param_count = 1;
-			task->scheduler->adapter_fci.params = val;
-			task->scheduler->adapter_fci.retval = &retval;
+		if (scheduler->adapter) {
+			scheduler->adapter_fci.param_count = 1;
+			scheduler->adapter_fci.params = val;
+			scheduler->adapter_fci.retval = &retval;
 
-			zend_call_function(&task->scheduler->adapter_fci, &task->scheduler->adapter_fcc);
+			zend_call_function(&scheduler->adapter_fci, &scheduler->adapter_fcc);
 			zval_ptr_dtor(val);
 
 			ZVAL_COPY(val, &retval);

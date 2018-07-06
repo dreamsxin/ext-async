@@ -39,7 +39,7 @@ zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task)
 	zval obj;
 	zval retval;
 
-	scheduler = task->scheduler;
+	scheduler = task->context->scheduler;
 
 	if (UNEXPECTED(scheduler == NULL)) {
 		return 0;
@@ -191,7 +191,7 @@ ZEND_METHOD(TaskScheduler, task)
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
 	task = concurrent_task_object_create();
-	task->scheduler = scheduler;
+	task->context = scheduler->context;
 
 	params = NULL;
 
@@ -211,7 +211,6 @@ ZEND_METHOD(TaskScheduler, task)
 
 	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
 
-	task->context = scheduler->context;
 	GC_ADDREF(&task->context->std);
 
 	concurrent_task_scheduler_enqueue(task);
