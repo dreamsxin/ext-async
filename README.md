@@ -116,12 +116,6 @@ final class Context
     
     public function run(callable $callback, ...$args): mixed { }
     
-    public function continueSuccess(callable $callback, $val = null): void { }
-    
-    public function continueError(callable $callback, \Throwable $e): void { }
-    
-    public function handleError(\Throwable $e): void { }
-    
     public static function var(string $name): mixed { }
     
     public static function current(): Context { }

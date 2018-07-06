@@ -371,23 +371,6 @@ ZEND_METHOD(Context, run)
 	RETURN_ZVAL(&result, 1, 1);
 }
 
-ZEND_METHOD(Context, handleError)
-{
-	concurrent_context *context;
-
-	zval *error;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_ZVAL(error)
-	ZEND_PARSE_PARAMETERS_END();
-
-	context = (concurrent_context *) Z_OBJ_P(getThis());
-
-	zend_throw_exception_object(error);
-
-	concurrent_context_delegate_error(context);
-}
-
 ZEND_METHOD(Context, var)
 {
 	concurrent_context *context;
@@ -546,10 +529,6 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_context_run, 0, 0, 1)
 	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_context_handle_error, 0, 0, 1)
-	ZEND_ARG_OBJ_INFO(0, error, Throwable, 0)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_INFO_EX(arginfo_context_var, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, var, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -572,7 +551,6 @@ static const zend_function_entry task_context_functions[] = {
 	ZEND_ME(Context, without, arginfo_context_without, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, withErrorHandler, arginfo_context_err, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, run, arginfo_context_run, ZEND_ACC_PUBLIC)
-	ZEND_ME(Context, handleError, arginfo_context_handle_error, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, var, arginfo_context_var, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, current, arginfo_context_current, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, inherit, arginfo_context_inherit, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)

@@ -13,8 +13,8 @@ $scheduler = new TaskScheduler(null, function (\Throwable $e) {
     var_dump('ROOT', get_class($e), $e->getMessage());
 });
 
-$scheduler->task(function () {
-	Context::current()->handleError(new \Error('FOO!'));
+$scheduler->task(function () {})->continueWith(function () {
+    throw new \Error('FOO!');
 });
 
 var_dump('START');
