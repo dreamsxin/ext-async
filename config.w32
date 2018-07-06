@@ -12,6 +12,7 @@ if (PHP_TASK != 'no') {
 		'src\\fiber_winfib.c',
 		'src\\awaitable.c',
 		'src\\context.c',
+		'src\\deferred.c',
 		'src\\task.c',
 		'src\\task_scheduler.c'
 	];
@@ -20,6 +21,7 @@ if (PHP_TASK != 'no') {
 		'include\\fiber.h',
 		'include\\awaitable.h',
 		'include\\context.h',
+		'include\\deferred.h',
 		'include\\task.h',
 		'include\\task_scheduler.h'
 	];

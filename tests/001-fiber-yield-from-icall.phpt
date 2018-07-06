@@ -28,7 +28,7 @@ var_dump($f2->resume(4));
 var_dump($f->resume(4));
 var_dump($f2->resume(6));
 ?>
---EXPECTF--
+--EXPECT--
 string(1) "a"
 int(1)
 string(1) "b"

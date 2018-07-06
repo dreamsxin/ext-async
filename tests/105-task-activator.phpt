@@ -33,7 +33,7 @@ $scheduler->task(function () use ($work) {
 $scheduler->run();
 
 ?>
---EXPECTF--
+--EXPECT--
 string(9) "ACTIVATE!"
 string(1) "A"
 string(9) "ACTIVATE!"

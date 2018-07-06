@@ -18,7 +18,7 @@ $t = $scheduler->task(function () {
         var_dump(Context::var('num'));
     });
     
-        var_dump(Context::var('num'));
+    var_dump(Context::var('num'));
     
     $context = $context->without('num');
     
@@ -26,7 +26,7 @@ $t = $scheduler->task(function () {
         var_dump(Context::var('num'));
     });
     
-        var_dump(Context::var('num'));
+    var_dump(Context::var('num'));
 });
 
 $scheduler->run();

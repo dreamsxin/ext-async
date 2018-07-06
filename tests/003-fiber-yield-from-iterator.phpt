@@ -42,7 +42,7 @@ $f2->resume('Y');
 var_dump($f2->resume());
 
 ?>
---EXPECTF--
+--EXPECT--
 array(2) {
   [0]=>
   string(1) "A"

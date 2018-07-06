@@ -54,9 +54,10 @@ static PHP_GINIT_FUNCTION(task)
 
 PHP_MINIT_FUNCTION(task)
 {
-	concurrent_fiber_ce_register();
 	concurrent_awaitable_ce_register();
 	concurrent_context_ce_register();
+	concurrent_deferred_ce_register();
+	concurrent_fiber_ce_register();
 	concurrent_task_ce_register();
 	concurrent_task_scheduler_ce_register();
 

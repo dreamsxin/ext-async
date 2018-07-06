@@ -16,13 +16,10 @@ $scheduler->task(function () {
     
     var_dump(Task::await('B'));
     
-    var_dump(Task::await(new class() implements Awaitable {
-        public function continueWith(callable $continuation): void {
-            var_dump($continuation instanceof TaskContinuation);
-        
-            $continuation(null, 'C');
-        }
-    }));
+    $defer = new Deferred();
+    $defer->succeed('C');
+    
+    var_dump(Task::await($defer->awaitable()));
     
     var_dump(Task::await(Task::async(function (string $x): string {
         return $x;
@@ -40,10 +37,9 @@ $scheduler->task(function () {
 $scheduler->run();
 
 ?>
---EXPECTF--
+--EXPECT--
 string(1) "A"
 string(1) "B"
-bool(true)
 string(1) "C"
 string(1) "D"
 NULL

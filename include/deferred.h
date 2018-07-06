@@ -16,60 +16,55 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef PHP_TASK_H
-#define PHP_TASK_H
+#ifndef CONCURRENT_DEFERRED_H
+#define CONCURRENT_DEFERRED_H
 
-#include "awaitable.h"
-#include "context.h"
-#include "deferred.h"
-#include "fiber.h"
-#include "task.h"
-#include "task_scheduler.h"
+#include "php.h"
 
-extern zend_module_entry task_module_entry;
-#define phpext_task_ptr &task_module_entry
+typedef struct _concurrent_deferred_awaitable concurrent_deferred_awaitable;
+typedef struct _concurrent_deferred_continuation_cb concurrent_deferred_continuation_cb;
 
-#define PHP_TASK_VERSION "0.1.0"
+BEGIN_EXTERN_C()
 
-#ifdef PHP_WIN32
-# define TASK_API __declspec(dllexport)
-#elif defined(__GNUC__) && __GNUC__ >= 4
-# define TASK_API __attribute__ ((visibility("default")))
-#else
-# define TASK_API
-#endif
+extern zend_class_entry *concurrent_deferred_ce;
+extern zend_class_entry *concurrent_deferred_awaitable_ce;
 
-#ifdef ZTS
-#include "TSRM.h"
-#endif
+typedef struct _concurrent_deferred concurrent_deferred;
 
+struct _concurrent_deferred {
+	zend_object std;
 
-ZEND_BEGIN_MODULE_GLOBALS(task)
-	/* Root fiber context (main thread). */
-	concurrent_fiber_context root;
+	zend_uchar status;
 
-	/* Active fiber, NULL when in main thread. */
-	concurrent_fiber *current_fiber;
+	concurrent_context *context;
 
-	/* Active task context. */
-	concurrent_context *current_context;
+	zval result;
 
-	/* Default fiber C stack size. */
-	zend_long stack_size;
+	concurrent_deferred_continuation_cb *continuation;
+};
 
-	/* Error to be thrown into a fiber (will be populated by throw()). */
-	zval *error;
+extern const zend_uchar CONCURRENT_DEFERRED_STATUS_PENDING;
+extern const zend_uchar CONCURRENT_DEFERRED_STATUS_SUCCEEDED;
+extern const zend_uchar CONCURRENT_DEFERRED_STATUS_FAILED;
 
-	size_t counter;
+void concurrent_deferred_ce_register();
 
-ZEND_END_MODULE_GLOBALS(task)
+END_EXTERN_C()
 
-TASK_API ZEND_EXTERN_MODULE_GLOBALS(task)
-#define TASK_G(v) ZEND_MODULE_GLOBALS_ACCESSOR(task, v)
+struct _concurrent_deferred_awaitable {
+	zend_object std;
 
-#if defined(ZTS) && defined(COMPILE_DL_TASK)
-ZEND_TSRMLS_CACHE_EXTERN()
-#endif
+	concurrent_deferred *defer;
+};
+
+struct _concurrent_deferred_continuation_cb {
+	/* Callback and info / cache of an continuation callback. */
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+
+	/* Points to next callback, NULL if this is the last callback. */
+	concurrent_deferred_continuation_cb *next;
+};
 
 #endif
 

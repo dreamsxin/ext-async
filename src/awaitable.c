@@ -21,6 +21,27 @@
 zend_class_entry *concurrent_awaitable_ce;
 
 
+static int concurrent_awaitable_implement_interfac(zend_class_entry *interface, zend_class_entry *implementor)
+{
+	if (implementor == concurrent_deferred_awaitable_ce) {
+		return SUCCESS;
+	}
+
+	if (implementor == concurrent_task_ce) {
+		return SUCCESS;
+	}
+
+	zend_error_noreturn(
+		E_CORE_ERROR,
+		"Class %s must not implement interface %s, create an awaitable using %s instead",
+		ZSTR_VAL(implementor->name),
+		ZSTR_VAL(interface->name),
+		ZSTR_VAL(concurrent_deferred_ce->name)
+	);
+
+	return FAILURE;
+}
+
 ZEND_METHOD(Awaitable, continueWith) { }
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_awaitable_continue_with, 0, 0, 1)
@@ -39,6 +60,7 @@ void concurrent_awaitable_ce_register()
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Awaitable", awaitable_functions);
 	concurrent_awaitable_ce = zend_register_internal_interface(&ce);
+	concurrent_awaitable_ce->interface_gets_implemented = concurrent_awaitable_implement_interfac;
 }
 
 

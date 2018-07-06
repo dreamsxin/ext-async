@@ -262,7 +262,6 @@ ZEND_METHOD(Task, __construct)
 ZEND_METHOD(Task, continueWith)
 {
 	concurrent_task *task;
-	concurrent_fiber *fiber;
 	concurrent_task_continuation_cb *cont;
 	concurrent_task_continuation_cb *tmp;
 
@@ -280,9 +279,6 @@ ZEND_METHOD(Task, continueWith)
 	fci.no_separation = 1;
 
 	if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
-		fiber = TASK_G(current_fiber);
-		TASK_G(current_fiber) = &task->fiber;
-
 		ZVAL_NULL(&args[0]);
 		ZVAL_COPY(&args[1], &task->result);
 
@@ -298,15 +294,10 @@ ZEND_METHOD(Task, continueWith)
 			concurrent_context_delegate_error(task->context);
 		}
 
-		TASK_G(current_fiber) = fiber;
-
 		return;
 	}
 
 	if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
-		fiber = TASK_G(current_fiber);
-		TASK_G(current_fiber) = &task->fiber;
-
 		ZVAL_COPY(&args[0], &task->result);
 
 		fci.param_count = 1;
@@ -320,8 +311,6 @@ ZEND_METHOD(Task, continueWith)
 		if (UNEXPECTED(EG(exception))) {
 			concurrent_context_delegate_error(task->context);
 		}
-
-		TASK_G(current_fiber) = fiber;
 
 		return;
 	}
@@ -577,6 +566,17 @@ ZEND_METHOD(Task, await)
 	if (task->operation == CONCURRENT_TASK_OPERATION_RESUME) {
 		task->operation = CONCURRENT_TASK_OPERATION_NONE;
 		task->fiber.value = value;
+
+		if (Z_TYPE_P(&task->error) != IS_UNDEF) {
+			error = task->error;
+			ZVAL_UNDEF(&task->error);
+
+			exec = EG(current_execute_data);
+
+			exec->opline--;
+			zend_throw_exception_internal(&error);
+			exec->opline++;
+		}
 
 		return;
 	}

@@ -33,7 +33,7 @@ $a = null;
 echo "TERMINATED\n";
 
 ?>
---EXPECTF--
+--EXPECT--
 START
 YIELD
 RESUME

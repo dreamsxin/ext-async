@@ -30,6 +30,8 @@ typedef struct _concurrent_task_scheduler concurrent_task_scheduler;
 
 BEGIN_EXTERN_C()
 
+extern zend_class_entry *concurrent_task_ce;
+
 typedef struct _concurrent_task concurrent_task;
 
 struct _concurrent_task {

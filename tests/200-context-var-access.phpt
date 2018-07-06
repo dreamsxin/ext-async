@@ -48,7 +48,7 @@ $scheduler->task(function () {
 $scheduler->run();
 
 ?>
---EXPECTF--
+--EXPECT--
 NULL
 NULL
 string(3) "baz"

@@ -18,6 +18,7 @@ if test "$PHP_TASK" != "no"; then
     src/fiber_stack.c \
     src/awaitable.c \
     src/context.c \
+    src/deferred.c \
     src/task.c \
     src/task_scheduler.c"
   

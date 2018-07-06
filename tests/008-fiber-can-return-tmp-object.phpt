@@ -25,7 +25,7 @@ $a = null;
 echo "TERMINATED\n";
 
 ?>
---EXPECTF--
+--EXPECT--
 START
 CREATE OBJECT
 DONE

@@ -24,7 +24,7 @@ $scheduler->run();
 var_dump('DONE');
 
 ?>
---EXPECTF--
+--EXPECT--
 string(5) "START"
 string(4) "ROOT"
 string(5) "Error"

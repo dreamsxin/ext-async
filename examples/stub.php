@@ -34,6 +34,22 @@ final class Context
     public static function background(?array $variables = null): Context { }
 }
 
+final class Deferred
+{
+    public function __construct(?Context $context = null) { }
+    
+    public function awaitable(): Awaitable { }
+    
+    public function succeed($val = null): void { }
+    
+    public function fail(\Throwable $e): void { }
+}
+
+final class DeferredAwaitable implements Awaitable
+{
+    public function continueWith(callable $continuation): void { }
+}
+
 final class Task implements Awaitable
 {
     public function continueWith(callable $continuation): void { }

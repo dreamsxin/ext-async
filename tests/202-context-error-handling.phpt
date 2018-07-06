@@ -30,7 +30,7 @@ $scheduler->run();
 var_dump('DONE');
 
 ?>
---EXPECTF--
+--EXPECT--
 string(5) "START"
 string(5) "Error"
 string(4) "FOO!"

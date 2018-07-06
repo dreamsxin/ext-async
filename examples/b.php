@@ -1,19 +1,14 @@
 <?php
 
-use Concurrent\Awaitable;
-use Concurrent\Context;
+use Concurrent\Deferred;
 use Concurrent\Task;
 use Concurrent\TaskScheduler;
-use React\EventLoop\Factory;
-use React\EventLoop\LoopInterface;
-use React\Promise\Deferred;
-use React\Promise\PromiseInterface;
 
 require_once __DIR__ . '/vendor/autoload.php';
 
-// Event loop integration using future ticks and a scheduler activator.
+// Event loop and promise API integration using a scheduler activator and an awaitable adapter.
 
-$loop = Factory::create();
+$loop = \React\EventLoop\Factory::create();
 
 $scheduler = new TaskScheduler();
 
@@ -26,57 +21,25 @@ $scheduler->activator(function (TaskScheduler $scheduler) use ($loop) {
     ]);
 });
 
-class PromiseAdapter implements Awaitable
-{
-    private $promise;
-    
-    private $context;
-
-    public function __construct(PromiseInterface $promise)
-    {
-        $this->promise = $promise;
-        $this->context = Context::current();
-    }
-
-    public function continueWith(callable $continuation): void
-    {
-        $this->promise->done(function ($v) use ($continuation) {
-            var_dump('RESOLVE => SUCCESS');
-            $this->context->continueSuccess($continuation, $v);
-        }, function ($e) use ($continuation) {
-            var_dump('RESOLVE => ERROR');
-            $this->context->continueError($continuation, ($e instanceof \Throwable) ? $e : new \Error((string) $e));
-        });
-    }
-}
-
 $scheduler->adapter(function ($val) {
     var_dump('ADAPT <= ' . (is_object($val) ? get_class($val) : gettype($val)));
     
-    return ($val instanceof PromiseInterface) ? new PromiseAdapter($val) : $val;
+    if (!$val instanceof \React\Promise\PromiseInterface) {
+        return $val;
+    }
+    
+    $defer = new Deferred();
+    
+    $val->done(function ($v) use ($defer) {
+        $defer->succeed($v);
+    }, function ($e) use ($defer) {
+        $defer->fail(($e instanceof \Throwable) ? $e : new \Error((string) $e));
+    });
+    
+    return $defer->awaitable();
 });
 
-class Example implements Awaitable {
-
-    private $loop;
-    
-    private $context;
-
-    public function __construct(LoopInterface $loop, ?Context $context = null)
-    {
-        $this->loop = $loop;
-        $this->context = $context ?? Context::current();
-    }
-
-    public function continueWith(callable $continuation): void
-    {
-        $this->loop->addTimer(.8, function () use ($continuation) {
-            $this->context->continueSuccess($continuation, 'H :)');
-        });
-    }
-};
-
-$defer = new Deferred();
+$defer = new \React\Promise\Deferred();
 
 $work = function (string $title): void {
     var_dump($title);
@@ -86,7 +49,13 @@ $scheduler->task($work, ['A']);
 $scheduler->task($work, ['B']);
 
 $scheduler->task(function () use ($loop) {
-    var_dump(Task::await(new Example($loop)));
+    $defer = new Deferred();
+    
+    $loop->addTimer(.8, function () use ($defer) {
+        $defer->succeed('H :)');
+    });
+    
+    var_dump(Task::await($defer->awaitable()));
 });
 
 $scheduler->task(function () use ($defer) {

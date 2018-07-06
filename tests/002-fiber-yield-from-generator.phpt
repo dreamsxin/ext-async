@@ -30,7 +30,7 @@ var_dump($f->resume('B'));
 var_dump($f->resume('C'));
 var_dump($f2->resume('Z'));
 ?>
---EXPECTF--
+--EXPECT--
 int(0)
 int(0)
 int(1)

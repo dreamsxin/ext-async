@@ -22,7 +22,7 @@ $f->resume();
 var_dump(Fiber::isRunning());
 
 ?>
---EXPECTF--
+--EXPECT--
 bool(false)
 bool(true)
 bool(false)

@@ -36,7 +36,7 @@ $scheduler->run();
 var_dump(count($scheduler));
 
 ?>
---EXPECTF--
+--EXPECT--
 int(1)
 bool(true)
 string(1) "A"

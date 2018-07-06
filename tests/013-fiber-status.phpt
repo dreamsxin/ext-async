@@ -38,7 +38,7 @@ try {
 var_dump($f->status() == Fiber::STATUS_DEAD);
 
 ?>
---EXPECTF--
+--EXPECT--
 bool(true)
 bool(true)
 bool(true)

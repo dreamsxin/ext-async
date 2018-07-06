@@ -1,37 +1,22 @@
 <?php
 
-use Concurrent\Awaitable;
-use Concurrent\Context;
+use Concurrent\Deferred;
 use Concurrent\Task;
 use Concurrent\TaskScheduler;
-
-class Dummy implements Awaitable
-{
-    private $key;
-    
-    private $context;
-
-    public function __construct(string $key, ?Context $context = null)
-    {
-        $this->key = $key;
-        $this->context = $context ?? Context::current();
-    }
-
-    public function continueWith(callable $continuation): void
-    {
-        $this->context->continueSuccess($continuation, $this->context->get($this->key));
-    }
-}
 
 $scheduler = new TaskScheduler();
 
 $scheduler->task(function (): int {
-    $context = Context::inherit([
-        'result' => 321
-    ]);
-    
-    $t = Task::asyncWithContext($context, function (): int {
-        return max(123, Task::await(new Dummy('result')));
+    $t = Task::async(function (): int {
+        $defer = new Deferred();
+        
+        $defer->awaitable()->continueWith(function (?\Throwable $e, $v = null) {
+            var_dump('DEFERRED', $e, $v);
+        });
+        
+        $defer->succeed(321);
+        
+        return max(123, Task::await($defer->awaitable()));
     });
     
     return 2 * Task::await($t);

@@ -26,7 +26,7 @@ $t->continueWith(function () {
 });
 
 ?>
---EXPECTF--
+--EXPECT--
 string(5) "Error"
 string(4) "FOO!"
 string(9) "Exception"

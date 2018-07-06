@@ -32,7 +32,7 @@ $f->start();
 var_dump(Task::isRunning());
 
 ?>
---EXPECTF--
+--EXPECT--
 bool(false)
 bool(false)
 bool(true)

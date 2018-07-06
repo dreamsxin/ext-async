@@ -9,13 +9,7 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$a = new class() implements Awaitable {
-   public $continuation;
-   
-   public function continueWith(callable $continuation) {
-       $this->continuation = $continuation;
-   }
-};
+$defer = null;
 
 $scheduler = new TaskScheduler();
 
@@ -27,8 +21,10 @@ $scheduler->task(function () {
     });
 });
 
-$scheduler->task(function () use ($a) {
-    var_dump(Task::await($a));
+$scheduler->task(function () use (& $defer) {
+    $defer = new Deferred();
+
+    var_dump(Task::await($defer->awaitable()));
 });
 
 $scheduler->task(function () {
@@ -41,10 +37,10 @@ $scheduler->task(function () {
 
 $scheduler->run();
 
-var_dump($a->continuation instanceof TaskContinuation);
+var_dump($defer instanceof Deferred);
 var_dump(count($scheduler));
 
-($a->continuation)(null, 'X');
+$defer->succeed('X');
 
 var_dump(count($scheduler));
 
@@ -53,7 +49,7 @@ $scheduler->run();
 var_dump(count($scheduler));
 
 ?>
---EXPECTF--
+--EXPECT--
 string(1) "A"
 string(1) "B"
 string(1) "C"

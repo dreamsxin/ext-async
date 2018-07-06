@@ -32,7 +32,7 @@ $scheduler->run();
 var_dump(count($scheduler));
 
 ?>
---EXPECTF--
+--EXPECT--
 int(0)
 bool(true)
 int(2)

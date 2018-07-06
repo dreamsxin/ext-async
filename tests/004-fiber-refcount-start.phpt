@@ -29,7 +29,7 @@ $a = null;
 echo "TERMINATED\n";
 
 ?>
---EXPECTF--
+--EXPECT--
 START
 UNSET
 COMPLETED

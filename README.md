@@ -8,7 +8,7 @@ The task extension exposes a public API that can be used to create, run and inte
 
 ### Awaitable
 
-Interface to be implemented by userland classes that want to provide some async operation that can be awaited by tasks. The `$continuation` callback takes a `Throwable` as first argument when the operation has failed (second argument must be optional), successful operations pass `null` as first argument and the result as second argument.
+Interface that is exposed to userland classes by async operations that can be awaited by tasks. The `$continuation` callback takes a `Throwable` as first argument when the operation has failed (second argument must be optional), successful operations pass `null` as first argument and the result as second argument.
 
 ```php
 namespace Concurrent;
@@ -19,24 +19,24 @@ interface Awaitable
 }
 ```
 
-Neighter continuation callbacks nor `continueWith()` must throw an error. If an error is thrown it must be handled using the `Context` API. This requires every implementation of `Awaitable` to keep a reference to a `Context` (usually set when the awaitable is created).
+This interface cannot be implemented directly by userland classes, implementations are provided by `Deferred` and `Task`.
+
+### Deferred
+
+A deferred is a placeholder for an async operation that can be succeeded or failed from userland. It can be used to implement combinator function that operate on multiple `Awaitable` and expose a single `Awaitable` as result. The value returned from `awaitable()` is meant to be consumed by other tasks (or deferreds). The `Deferred` object itself must be kept private to the async operation because it can eighter succeed or fail the awaitable.
 
 ```php
 namespace Concurrent;
 
-class Example implements Awaitable
+final class Deferred
 {
-    private $context;
+    public function __construct(?Context $context = null) { }
     
-    public function __construct(?Context $context = null)
-    {
-        $this->context = $context ?? Context::current();
-    }
-
-    public function continueWith(callable $continuation): void
-    {
-        $this->context->continueSuccess($continuation, 'DONE');
-    }
+    public function awaitable(): Awaitable { }
+    
+    public function succeed($val = null): void { }
+    
+    public function fail(\Throwable $e): void { }
 }
 ```
 
@@ -106,7 +106,7 @@ namespace Concurrent;
 
 final class Context
 {
-    public function get(string $name) { }
+    public function get(string $name): mixed { }
     
     public function with(string $var, $value): Context { }
     

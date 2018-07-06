@@ -56,7 +56,7 @@ $scheduler->task(function () use ($e) {
 $scheduler->run();
 
 ?>
---EXPECTF--
+--EXPECT--
 string(6) "Fail 1"
 NULL
 string(6) "Fail 1"

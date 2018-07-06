@@ -23,11 +23,10 @@ $scheduler->adapter(function ($v) {
     }
     
     if ($v instanceof \Exception) {
-        return new class() implements Awaitable {
-            public function continueWith(callable $c) {
-                $c(null, 'Done :)');
-            }
-        };
+    	$defer = new Deferred();
+    	$defer->succeed('Done :)');
+    	
+    	return $defer->awaitable();
     }
     
     return $v;
@@ -56,7 +55,7 @@ $scheduler->task(function () {
 $scheduler->run();
 
 ?>
---EXPECTF--
+--EXPECT--
 int(321)
 string(5) "ADAPT"
 bool(true)

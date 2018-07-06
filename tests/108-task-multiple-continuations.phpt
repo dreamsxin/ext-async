@@ -30,7 +30,7 @@ $scheduler->run();
 $t->continueWith($c);
 
 ?>
---EXPECTF--
+--EXPECT--
 NULL
 int(7)
 NULL

@@ -33,7 +33,7 @@ $scheduler->task(function () {
 $scheduler->run();
 
 ?>
---EXPECTF--
+--EXPECT--
 bool(true)
 bool(true)
 bool(false)
