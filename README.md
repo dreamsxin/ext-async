@@ -15,7 +15,30 @@ namespace Concurrent;
 
 interface Awaitable
 {
-    public function continueWith(callable<?\Throwable, mixed = null> $continuation): void;
+    public function continueWith(callable(?\Throwable, mixed = null) $continuation): void;
+}
+```
+
+Neighter continuation callbacks nor `continueWith()` must throw an error. If an error is thrown it must be handled using the `Context` API. This requires every implementation of `Awaitable` to keep a reference to a `Context` (usually set when the awaitable is created).
+
+```php
+namespace Concurrent;
+
+class Example implements Awaitable
+{
+    private $context;
+    
+    public function __construct(?Context $context = null) {
+        $this->context = $context ?? Context::current();
+    }
+
+    public function continueWith(callable $continuation): void {
+        try {
+            $this->context->run($continuation, null, 'DONE');
+        } catch (\Throwable $e) {
+            $this->context->handleError($e);
+        }
+    }
 }
 ```
 
@@ -28,7 +51,7 @@ namespace Concurrent;
 
 final class Task implements Awaitable
 {
-    public function continueWith(callable<?\Throwable, mixed = null> $continuation): void { }
+    public function continueWith(callable(?\Throwable, mixed = null) $continuation): void { }
     
     public static function isRunning(): bool { }
     
@@ -58,7 +81,7 @@ namespace Concurrent;
 
 final class TaskScheduler implements \Countable
 {
-    public function __construct(?array $context = null, ?callable<\Throwable> $errorHandler = null) { }
+    public function __construct(?array $context = null, ?callable(\Throwable) $errorHandler = null) { }
 
     public function count(): int { }
     
@@ -67,16 +90,16 @@ final class TaskScheduler implements \Countable
     public function run(): void { }
     
     /* Used for event loop integration, should be dropped if merged into PHP core. */
-    public function activator(callable<TaskScheduler> $callback): void { }
+    public function activator(callable(TaskScheduler) $callback): void { }
     
     /* Used for promise-API bridging, should be dropped if merged into PHP core. */
-    public function adapter(callable<mixed> $callback): void { }
+    public function adapter(callable(mixed) $callback): void { }
 }
 ```
 
 ### Context
 
-Each task runs in a `Context` that provides access to task-local variables. These variables are are also available to every `Task` re-using the same context or an inherited context. The `TaskScheduler` creates an implicit root context that every created task will use by default. You can access a contextual value by calling `Context::get()` which will lookup the value in the context of the running task. The lookup call will return `null` when the value is not set in the active context or no task context is active during the method call.
+Each task runs in a `Context` that provides access to task-local variables. These variables are are also available to every `Task` re-using the same context or an inherited context. The `TaskScheduler` creates an implicit root context that every created task will use by default. You can access a contextual value by calling `Context::var()` which will lookup the value in the current active context. The lookup call will return `null` when the value is not set in the active context or no context is active during the method call.
 
 You need to inherit a new context whenever you want to set task-local variables. In order for your new context to be used you need have to pass it to a task using `Task::asyncWithContext()` or you can enable it for the duration of a function / method call by calling `run()`. The later is preferred if your code is executing in a single task and you just want to add some variables.
 
