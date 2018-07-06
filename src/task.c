@@ -43,14 +43,14 @@ static zend_object *concurrent_task_continuation_object_create(concurrent_task *
 void concurrent_task_start(concurrent_task *task)
 {
 	task->operation = CONCURRENT_TASK_OPERATION_NONE;
-	task->fiber.fiber = concurrent_fiber_create_context();
+	task->fiber.context = concurrent_fiber_create_context();
 
-	if (task->fiber.fiber == NULL) {
+	if (task->fiber.context == NULL) {
 		zend_throw_error(NULL, "Failed to create native fiber context");
 		return;
 	}
 
-	if (!concurrent_fiber_create(task->fiber.fiber, concurrent_fiber_run, task->fiber.stack_size)) {
+	if (!concurrent_fiber_create(task->fiber.context, concurrent_fiber_run, task->fiber.stack_size)) {
 		zend_throw_error(NULL, "Failed to create native fiber");
 		return;
 	}
@@ -250,7 +250,7 @@ static void concurrent_task_object_destroy(zend_object *object)
 
 	OBJ_RELEASE(&task->context->std);
 
-	concurrent_fiber_destroy(task->fiber.fiber);
+	concurrent_fiber_destroy(task->fiber.context);
 
 	zend_object_std_dtor(&task->fiber.std);
 }
@@ -583,7 +583,7 @@ ZEND_METHOD(Task, await)
 	task->fiber.status = CONCURRENT_FIBER_STATUS_SUSPENDED;
 
 	CONCURRENT_FIBER_BACKUP_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
-	concurrent_fiber_yield(task->fiber.fiber);
+	concurrent_fiber_yield(task->fiber.context);
 	CONCURRENT_FIBER_RESTORE_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
 
 	task->fiber.value = value;
