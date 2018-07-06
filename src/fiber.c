@@ -30,6 +30,12 @@ ZEND_DECLARE_MODULE_GLOBALS(task)
 
 zend_class_entry *concurrent_fiber_ce;
 
+const zend_uchar CONCURRENT_FIBER_STATUS_INIT = 0;
+const zend_uchar CONCURRENT_FIBER_STATUS_SUSPENDED = 1;
+const zend_uchar CONCURRENT_FIBER_STATUS_RUNNING = 2;
+const zend_uchar CONCURRENT_FIBER_STATUS_FINISHED = 3;
+const zend_uchar CONCURRENT_FIBER_STATUS_DEAD = 4;
+
 static zend_object_handlers concurrent_fiber_handlers;
 
 static zend_op_array fiber_run_func;
@@ -120,7 +126,7 @@ static int fiber_run_opcode_handler(zend_execute_data *exec)
 	fiber->status = CONCURRENT_FIBER_STATUS_RUNNING;
 	fiber->fci.retval = &retval;
 
-	if (zend_call_function(&fiber->fci, &fiber->fci_cache) == SUCCESS) {
+	if (zend_call_function(&fiber->fci, &fiber->fcc) == SUCCESS) {
 		if (fiber->value != NULL && !EG(exception)) {
 			ZVAL_ZVAL(fiber->value, &retval, 0, 1);
 		}
@@ -186,7 +192,7 @@ ZEND_METHOD(Fiber, __construct)
 	stack_size = TASK_G(stack_size);
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
-		Z_PARAM_FUNC_EX(fiber->fci, fiber->fci_cache, 1, 0)
+		Z_PARAM_FUNC_EX(fiber->fci, fiber->fcc, 1, 0)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_LONG(stack_size)
 	ZEND_PARSE_PARAMETERS_END();
@@ -197,7 +203,6 @@ ZEND_METHOD(Fiber, __construct)
 
 	fiber->status = CONCURRENT_FIBER_STATUS_INIT;
 	fiber->stack_size = stack_size;
-	fiber->fci.object = fiber->fci_cache.object;
 
 	// Keep a reference to closures or callable objects as long as the fiber lives.
 	Z_TRY_ADDREF_P(&fiber->fci.function_name);

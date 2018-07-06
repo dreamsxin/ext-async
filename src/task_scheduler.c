@@ -195,7 +195,7 @@ ZEND_METHOD(TaskScheduler, task)
 	params = NULL;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
-		Z_PARAM_FUNC_EX(task->fci, task->fci_cache, 1, 0)
+		Z_PARAM_FUNC_EX(task->fci, task->fcc, 1, 0)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_ARRAY(params)
 	ZEND_PARSE_PARAMETERS_END();

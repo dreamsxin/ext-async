@@ -42,7 +42,7 @@ struct _concurrent_fiber {
 
 	/* Callback and info / cache to be used when fiber is started. */
 	zend_fcall_info fci;
-	zend_fcall_info_cache fci_cache;
+	zend_fcall_info_cache fcc;
 
 	/* Native fiber context of this fiber, will be created during call to start(). */
 	concurrent_fiber_context fiber;
@@ -60,11 +60,11 @@ struct _concurrent_fiber {
 	size_t stack_size;
 };
 
-static const zend_uchar CONCURRENT_FIBER_STATUS_INIT = 0;
-static const zend_uchar CONCURRENT_FIBER_STATUS_SUSPENDED = 1;
-static const zend_uchar CONCURRENT_FIBER_STATUS_RUNNING = 2;
-static const zend_uchar CONCURRENT_FIBER_STATUS_FINISHED = 3;
-static const zend_uchar CONCURRENT_FIBER_STATUS_DEAD = 4;
+extern const zend_uchar CONCURRENT_FIBER_STATUS_INIT;
+extern const zend_uchar CONCURRENT_FIBER_STATUS_SUSPENDED;
+extern const zend_uchar CONCURRENT_FIBER_STATUS_RUNNING;
+extern const zend_uchar CONCURRENT_FIBER_STATUS_FINISHED;
+extern const zend_uchar CONCURRENT_FIBER_STATUS_DEAD;
 
 typedef void (* concurrent_fiber_func)();
 

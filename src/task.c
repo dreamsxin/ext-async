@@ -30,6 +30,10 @@ ZEND_DECLARE_MODULE_GLOBALS(task)
 zend_class_entry *concurrent_task_ce;
 zend_class_entry *concurrent_task_continuation_ce;
 
+const zend_uchar CONCURRENT_TASK_OPERATION_NONE = 0;
+const zend_uchar CONCURRENT_TASK_OPERATION_START = 1;
+const zend_uchar CONCURRENT_TASK_OPERATION_RESUME = 2;
+
 static zend_object_handlers concurrent_task_handlers;
 static zend_object_handlers concurrent_task_continuation_handlers;
 
@@ -373,7 +377,7 @@ ZEND_METHOD(Task, async)
 	params = NULL;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
-		Z_PARAM_FUNC_EX(task->fci, task->fci_cache, 1, 0)
+		Z_PARAM_FUNC_EX(task->fci, task->fcc, 1, 0)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_ARRAY(params)
 	ZEND_PARSE_PARAMETERS_END();
@@ -421,7 +425,7 @@ ZEND_METHOD(Task, asyncWithContext)
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 3)
 		Z_PARAM_ZVAL(ctx)
-		Z_PARAM_FUNC_EX(task->fci, task->fci_cache, 1, 0)
+		Z_PARAM_FUNC_EX(task->fci, task->fcc, 1, 0)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_ARRAY(params)
 	ZEND_PARSE_PARAMETERS_END();
@@ -497,7 +501,7 @@ ZEND_METHOD(Task, await)
 
 				inner->fci.retval = &inner->result;
 
-				zend_call_function(&inner->fci, &inner->fci_cache);
+				zend_call_function(&inner->fci, &inner->fcc);
 
 				zval_ptr_dtor(&inner->fci.function_name);
 				zend_fcall_info_args_clear(&inner->fci, 1);

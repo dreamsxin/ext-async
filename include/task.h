@@ -41,7 +41,7 @@ struct _concurrent_task {
 
 	/* Callback and info / cache to be used when task is started. */
 	zend_fcall_info fci;
-	zend_fcall_info_cache fci_cache;
+	zend_fcall_info_cache fcc;
 
 	/* Native fiber context of this task, will be created during call to start(). */
 	concurrent_fiber_context fiber;
@@ -83,9 +83,9 @@ struct _concurrent_task {
 	concurrent_context *context;
 };
 
-static const zend_uchar CONCURRENT_TASK_OPERATION_NONE = 0;
-static const zend_uchar CONCURRENT_TASK_OPERATION_START = 1;
-static const zend_uchar CONCURRENT_TASK_OPERATION_RESUME = 2;
+extern const zend_uchar CONCURRENT_TASK_OPERATION_NONE;
+extern const zend_uchar CONCURRENT_TASK_OPERATION_START;
+extern const zend_uchar CONCURRENT_TASK_OPERATION_RESUME;
 
 concurrent_task *concurrent_task_object_create();
 
