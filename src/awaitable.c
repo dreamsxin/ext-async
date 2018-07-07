@@ -21,7 +21,50 @@
 zend_class_entry *concurrent_awaitable_ce;
 
 
-static int concurrent_awaitable_implement_interfac(zend_class_entry *interface, zend_class_entry *implementor)
+concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, concurrent_awaitable_func func)
+{
+	concurrent_awaitable_cb *cont;
+
+	cont = emalloc(sizeof(concurrent_awaitable_cb));
+
+	cont->object = obj;
+	cont->func = func;
+	cont->next = NULL;
+
+	return cont;
+}
+
+void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, concurrent_awaitable_func func)
+{
+	concurrent_awaitable_cb *cont;
+
+	ZEND_ASSERT(prev != NULL);
+
+	cont = emalloc(sizeof(concurrent_awaitable_cb));
+
+	cont->object = obj;
+	cont->func = func;
+	cont->next = NULL;
+
+	prev->next = cont;
+}
+
+void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb *cont, zval *result, zend_bool success)
+{
+	concurrent_awaitable_cb *next;
+
+	while (cont != NULL) {
+		next = cont->next;
+
+		cont->func(cont->object, result, success);
+
+		efree(cont);
+
+		cont = next;
+	}
+}
+
+static int concurrent_awaitable_implement_interface(zend_class_entry *interface, zend_class_entry *implementor)
 {
 	if (implementor == concurrent_deferred_awaitable_ce) {
 		return SUCCESS;
@@ -42,14 +85,7 @@ static int concurrent_awaitable_implement_interfac(zend_class_entry *interface, 
 	return FAILURE;
 }
 
-ZEND_METHOD(Awaitable, continueWith) { }
-
-ZEND_BEGIN_ARG_INFO_EX(arginfo_awaitable_continue_with, 0, 0, 1)
-	ZEND_ARG_CALLABLE_INFO(0, continuation, 0)
-ZEND_END_ARG_INFO()
-
 static const zend_function_entry awaitable_functions[] = {
-	ZEND_ME(Awaitable, continueWith, arginfo_awaitable_continue_with, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_FE_END
 };
 
@@ -60,7 +96,7 @@ void concurrent_awaitable_ce_register()
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Awaitable", awaitable_functions);
 	concurrent_awaitable_ce = zend_register_internal_interface(&ce);
-	concurrent_awaitable_ce->interface_gets_implemented = concurrent_awaitable_implement_interfac;
+	concurrent_awaitable_ce->interface_gets_implemented = concurrent_awaitable_implement_interface;
 }
 
 

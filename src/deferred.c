@@ -70,92 +70,11 @@ ZEND_METHOD(DeferredAwaitable, __construct)
 	zend_throw_error(NULL, "Deferred awaitable must not be created from userland code");
 }
 
-ZEND_METHOD(DeferredAwaitable, continueWith)
-{
-	concurrent_deferred *defer;
-	concurrent_deferred_continuation_cb *cont;
-	concurrent_deferred_continuation_cb *tmp;
-
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
-	zval args[2];
-	zval result;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
-	ZEND_PARSE_PARAMETERS_END();
-
-	fci.no_separation = 1;
-
-	defer = ((concurrent_deferred_awaitable *) Z_OBJ_P(getThis()))->defer;
-
-	if (defer->status == CONCURRENT_DEFERRED_STATUS_SUCCEEDED) {
-		ZVAL_NULL(&args[0]);
-		ZVAL_COPY(&args[1], &defer->result);
-
-		fci.param_count = 2;
-		fci.params = args;
-		fci.retval = &result;
-
-		zend_call_function(&fci, &fcc);
-		zval_ptr_dtor(args);
-		zval_ptr_dtor(&result);
-
-		if (UNEXPECTED(EG(exception))) {
-			concurrent_context_delegate_error(defer->context);
-		}
-
-		return;
-	}
-
-	if (defer->status == CONCURRENT_DEFERRED_STATUS_FAILED) {
-		ZVAL_COPY(&args[0], &defer->result);
-
-		fci.param_count = 1;
-		fci.params = args;
-		fci.retval = &result;
-
-		zend_call_function(&fci, &fcc);
-		zval_ptr_dtor(args);
-		zval_ptr_dtor(&result);
-
-		if (UNEXPECTED(EG(exception))) {
-			concurrent_context_delegate_error(defer->context);
-		}
-
-		return;
-	}
-
-	cont = emalloc(sizeof(concurrent_deferred_continuation_cb));
-	cont->fci = fci;
-	cont->fcc = fcc;
-	cont->next = NULL;
-
-	if (defer->continuation == NULL) {
-		defer->continuation = cont;
-	} else {
-		tmp = defer->continuation;
-
-		while (tmp->next != NULL) {
-			tmp = tmp->next;
-		}
-
-		tmp->next = cont;
-	}
-
-	Z_TRY_ADDREF_P(&fci.function_name);
-}
-
 ZEND_BEGIN_ARG_INFO_EX(arginfo_deferred_awaitable_ctor, 0, 0, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_INFO_EX(arginfo_deferred_awaitable_continue_with, 0, 0, 1)
-	ZEND_ARG_CALLABLE_INFO(0, continuation, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry deferred_awaitable_functions[] = {
 	ZEND_ME(DeferredAwaitable, __construct, arginfo_deferred_awaitable_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
-	ZEND_ME(DeferredAwaitable, continueWith, arginfo_deferred_awaitable_continue_with, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -180,19 +99,13 @@ static zend_object *concurrent_deferred_object_create(zend_class_entry *ce)
 static void concurrent_deferred_object_destroy(zend_object *object)
 {
 	concurrent_deferred *defer;
-	concurrent_deferred_continuation_cb *cont;
 
 	defer = (concurrent_deferred *) object;
 
 	zval_ptr_dtor(&defer->result);
 
-	while (defer->continuation != NULL) {
-		cont = defer->continuation;
-		defer->continuation = cont->next;
-
-		zval_ptr_dtor(&cont->fci.function_name);
-
-		efree(cont);
+	if (defer->continuation != NULL) {
+		concurrent_awaitable_trigger_continuation(defer->continuation, &defer->result, 0);
 	}
 
 	if (defer->context != NULL) {
@@ -249,15 +162,12 @@ ZEND_METHOD(Deferred, awaitable)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(Deferred, succeed)
+ZEND_METHOD(Deferred, resolve)
 {
 	concurrent_deferred *defer;
-	concurrent_deferred_continuation_cb *cont;
-	concurrent_context *context;
+	concurrent_awaitable_cb *cont;
 
 	zval *val;
-	zval args[2];
-	zval retval;
 
 	val = NULL;
 
@@ -278,45 +188,20 @@ ZEND_METHOD(Deferred, succeed)
 
 	defer->status = CONCURRENT_DEFERRED_STATUS_SUCCEEDED;
 
-	context = TASK_G(current_context);
-	TASK_G(current_context) = defer->context;
-
-	while (defer->continuation != NULL) {
+	if (defer->continuation != NULL) {
 		cont = defer->continuation;
-		defer->continuation = cont->next;
+		defer->continuation = NULL;
 
-		ZVAL_NULL(&args[0]);
-		ZVAL_COPY(&args[1], &defer->result);
-
-		cont->fci.param_count = 2;
-		cont->fci.params = args;
-		cont->fci.retval = &retval;
-
-		zend_call_function(&cont->fci, &cont->fcc);
-
-		zval_ptr_dtor(args);
-		zval_ptr_dtor(&retval);
-		zval_ptr_dtor(&cont->fci.function_name);
-
-		efree(cont);
-
-		if (UNEXPECTED(EG(exception))) {
-			concurrent_context_delegate_error(defer->context);
-		}
+		concurrent_awaitable_trigger_continuation(cont, &defer->result, 1);
 	}
-
-	TASK_G(current_context) = context;
 }
 
 ZEND_METHOD(Deferred, fail)
 {
 	concurrent_deferred *defer;
-	concurrent_deferred_continuation_cb *cont;
-	concurrent_context *context;
+	concurrent_awaitable_cb *cont;
 
 	zval *error;
-	zval args[1];
-	zval retval;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_ZVAL(error)
@@ -332,33 +217,12 @@ ZEND_METHOD(Deferred, fail)
 
 	defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
 
-	context = TASK_G(current_context);
-	TASK_G(current_context) = defer->context;
-
-	while (defer->continuation != NULL) {
+	if (defer->continuation != NULL) {
 		cont = defer->continuation;
-		defer->continuation = cont->next;
+		defer->continuation = NULL;
 
-		ZVAL_COPY(&args[0], &defer->result);
-
-		cont->fci.param_count = 1;
-		cont->fci.params = args;
-		cont->fci.retval = &retval;
-
-		zend_call_function(&cont->fci, &cont->fcc);
-
-		zval_ptr_dtor(args);
-		zval_ptr_dtor(&retval);
-		zval_ptr_dtor(&cont->fci.function_name);
-
-		efree(cont);
-
-		if (UNEXPECTED(EG(exception))) {
-			concurrent_context_delegate_error(defer->context);
-		}
+		concurrent_awaitable_trigger_continuation(cont, &defer->result, 0);
 	}
-
-	TASK_G(current_context) = context;
 }
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_deferred_ctor, 0, 0, 0)
@@ -368,7 +232,7 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_deferred_awaitable, 0, 0, Concurrent\\Awaitable, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_deferred_succeed, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_deferred_resolve, 0, 0, 0)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
@@ -379,7 +243,7 @@ ZEND_END_ARG_INFO()
 static const zend_function_entry deferred_functions[] = {
 	ZEND_ME(Deferred, __construct, arginfo_deferred_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
 	ZEND_ME(Deferred, awaitable, arginfo_deferred_awaitable, ZEND_ACC_PUBLIC)
-	ZEND_ME(Deferred, succeed, arginfo_deferred_succeed, ZEND_ACC_PUBLIC)
+	ZEND_ME(Deferred, resolve, arginfo_deferred_resolve, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, fail, arginfo_deferred_fail, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };

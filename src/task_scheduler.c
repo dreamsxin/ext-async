@@ -133,9 +133,6 @@ static void concurrent_task_scheduler_object_destroy(zend_object *object)
 ZEND_METHOD(TaskScheduler, __construct)
 {
 	concurrent_task_scheduler *scheduler;
-	concurrent_context_error_handler *handler;
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
 
 	zval *params;
 	HashTable *table;
@@ -145,10 +142,9 @@ ZEND_METHOD(TaskScheduler, __construct)
 	params = NULL;
 	table = NULL;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 2)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_ZVAL(params)
-		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if (params != NULL && Z_TYPE_P(params) == IS_ARRAY) {
@@ -157,16 +153,6 @@ ZEND_METHOD(TaskScheduler, __construct)
 
 	scheduler->context = concurrent_context_object_create(table);
 	scheduler->context->scheduler = scheduler;
-
-	if (ZEND_NUM_ARGS() > 1) {
-		handler = emalloc(sizeof(concurrent_context_error_handler));
-		handler->fci = fci;
-		handler->fcc = fcc;
-
-		Z_TRY_ADDREF_P(&fci.function_name);
-
-		scheduler->context->error_handler = handler;
-	}
 }
 
 ZEND_METHOD(TaskScheduler, count)
@@ -262,6 +248,7 @@ ZEND_METHOD(TaskScheduler, run)
 {
 	concurrent_task_scheduler *scheduler;
 	concurrent_task *task;
+	concurrent_awaitable_cb *cont;
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
@@ -297,10 +284,18 @@ ZEND_METHOD(TaskScheduler, run)
 				task->fiber.status = CONCURRENT_FIBER_STATUS_DEAD;
 			}
 
-			if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
-				concurrent_task_notify_success(task);
-			} else if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
-				concurrent_task_notify_failure(task);
+			if (task->continuation != NULL) {
+				cont = task->continuation;
+
+				if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
+					task->continuation = NULL;
+
+					concurrent_awaitable_trigger_continuation(cont, &task->result, 1);
+				} else if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
+					task->continuation = NULL;
+
+					concurrent_awaitable_trigger_continuation(cont, &task->result, 0);
+				}
 			}
 		}
 
@@ -322,7 +317,6 @@ ZEND_METHOD(TaskScheduler, __wakeup)
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_ctor, 0, 0, 0)
 	ZEND_ARG_ARRAY_INFO(0, context, 1)
-	ZEND_ARG_CALLABLE_INFO(0, errorHandler, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_count, 0)
