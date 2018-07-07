@@ -8,18 +8,13 @@ The task extension exposes a public API that can be used to create, run and inte
 
 ### Awaitable
 
-Interface that is exposed to userland classes by async operations that can be awaited by tasks. The `$continuation` callback takes a `Throwable` as first argument when the operation has failed (second argument must be optional), successful operations pass `null` as first argument and the result as second argument.
+This interface cannot be implemented directly by userland classes, implementations are provided by `Deferred` and `Task`.
 
 ```php
 namespace Concurrent;
 
-interface Awaitable
-{
-    public function continueWith(callable(?\Throwable, mixed = null) $continuation): void;
-}
+interface Awaitable { }
 ```
-
-This interface cannot be implemented directly by userland classes, implementations are provided by `Deferred` and `Task`.
 
 ### Deferred
 
@@ -34,7 +29,7 @@ final class Deferred
     
     public function awaitable(): Awaitable { }
     
-    public function succeed($val = null): void { }
+    public function resolve($val = null): void { }
     
     public function fail(\Throwable $e): void { }
 }
@@ -49,8 +44,6 @@ namespace Concurrent;
 
 final class Task implements Awaitable
 {
-    public function continueWith(callable(?\Throwable, mixed = null) $continuation): void { }
-    
     public static function isRunning(): bool { }
     
     /* Should be replaced with async keyword if merged into PHP core. */
@@ -79,7 +72,7 @@ namespace Concurrent;
 
 final class TaskScheduler implements \Countable
 {
-    public function __construct(?array $context = null, ?callable(\Throwable) $errorHandler = null) { }
+    public function __construct(?array $context = null) { }
 
     public function count(): int { }
     
@@ -112,8 +105,6 @@ final class Context
     
     public function without(string $var): Context { }
 
-    public function withErrorHandler(callable $handler): Context { }
-    
     public function run(callable $callback, ...$args): mixed { }
     
     public static function var(string $name): mixed { }
