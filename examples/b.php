@@ -31,7 +31,7 @@ $scheduler->adapter(function ($val) {
     $defer = new Deferred();
     
     $val->done(function ($v) use ($defer) {
-        $defer->succeed($v);
+        $defer->resolve($v);
     }, function ($e) use ($defer) {
         $defer->fail(($e instanceof \Throwable) ? $e : new \Error((string) $e));
     });
@@ -52,7 +52,7 @@ $scheduler->task(function () use ($loop) {
     $defer = new Deferred();
     
     $loop->addTimer(.8, function () use ($defer) {
-        $defer->succeed('H :)');
+        $defer->resolve('H :)');
     });
     
     var_dump(Task::await($defer->awaitable()));

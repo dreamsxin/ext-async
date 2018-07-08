@@ -9,7 +9,7 @@ $scheduler = new TaskScheduler();
 $scheduler->task(function (): int {
     $t = Task::async(function (): int {
         $defer = new Deferred();
-        $defer->succeed(321);
+        $defer->resolve(321);
         
         return max(123, Task::await($defer->awaitable()));
     });

@@ -17,7 +17,7 @@ $scheduler->task(function () {
     var_dump(Task::await('B'));
     
     $defer = new Deferred();
-    $defer->succeed('C');
+    $defer->resolve('C');
     
     var_dump(Task::await($defer->awaitable()));
     

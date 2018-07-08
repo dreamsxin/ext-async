@@ -107,6 +107,57 @@ static void concurrent_task_continuation(void *obj, zval *result, zend_bool succ
 	OBJ_RELEASE(&task->fiber.std);
 }
 
+void concurrent_task_attempt_inline_execution(concurrent_task *task, concurrent_task *inner)
+{
+	concurrent_context *context;
+	concurrent_awaitable_cb *cont;
+	zend_bool success;
+
+	if (inner->fiber.status != CONCURRENT_FIBER_STATUS_INIT) {
+		return;
+	}
+
+	if (inner->fiber.stack_size != task->fiber.stack_size) {
+		return;
+	}
+
+	if (inner->context->scheduler != task->context->scheduler) {
+		return;
+	}
+
+	inner->operation = CONCURRENT_TASK_OPERATION_NONE;
+
+	context = TASK_G(current_context);
+	TASK_G(current_context) = inner->context;
+
+	inner->fiber.fci.retval = &inner->result;
+
+	zend_call_function(&inner->fiber.fci, &inner->fiber.fcc);
+
+	zval_ptr_dtor(&inner->fiber.fci.function_name);
+	zend_fcall_info_args_clear(&inner->fiber.fci, 1);
+
+	TASK_G(current_context) = context;
+
+	if (UNEXPECTED(EG(exception))) {
+		inner->fiber.status = CONCURRENT_FIBER_STATUS_DEAD;
+
+		ZVAL_OBJ(&inner->result, EG(exception));
+		EG(exception) = NULL;
+	} else {
+		inner->fiber.status = CONCURRENT_FIBER_STATUS_FINISHED;
+
+		success = 1;
+	}
+
+	if (inner->continuation != NULL) {
+		cont = inner->continuation;
+		inner->continuation = NULL;
+
+		concurrent_awaitable_trigger_continuation(cont, &inner->result, success);
+	}
+}
+
 concurrent_task *concurrent_task_object_create()
 {
 	concurrent_task *task;
@@ -322,6 +373,8 @@ ZEND_METHOD(Task, await)
 
 	if (ce == concurrent_task_ce) {
 		inner = (concurrent_task *) Z_OBJ_P(val);
+
+		concurrent_task_attempt_inline_execution(task, inner);
 
 		if (inner->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
 			RETURN_ZVAL(&inner->result, 1, 0);

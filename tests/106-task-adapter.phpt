@@ -24,7 +24,7 @@ $scheduler->adapter(function ($v) {
     
     if ($v instanceof \Exception) {
     	$defer = new Deferred();
-    	$defer->succeed('Done :)');
+    	$defer->resolve('Done :)');
     	
     	return $defer->awaitable();
     }
