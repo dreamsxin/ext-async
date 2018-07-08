@@ -17,8 +17,6 @@ $f = new Fiber(function () {
 
 $scheduler->task(function () {
     var_dump(Fiber::isRunning(), Task::isRunning());
-})->continueWith(function () {
-    var_dump(Task::isRunning());
 });
 
 var_dump(Task::isRunning());
@@ -36,7 +34,6 @@ var_dump(Task::isRunning());
 bool(false)
 bool(false)
 bool(true)
-bool(false)
 bool(false)
 bool(true)
 bool(false)

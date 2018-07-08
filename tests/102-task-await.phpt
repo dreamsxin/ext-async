@@ -29,9 +29,7 @@ $scheduler->task(function () {
         return 'E';
     }));
     
-    return Task::await($t);
-})->continueWith(function ($e, $v) {
-    var_dump($e, $v);
+    var_dump(Task::await($t));
 });
 
 $scheduler->run();
@@ -42,5 +40,4 @@ string(1) "A"
 string(1) "B"
 string(1) "C"
 string(1) "D"
-NULL
 string(1) "E"
