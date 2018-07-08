@@ -28,7 +28,7 @@ zend_class_entry *concurrent_deferred_ce;
 zend_class_entry *concurrent_deferred_awaitable_ce;
 
 const zend_uchar CONCURRENT_DEFERRED_STATUS_PENDING = 0;
-const zend_uchar CONCURRENT_DEFERRED_STATUS_SUCCEEDED = 1;
+const zend_uchar CONCURRENT_DEFERRED_STATUS_RESOLVED = 1;
 const zend_uchar CONCURRENT_DEFERRED_STATUS_FAILED = 2;
 
 static zend_object_handlers concurrent_deferred_handlers;
@@ -186,7 +186,7 @@ ZEND_METHOD(Deferred, resolve)
 		ZVAL_COPY(&defer->result, val);
 	}
 
-	defer->status = CONCURRENT_DEFERRED_STATUS_SUCCEEDED;
+	defer->status = CONCURRENT_DEFERRED_STATUS_RESOLVED;
 
 	if (defer->continuation != NULL) {
 		cont = defer->continuation;
@@ -225,6 +225,75 @@ ZEND_METHOD(Deferred, fail)
 	}
 }
 
+ZEND_METHOD(Deferred, value)
+{
+	concurrent_deferred *defer;
+	concurrent_deferred_awaitable *awaitable;
+
+	zval *val;
+	zval obj;
+
+	val = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(val)
+	ZEND_PARSE_PARAMETERS_END();
+
+	defer = emalloc(sizeof(concurrent_deferred));
+	ZEND_SECURE_ZERO(defer, sizeof(concurrent_deferred));
+
+	defer->status = CONCURRENT_DEFERRED_STATUS_RESOLVED;
+
+	if (val == NULL) {
+		ZVAL_NULL(&defer->result);
+	} else {
+		ZVAL_COPY(&defer->result, val);
+	}
+
+	zend_object_std_init(&defer->std, concurrent_deferred_ce);
+	defer->std.handlers = &concurrent_deferred_handlers;
+
+	awaitable = concurrent_deferred_awaitable_object_create(defer);
+
+	ZVAL_OBJ(&obj, &awaitable->std);
+
+	OBJ_RELEASE(&defer->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
+ZEND_METHOD(Deferred, error)
+{
+	concurrent_deferred *defer;
+	concurrent_deferred_awaitable *awaitable;
+
+	zval *error;
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ZVAL(error)
+	ZEND_PARSE_PARAMETERS_END();
+
+	defer = emalloc(sizeof(concurrent_deferred));
+	ZEND_SECURE_ZERO(defer, sizeof(concurrent_deferred));
+
+	defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
+
+	ZVAL_COPY(&defer->result, error);
+
+	zend_object_std_init(&defer->std, concurrent_deferred_ce);
+	defer->std.handlers = &concurrent_deferred_handlers;
+
+	awaitable = concurrent_deferred_awaitable_object_create(defer);
+
+	ZVAL_OBJ(&obj, &awaitable->std);
+
+	OBJ_RELEASE(&defer->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_deferred_ctor, 0, 0, 0)
 	ZEND_ARG_OBJ_INFO(0, context, Concurrent\\Context, 1)
 ZEND_END_ARG_INFO()
@@ -240,11 +309,21 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_deferred_fail, 0, 0, 1)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_deferred_value, 0, 0, Concurrent\\Awaitable, 0)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_deferred_error, 0, 1, Concurrent\\Awaitable, 0)
+	ZEND_ARG_OBJ_INFO(0, error, Throwable, 0)
+ZEND_END_ARG_INFO()
+
 static const zend_function_entry deferred_functions[] = {
 	ZEND_ME(Deferred, __construct, arginfo_deferred_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
 	ZEND_ME(Deferred, awaitable, arginfo_deferred_awaitable, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, resolve, arginfo_deferred_resolve, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, fail, arginfo_deferred_fail, ZEND_ACC_PUBLIC)
+	ZEND_ME(Deferred, value, arginfo_deferred_value, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Deferred, error, arginfo_deferred_error, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_FE_END
 };
 

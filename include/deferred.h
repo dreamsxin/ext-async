@@ -44,7 +44,7 @@ struct _concurrent_deferred {
 };
 
 extern const zend_uchar CONCURRENT_DEFERRED_STATUS_PENDING;
-extern const zend_uchar CONCURRENT_DEFERRED_STATUS_SUCCEEDED;
+extern const zend_uchar CONCURRENT_DEFERRED_STATUS_RESOLVED;
 extern const zend_uchar CONCURRENT_DEFERRED_STATUS_FAILED;
 
 struct _concurrent_deferred_awaitable {

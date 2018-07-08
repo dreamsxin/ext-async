@@ -8,11 +8,14 @@ $scheduler = new TaskScheduler();
 
 $scheduler->task(function (): int {
     $t = Task::async(function (): int {
-        $defer = new Deferred();
-        $defer->resolve(321);
-        
-        return max(123, Task::await($defer->awaitable()));
+        return max(123, Task::await(Deferred::value()));
     });
+  
+    try {
+      Task::await(Deferred::error(new \Error('Fail!')));
+    } catch (\Throwable $e) {
+        var_dump($e->getMessage());
+    }
     
     var_dump(2 * Task::await($t));
 });

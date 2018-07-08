@@ -32,6 +32,10 @@ final class Deferred
     public function resolve($val = null): void { }
     
     public function fail(\Throwable $e): void { }
+    
+    public static function value($val = null): Awaitable { }
+    
+    public static function error(\Throwable $e): Awaitable { }
 }
 ```
 

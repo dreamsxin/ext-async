@@ -407,6 +407,8 @@ ZEND_METHOD(Task, await)
 		}
 
 		if (inner->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
+			Z_ADDREF_P(&inner->result);
+
 			execute_data->opline--;
 			zend_throw_exception_internal(&inner->result);
 			execute_data->opline++;
@@ -422,11 +424,13 @@ ZEND_METHOD(Task, await)
 	} else if (ce == concurrent_deferred_awaitable_ce) {
 		defer = ((concurrent_deferred_awaitable *) Z_OBJ_P(val))->defer;
 
-		if (defer->status == CONCURRENT_DEFERRED_STATUS_SUCCEEDED) {
+		if (defer->status == CONCURRENT_DEFERRED_STATUS_RESOLVED) {
 			RETURN_ZVAL(&defer->result, 1, 0);
 		}
 
 		if (defer->status == CONCURRENT_DEFERRED_STATUS_FAILED) {
+			Z_ADDREF_P(&defer->result);
+
 			execute_data->opline--;
 			zend_throw_exception_internal(&defer->result);
 			execute_data->opline++;
