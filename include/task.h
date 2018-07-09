@@ -20,9 +20,7 @@
 #define CONCURRENT_TASK_H
 
 #include "php.h"
-
-typedef struct _concurrent_task_continuation concurrent_task_continuation;
-typedef struct _concurrent_task_continuation_cb concurrent_task_continuation_cb;
+#include "awaitable.h"
 
 typedef void* concurrent_fiber_context;
 typedef struct _concurrent_context concurrent_context;
@@ -57,7 +55,7 @@ struct _concurrent_task {
 	zval result;
 
 	/* Linked list of registered continuation callbacks. */
-	concurrent_task_continuation_cb *continuation;
+	concurrent_awaitable_cb *continuation;
 };
 
 extern const zend_uchar CONCURRENT_FIBER_TYPE_TASK;
@@ -68,32 +66,12 @@ extern const zend_uchar CONCURRENT_TASK_OPERATION_RESUME;
 
 concurrent_task *concurrent_task_object_create();
 
-void concurrent_task_start(concurrent_task *task);
-void concurrent_task_continue(concurrent_task *task);
-
-void concurrent_task_notify_success(concurrent_task *task);
-void concurrent_task_notify_failure(concurrent_task *task);
+zend_always_inline void concurrent_task_start(concurrent_task *task);
+zend_always_inline void concurrent_task_continue(concurrent_task *task);
 
 void concurrent_task_ce_register();
 
 END_EXTERN_C()
-
-struct _concurrent_task_continuation {
-	/* Task PHP object handle. */
-	zend_object std;
-
-	/* The task to be scheduled. */
-	concurrent_task *task;
-};
-
-struct _concurrent_task_continuation_cb {
-	/* Callback and info / cache of an continuation callback. */
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
-
-	/* Points to next callback, NULL if this is the last callback. */
-	concurrent_task_continuation_cb *next;
-};
 
 #endif
 

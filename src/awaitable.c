@@ -21,7 +21,87 @@
 zend_class_entry *concurrent_awaitable_ce;
 
 
-static int concurrent_awaitable_implement_interfac(zend_class_entry *interface, zend_class_entry *implementor)
+zend_always_inline concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, concurrent_awaitable_func func)
+{
+	concurrent_awaitable_cb *cont;
+
+	cont = emalloc(sizeof(concurrent_awaitable_cb));
+
+	cont->object = obj;
+	cont->func = func;
+	cont->next = NULL;
+
+	return cont;
+}
+
+zend_always_inline void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, concurrent_awaitable_func func)
+{
+	concurrent_awaitable_cb *cont;
+
+	ZEND_ASSERT(prev != NULL);
+
+	cont = emalloc(sizeof(concurrent_awaitable_cb));
+
+	cont->object = obj;
+	cont->func = func;
+	cont->next = NULL;
+
+	prev->next = cont;
+}
+
+zend_always_inline void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, zval *result, zend_bool success)
+{
+	concurrent_awaitable_cb *current;
+	concurrent_awaitable_cb *next;
+
+	current = *cont;
+
+	if (current != NULL) {
+		do {
+			next = current->next;
+			*cont = next;
+
+			current->func(current->object, result, success);
+
+			efree(current);
+
+			current = next;
+		} while (current != NULL);
+	}
+
+	*cont = NULL;
+}
+
+zend_always_inline void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont)
+{
+	concurrent_awaitable_cb *current;
+	concurrent_awaitable_cb *next;
+	zval error;
+
+	current = *cont;
+
+	if (current != NULL) {
+		zend_throw_error(NULL, "Awaitable has been disposed before it was resolved");
+		ZVAL_OBJ(&error, EG(exception));
+
+		do {
+			next = current->next;
+			*cont = next;
+
+			current->func(current->object, &error, 0);
+
+			efree(current);
+
+			current = next;
+		} while (current != NULL);
+
+		zval_ptr_dtor(&error);
+	}
+
+	*cont = NULL;
+}
+
+static int concurrent_awaitable_implement_interface(zend_class_entry *interface, zend_class_entry *implementor)
 {
 	if (implementor == concurrent_deferred_awaitable_ce) {
 		return SUCCESS;
@@ -42,14 +122,7 @@ static int concurrent_awaitable_implement_interfac(zend_class_entry *interface, 
 	return FAILURE;
 }
 
-ZEND_METHOD(Awaitable, continueWith) { }
-
-ZEND_BEGIN_ARG_INFO_EX(arginfo_awaitable_continue_with, 0, 0, 1)
-	ZEND_ARG_CALLABLE_INFO(0, continuation, 0)
-ZEND_END_ARG_INFO()
-
 static const zend_function_entry awaitable_functions[] = {
-	ZEND_ME(Awaitable, continueWith, arginfo_awaitable_continue_with, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_FE_END
 };
 
@@ -60,7 +133,7 @@ void concurrent_awaitable_ce_register()
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Awaitable", awaitable_functions);
 	concurrent_awaitable_ce = zend_register_internal_interface(&ce);
-	concurrent_awaitable_ce->interface_gets_implemented = concurrent_awaitable_implement_interfac;
+	concurrent_awaitable_ce->interface_gets_implemented = concurrent_awaitable_implement_interface;
 }
 
 

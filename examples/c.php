@@ -3,7 +3,7 @@
 use Concurrent\Context;
 use Concurrent\TaskScheduler;
 
-$scheduler = new TaskScheduler([
+$scheduler = new TaskScheduler(null, [
     'num' => 123,
     'foo' => 'bar'
 ]);

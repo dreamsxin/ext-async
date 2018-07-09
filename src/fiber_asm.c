@@ -64,7 +64,7 @@ char *concurrent_fiber_backend_info()
 	return "asm (boost.context v1.67.0)";
 }
 
-void concurrent_fiber_asm_start(transfer_t trans)
+static void concurrent_fiber_asm_start(transfer_t trans)
 {
 	concurrent_fiber_record_asm *record;
 	concurrent_fiber_context_asm *context;
@@ -81,7 +81,7 @@ void concurrent_fiber_asm_start(transfer_t trans)
 	record->func();
 }
 
-concurrent_fiber_context concurrent_fiber_create_root_context()
+zend_always_inline concurrent_fiber_context concurrent_fiber_create_root_context()
 {
 	concurrent_fiber_context_asm *context;
 
@@ -94,7 +94,7 @@ concurrent_fiber_context concurrent_fiber_create_root_context()
 	return (concurrent_fiber_context) context;
 }
 
-concurrent_fiber_context concurrent_fiber_create_context()
+zend_always_inline concurrent_fiber_context concurrent_fiber_create_context()
 {
 	concurrent_fiber_context_asm *context;
 
@@ -104,7 +104,7 @@ concurrent_fiber_context concurrent_fiber_create_context()
 	return (concurrent_fiber_context) context;
 }
 
-zend_bool concurrent_fiber_create(concurrent_fiber_context ctx, concurrent_fiber_func func, size_t stack_size)
+zend_always_inline zend_bool concurrent_fiber_create(concurrent_fiber_context ctx, concurrent_fiber_func func, size_t stack_size)
 {
 	static __thread size_t record_size;
 
@@ -140,7 +140,7 @@ zend_bool concurrent_fiber_create(concurrent_fiber_context ctx, concurrent_fiber
 	return 1;
 }
 
-void concurrent_fiber_destroy(concurrent_fiber_context ctx)
+zend_always_inline void concurrent_fiber_destroy(concurrent_fiber_context ctx)
 {
 	concurrent_fiber_context_asm *context;
 
@@ -156,7 +156,7 @@ void concurrent_fiber_destroy(concurrent_fiber_context ctx)
 	}
 }
 
-zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, concurrent_fiber_context next)
+zend_always_inline zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, concurrent_fiber_context next)
 {
 	concurrent_fiber_context_asm *from;
 	concurrent_fiber_context_asm *to;
@@ -177,7 +177,7 @@ zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, conc
 	return 1;
 }
 
-zend_bool concurrent_fiber_yield(concurrent_fiber_context current)
+zend_always_inline zend_bool concurrent_fiber_yield(concurrent_fiber_context current)
 {
 	concurrent_fiber_context_asm *fiber;
 

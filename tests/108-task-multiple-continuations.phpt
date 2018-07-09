@@ -1,5 +1,5 @@
 --TEST--
-Task with multiple continuation callbacks.
+Task with multiple continuations.
 --SKIPIF--
 <?php
 if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
@@ -9,31 +9,55 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$c = function ($e, $v = null) {
-    var_dump($e, $v);
-};
-
 $scheduler = new TaskScheduler();
 
-$t = $scheduler->task(function () {
-   return 7;
-});
+$scheduler->task(function () {
+    $t = Task::async(function () {
+        return 123;
+    });
 
-$t->continueWith($c);
+    $a = Task::async(function () use ($t) {
+        return Task::await($t);
+    });
 
-$t->continueWith(function ($e, ?int $v = null) {
-    var_dump($e, 2 * $v);
+    $b = Task::async(function () use ($t) {
+        return Task::await($t);
+    });
+    
+    var_dump(Task::await($a));
+    var_dump(Task::await($b));
+    var_dump(Task::await($t));
 });
 
 $scheduler->run();
 
-$t->continueWith($c);
+$scheduler->task(function () {
+    $t = null;
+
+    $a = Task::async(function () use (& $t) {
+        return Task::await($t);
+    });
+
+    $b = Task::async(function () use (& $t) {
+        return Task::await($t);
+    });
+    
+    $t = Task::async(function () {
+        return 777;
+    });
+    
+    var_dump(Task::await($a));
+    var_dump(Task::await($b));
+    var_dump(Task::await($t));
+});
+
+$scheduler->run();
 
 ?>
 --EXPECT--
-NULL
-int(7)
-NULL
-int(14)
-NULL
-int(7)
+int(123)
+int(123)
+int(123)
+int(777)
+int(777)
+int(777)

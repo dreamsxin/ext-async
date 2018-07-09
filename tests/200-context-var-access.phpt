@@ -37,7 +37,7 @@ var_dump(Context::var('foo'));
 
 $scheduler->run();
 
-$scheduler = new TaskScheduler([
+$scheduler = new TaskScheduler(null, [
     'foo' => 'bar'
 ]);
 

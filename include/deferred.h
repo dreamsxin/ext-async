@@ -20,9 +20,7 @@
 #define CONCURRENT_DEFERRED_H
 
 #include "php.h"
-
-typedef struct _concurrent_deferred_awaitable concurrent_deferred_awaitable;
-typedef struct _concurrent_deferred_continuation_cb concurrent_deferred_continuation_cb;
+#include "awaitable.h"
 
 BEGIN_EXTERN_C()
 
@@ -30,26 +28,22 @@ extern zend_class_entry *concurrent_deferred_ce;
 extern zend_class_entry *concurrent_deferred_awaitable_ce;
 
 typedef struct _concurrent_deferred concurrent_deferred;
+typedef struct _concurrent_deferred_awaitable concurrent_deferred_awaitable;
 
 struct _concurrent_deferred {
 	zend_object std;
 
 	zend_uchar status;
 
-	concurrent_context *context;
-
 	zval result;
 
-	concurrent_deferred_continuation_cb *continuation;
+	/* Linked list of registered continuation callbacks. */
+	concurrent_awaitable_cb *continuation;
 };
 
 extern const zend_uchar CONCURRENT_DEFERRED_STATUS_PENDING;
-extern const zend_uchar CONCURRENT_DEFERRED_STATUS_SUCCEEDED;
+extern const zend_uchar CONCURRENT_DEFERRED_STATUS_RESOLVED;
 extern const zend_uchar CONCURRENT_DEFERRED_STATUS_FAILED;
-
-void concurrent_deferred_ce_register();
-
-END_EXTERN_C()
 
 struct _concurrent_deferred_awaitable {
 	zend_object std;
@@ -57,14 +51,9 @@ struct _concurrent_deferred_awaitable {
 	concurrent_deferred *defer;
 };
 
-struct _concurrent_deferred_continuation_cb {
-	/* Callback and info / cache of an continuation callback. */
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
+void concurrent_deferred_ce_register();
 
-	/* Points to next callback, NULL if this is the last callback. */
-	concurrent_deferred_continuation_cb *next;
-};
+END_EXTERN_C()
 
 #endif
 

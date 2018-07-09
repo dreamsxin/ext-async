@@ -8,18 +8,13 @@ The task extension exposes a public API that can be used to create, run and inte
 
 ### Awaitable
 
-Interface that is exposed to userland classes by async operations that can be awaited by tasks. The `$continuation` callback takes a `Throwable` as first argument when the operation has failed (second argument must be optional), successful operations pass `null` as first argument and the result as second argument.
+This interface cannot be implemented directly by userland classes, implementations are provided by `Deferred` and `Task`.
 
 ```php
 namespace Concurrent;
 
-interface Awaitable
-{
-    public function continueWith(callable(?\Throwable, mixed = null) $continuation): void;
-}
+interface Awaitable { }
 ```
-
-This interface cannot be implemented directly by userland classes, implementations are provided by `Deferred` and `Task`.
 
 ### Deferred
 
@@ -30,27 +25,27 @@ namespace Concurrent;
 
 final class Deferred
 {
-    public function __construct(?Context $context = null) { }
-    
     public function awaitable(): Awaitable { }
     
-    public function succeed($val = null): void { }
+    public function resolve($val = null): void { }
     
     public function fail(\Throwable $e): void { }
+    
+    public static function value($val = null): Awaitable { }
+    
+    public static function error(\Throwable $e): Awaitable { }
 }
 ```
 
 ### Task
 
-A task is a fiber-based object that executes a PHP function or method on a separate call stack. Tasks are created using `Task::async()` or `TaskScheduler->task()` and will not be run until `TaskScheduler->run()` is called. Calling `Task::await()` will suspend the current task if the given argument implements `Awaitable`. Passing anything else to this method will simply return the value as-is (with the exception of values that are transformed by an adapter registered with the scheduler).
+A task is a fiber-based object that executes a PHP function or method on a separate call stack. Tasks are created using `Task::async()` or `TaskScheduler->task()` and will not be run until `TaskScheduler->run()` is called. Calling `Task::await()` will suspend the current task if the given argument implements `Awaitable`. Passing anything else to this method will simply return the value as-is.
 
 ```php
 namespace Concurrent;
 
 final class Task implements Awaitable
 {
-    public function continueWith(callable(?\Throwable, mixed = null) $continuation): void { }
-    
     public static function isRunning(): bool { }
     
     /* Should be replaced with async keyword if merged into PHP core. */
@@ -68,30 +63,20 @@ final class Task implements Awaitable
 
 The task scheduler is based on a queue of scheduled tasks that are run whenever `TaskScheduler->run()` is called. The scheduler will start (or resume) all tasks that are scheduled for execution and return when no more tasks are scheduled. Tasks may be re-scheduled (an hence run multiple times) during a single call to the run method. The scheduler implements `Countable` and will return the current number of scheduled tasks.
 
-The constructor takes an associative array of context variables that will be used by the root `Context`. Each task being run by the scheduler will be bound to the root context by default.
-
-You can set an `activator` callback, that will be called whenever the scheduler is not running and the first task is scheduled for execution. This allows for easy integration of the task scheduler with event loops as you can register the run method as future tick (react) or defer watcher (amp).
-
-The `adapter` callback is called whenever an object that does not implement `Awaitable` is passed to `Task::await()`. This provides an easy way to adapt promises (react, amp, ...) to the `Awaitable` interface using adapter classes.
+Passing an activator callback to the constructor will have the scheduler execute the given calback whenever the scheduler is not running and the first task is scheduled for execution. This allows one to integrate a task scheduler with event loops as you can register the run method as future tick (react) or defer watcher (amp). The constructor takes an associative array of context variables as second argument that will be used by the root `Context`. Each task being run by the scheduler will be bound to the root context by default.
 
 ```php
 namespace Concurrent;
 
 final class TaskScheduler implements \Countable
 {
-    public function __construct(?array $context = null, ?callable(\Throwable) $errorHandler = null) { }
+    public function __construct(?callable $activator = null, ?array $context = null) { }
 
     public function count(): int { }
     
     public function task(callable $callback, ?array $args = null): Task { }
     
     public function run(): void { }
-    
-    /* Used for event loop integration, should be dropped if merged into PHP core. */
-    public function activator(callable(TaskScheduler) $callback): void { }
-    
-    /* Used for promise-API bridging, should be dropped if merged into PHP core. */
-    public function adapter(callable(mixed) $callback): void { }
 }
 ```
 
@@ -112,8 +97,6 @@ final class Context
     
     public function without(string $var): Context { }
 
-    public function withErrorHandler(callable $handler): Context { }
-    
     public function run(callable $callback, ...$args): mixed { }
     
     public static function var(string $name): mixed { }

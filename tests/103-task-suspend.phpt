@@ -40,7 +40,7 @@ $scheduler->run();
 var_dump($defer instanceof Deferred);
 var_dump(count($scheduler));
 
-$defer->succeed('X');
+$defer->resolve('X');
 
 var_dump(count($scheduler));
 

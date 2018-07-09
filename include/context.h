@@ -22,7 +22,6 @@
 #include "php.h"
 
 typedef struct _concurrent_task_scheduler concurrent_task_scheduler;
-typedef struct _concurrent_context_error_handler concurrent_context_error_handler;
 
 BEGIN_EXTERN_C()
 
@@ -37,8 +36,6 @@ struct _concurrent_context {
 
 	concurrent_task_scheduler *scheduler;
 
-	concurrent_context_error_handler *error_handler;
-
 	uint32_t param_count;
 
 	union {
@@ -50,17 +47,11 @@ struct _concurrent_context {
 	} data;
 };
 
-void concurrent_context_delegate_error(concurrent_context *context);
 concurrent_context *concurrent_context_object_create(HashTable *params);
 
 void concurrent_context_ce_register();
 
 END_EXTERN_C()
-
-struct _concurrent_context_error_handler {
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
-};
 
 #endif
 

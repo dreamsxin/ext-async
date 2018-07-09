@@ -25,6 +25,22 @@ BEGIN_EXTERN_C()
 
 extern zend_class_entry *concurrent_awaitable_ce;
 
+typedef struct _concurrent_awaitable_cb concurrent_awaitable_cb;
+
+typedef void (* concurrent_awaitable_func)(void *obj, zval *result, zend_bool success);
+
+struct _concurrent_awaitable_cb {
+	void *object;
+	concurrent_awaitable_func func;
+	concurrent_awaitable_cb *next;
+};
+
+zend_always_inline concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, concurrent_awaitable_func func);
+zend_always_inline void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, concurrent_awaitable_func func);
+
+zend_always_inline void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, zval *result, zend_bool success);
+zend_always_inline void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont);
+
 void concurrent_awaitable_ce_register();
 
 END_EXTERN_C()

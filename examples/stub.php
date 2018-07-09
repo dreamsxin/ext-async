@@ -2,10 +2,7 @@
 
 namespace Concurrent;
 
-interface Awaitable
-{
-    public function continueWith(callable $continuation): void;
-}
+interface Awaitable { }
 
 final class Context
 {
@@ -14,8 +11,6 @@ final class Context
     public function with(string $var, $value): Context { }
     
     public function without(string $var): Context { }
-    
-    public function withErrorHandler(callable $handler): Context { }
     
     public function run(callable $callback, ...$args) { }
     
@@ -30,24 +25,21 @@ final class Context
 
 final class Deferred
 {
-    public function __construct(?Context $context = null) { }
-    
     public function awaitable(): Awaitable { }
     
-    public function succeed($val = null): void { }
+    public function resolve($val = null): void { }
     
     public function fail(\Throwable $e): void { }
+    
+    public static function value($val = null): Awaitable { }
+    
+    public static function error(\Throwable $e): Awaitable { }
 }
 
-final class DeferredAwaitable implements Awaitable
-{
-    public function continueWith(callable $continuation): void { }
-}
+final class DeferredAwaitable implements Awaitable { }
 
 final class Task implements Awaitable
 {
-    public function continueWith(callable $continuation): void { }
-    
     public static function isRunning(): bool { }
     
     public static function async(callable $callback, ?array $args = null): Task { }
@@ -57,24 +49,15 @@ final class Task implements Awaitable
     public static function await($a) { }
 }
 
-final class TaskContinuation
-{
-    public function __invoke(?\Throwable $e, $v = null) { }
-}
-
 final class TaskScheduler implements \Countable
 {
-    public function __construct(?array $context = null, ?callable $errorHandler = null) { }
+    public function __construct(?callable $activator = null, ?array $context = null) { }
 
     public function count(): int { }
     
     public function task(callable $callback, ?array $args = null): Task { }
     
     public function run(): void { }
-    
-    public function activator(callable $callback): void { }
-    
-    public function adapter(callable $callback): void { }
 }
 
 final class Fiber

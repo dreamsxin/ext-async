@@ -31,39 +31,6 @@ zend_class_entry *concurrent_context_ce;
 static zend_object_handlers concurrent_context_handlers;
 
 
-void concurrent_context_delegate_error(concurrent_context *context)
-{
-	zval error;
-	zval args[1];
-	zval retval;
-
-	while (context != NULL && EG(exception) != NULL) {
-		if (context->error_handler != NULL) {
-			ZVAL_OBJ(&error, EG(exception));
-			EG(exception) = NULL;
-
-			ZVAL_COPY(&args[0], &error);
-
-			context->error_handler->fci.param_count = 1;
-			context->error_handler->fci.params = args;
-			context->error_handler->fci.retval = &retval;
-
-			zend_call_function(&context->error_handler->fci, &context->error_handler->fcc);
-
-			zval_ptr_dtor(args);
-			zval_ptr_dtor(&retval);
-			zval_ptr_dtor(&error);
-		}
-
-		context = context->parent;
-	}
-
-	if (UNEXPECTED(EG(exception))) {
-		zend_error_noreturn(E_ERROR, "Uncaught awaitable continuation error");
-	}
-}
-
-
 concurrent_context *concurrent_context_object_create(HashTable *params)
 {
 	concurrent_context *context;
@@ -131,13 +98,6 @@ static void concurrent_context_object_destroy(zend_object *object)
 	} else if (context->param_count > 1 && context->data.params != NULL) {
 		zend_hash_destroy(context->data.params);
 		FREE_HASHTABLE(context->data.params);
-	}
-
-	if (context->error_handler != NULL) {
-		zval_ptr_dtor(&context->error_handler->fci.function_name);
-		efree(context->error_handler);
-
-		context->error_handler = NULL;
 	}
 
 	if (context->parent != NULL) {
@@ -286,45 +246,6 @@ ZEND_METHOD(Context, without)
 
 	context->parent = current->parent;
 	context->scheduler = current->scheduler;
-
-	if (context->parent != NULL) {
-		GC_ADDREF(&context->parent->std);
-	}
-
-	ZVAL_OBJ(&obj, &context->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
-}
-
-ZEND_METHOD(Context, withErrorHandler)
-{
-	concurrent_context *context;
-	concurrent_context *current;
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
-
-	zval obj;
-
-	current = (concurrent_context *) Z_OBJ_P(getThis());
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
-	ZEND_PARSE_PARAMETERS_END();
-
-	if (current->param_count == 1) {
-		context = concurrent_context_object_create_single_var(current->data.var.name, &current->data.var.value);
-	} else {
-		context = concurrent_context_object_create(current->data.params);
-	}
-
-	context->parent = current->parent;
-	context->scheduler = current->scheduler;
-
-	context->error_handler = emalloc(sizeof(concurrent_context_error_handler));
-	context->error_handler->fci = fci;
-	context->error_handler->fcc = fcc;
-
-	Z_TRY_ADDREF_P(&fci.function_name);
 
 	if (context->parent != NULL) {
 		GC_ADDREF(&context->parent->std);
@@ -520,10 +441,6 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_without, 0, 1, Concurrent
 	ZEND_ARG_TYPE_INFO(0, var, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_err, 0, 1, Concurrent\\Context, 0)
-	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_INFO_EX(arginfo_context_run, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 	ZEND_ARG_VARIADIC_INFO(0, arguments)
@@ -549,7 +466,6 @@ static const zend_function_entry task_context_functions[] = {
 	ZEND_ME(Context, get, arginfo_context_get, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, with, arginfo_context_with, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, without, arginfo_context_without, ZEND_ACC_PUBLIC)
-	ZEND_ME(Context, withErrorHandler, arginfo_context_err, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, run, arginfo_context_run, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, var, arginfo_context_var, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, current, arginfo_context_current, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
