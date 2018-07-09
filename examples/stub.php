@@ -60,8 +60,6 @@ final class TaskScheduler implements \Countable
     public function run(): void { }
     
     public function activator(callable $callback): void { }
-    
-    public function adapter(callable $callback): void { }
 }
 
 final class Fiber

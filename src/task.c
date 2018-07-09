@@ -343,7 +343,6 @@ ZEND_METHOD(Task, await)
 
 	zval *val;
 	zval *value;
-	zval retval;
 	zval error;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
@@ -372,29 +371,9 @@ ZEND_METHOD(Task, await)
 
 	ce = Z_OBJCE_P(val);
 
-	// Attempt to adapt non-awaitable objects to awaitables.
+	// Immediately return non-awaitable objects.
 	if (instanceof_function_ex(ce, concurrent_awaitable_ce, 1) != 1) {
-		if (scheduler->adapter) {
-			scheduler->adapter_fci.param_count = 1;
-			scheduler->adapter_fci.params = val;
-			scheduler->adapter_fci.retval = &retval;
-
-			zend_call_function(&scheduler->adapter_fci, &scheduler->adapter_fcc);
-			zval_ptr_dtor(val);
-
-			ZVAL_COPY(val, &retval);
-			zval_ptr_dtor(&retval);
-
-			if (Z_TYPE_P(val) != IS_OBJECT) {
-				RETURN_ZVAL(val, 1, 0);
-			}
-
-			ce = Z_OBJCE_P(val);
-		}
-
-		if (instanceof_function_ex(ce, concurrent_awaitable_ce, 1) != 1) {
-			RETURN_ZVAL(val, 1, 0);
-		}
+		RETURN_ZVAL(val, 1, 0);
 	}
 
 	if (ce == concurrent_task_ce) {

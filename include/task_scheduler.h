@@ -51,10 +51,6 @@ struct _concurrent_task_scheduler {
 	zend_bool activator;
 	zend_fcall_info activator_fci;
 	zend_fcall_info_cache activator_fcc;
-
-	zend_bool adapter;
-	zend_fcall_info adapter_fci;
-	zend_fcall_info_cache adapter_fcc;
 };
 
 zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task);

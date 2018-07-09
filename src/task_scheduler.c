@@ -119,12 +119,6 @@ static void concurrent_task_scheduler_object_destroy(zend_object *object)
 		zval_ptr_dtor(&scheduler->activator_fci.function_name);
 	}
 
-	if (scheduler->adapter) {
-		scheduler->adapter = 0;
-
-		zval_ptr_dtor(&scheduler->adapter_fci.function_name);
-	}
-
 	OBJ_RELEASE(&scheduler->context->std);
 
 	zend_object_std_dtor(&scheduler->std);
@@ -225,25 +219,6 @@ ZEND_METHOD(TaskScheduler, activator)
 	Z_TRY_ADDREF_P(&scheduler->activator_fci.function_name);
 }
 
-ZEND_METHOD(TaskScheduler, adapter)
-{
-	concurrent_task_scheduler *scheduler;
-
-	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_FUNC_EX(scheduler->adapter_fci, scheduler->adapter_fcc, 1, 0)
-	ZEND_PARSE_PARAMETERS_END();
-
-	if (scheduler->adapter) {
-		zval_ptr_dtor(&scheduler->adapter_fci.function_name);
-	}
-
-	scheduler->adapter = 1;
-
-	Z_TRY_ADDREF_P(&scheduler->adapter_fci.function_name);
-}
-
 ZEND_METHOD(TaskScheduler, run)
 {
 	concurrent_task_scheduler *scheduler;
@@ -331,10 +306,6 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_activator, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_adapter, 0, 0, 1)
-	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_run, 0)
 ZEND_END_ARG_INFO()
 
@@ -346,7 +317,6 @@ static const zend_function_entry task_scheduler_functions[] = {
 	ZEND_ME(TaskScheduler, count, arginfo_task_scheduler_count, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, task, arginfo_task_scheduler_task, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, activator, arginfo_task_scheduler_activator, ZEND_ACC_PUBLIC)
-	ZEND_ME(TaskScheduler, adapter, arginfo_task_scheduler_adapter, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, run, arginfo_task_scheduler_run, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, __wakeup, arginfo_task_scheduler_wakeup, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
