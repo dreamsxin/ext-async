@@ -107,23 +107,11 @@ static void concurrent_task_continuation(void *obj, zval *result, zend_bool succ
 	OBJ_RELEASE(&task->fiber.std);
 }
 
-void concurrent_task_attempt_inline_execution(concurrent_task *task, concurrent_task *inner)
+void concurrent_task_execute_inline(concurrent_task *task, concurrent_task *inner)
 {
 	concurrent_context *context;
 	concurrent_awaitable_cb *cont;
 	zend_bool success;
-
-	if (inner->fiber.status != CONCURRENT_FIBER_STATUS_INIT) {
-		return;
-	}
-
-	if (inner->fiber.stack_size != task->fiber.stack_size) {
-		return;
-	}
-
-	if (inner->context->scheduler != task->context->scheduler) {
-		return;
-	}
 
 	inner->operation = CONCURRENT_TASK_OPERATION_NONE;
 
@@ -338,7 +326,6 @@ ZEND_METHOD(Task, await)
 	concurrent_task *inner;
 	concurrent_deferred *defer;
 	concurrent_context *context;
-	concurrent_task_scheduler *scheduler;
 	size_t stack_page_size;
 
 	zval *val;
@@ -361,9 +348,7 @@ ZEND_METHOD(Task, await)
 		return;
 	}
 
-	scheduler = task->context->scheduler;
-
-	ZEND_ASSERT(scheduler != NULL);
+	ZEND_ASSERT(task->context->scheduler != NULL);
 
 	if (Z_TYPE_P(val) != IS_OBJECT) {
 		RETURN_ZVAL(val, 1, 0);
@@ -379,7 +364,16 @@ ZEND_METHOD(Task, await)
 	if (ce == concurrent_task_ce) {
 		inner = (concurrent_task *) Z_OBJ_P(val);
 
-		concurrent_task_attempt_inline_execution(task, inner);
+		if (inner->context->scheduler != task->context->scheduler) {
+			zend_throw_error(NULL, "Cannot await a task that runs on a different task scheduler");
+			return;
+		}
+
+		if (inner->fiber.status == CONCURRENT_FIBER_STATUS_INIT) {
+			if (inner->fiber.stack_size <= task->fiber.stack_size) {
+				concurrent_task_execute_inline(task, inner);
+			}
+		}
 
 		if (inner->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
 			RETURN_ZVAL(&inner->result, 1, 0);
