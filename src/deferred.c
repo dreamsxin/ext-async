@@ -108,43 +108,7 @@ static void concurrent_deferred_object_destroy(zend_object *object)
 		concurrent_awaitable_trigger_continuation(defer->continuation, &defer->result, 0);
 	}
 
-	if (defer->context != NULL) {
-		OBJ_RELEASE(&defer->context->std);
-	}
-
 	zend_object_std_dtor(&defer->std);
-}
-
-ZEND_METHOD(Deferred, __construct)
-{
-	concurrent_deferred *defer;
-	concurrent_context *context;
-
-	zval *ctx;
-
-	ctx = NULL;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(ctx)
-	ZEND_PARSE_PARAMETERS_END();
-
-	defer = (concurrent_deferred *) Z_OBJ_P(getThis());
-
-	if (ctx == NULL || Z_TYPE_P(ctx) == IS_NULL) {
-		context = TASK_G(current_context);
-
-		if (UNEXPECTED(context == NULL)) {
-			zend_throw_error(NULL, "No context passed to constructor and no context is running");
-			return;
-		}
-	} else {
-		context = (concurrent_context *) Z_OBJ_P(ctx);
-	}
-
-	defer->context = context;
-
-	GC_ADDREF(&defer->context->std);
 }
 
 ZEND_METHOD(Deferred, awaitable)
@@ -294,10 +258,6 @@ ZEND_METHOD(Deferred, error)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_deferred_ctor, 0, 0, 0)
-	ZEND_ARG_OBJ_INFO(0, context, Concurrent\\Context, 1)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_deferred_awaitable, 0, 0, Concurrent\\Awaitable, 0)
 ZEND_END_ARG_INFO()
 
@@ -318,7 +278,6 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_deferred_error, 0, 1, Concurrent\
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry deferred_functions[] = {
-	ZEND_ME(Deferred, __construct, arginfo_deferred_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
 	ZEND_ME(Deferred, awaitable, arginfo_deferred_awaitable, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, resolve, arginfo_deferred_resolve, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, fail, arginfo_deferred_fail, ZEND_ACC_PUBLIC)

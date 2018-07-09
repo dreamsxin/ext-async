@@ -35,8 +35,6 @@ struct _concurrent_deferred {
 
 	zend_uchar status;
 
-	concurrent_context *context;
-
 	zval result;
 
 	/* Linked list of registered continuation callbacks. */

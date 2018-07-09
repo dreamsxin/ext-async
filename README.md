@@ -25,8 +25,6 @@ namespace Concurrent;
 
 final class Deferred
 {
-    public function __construct(?Context $context = null) { }
-    
     public function awaitable(): Awaitable { }
     
     public function resolve($val = null): void { }
