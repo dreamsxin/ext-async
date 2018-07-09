@@ -21,7 +21,7 @@
 zend_class_entry *concurrent_awaitable_ce;
 
 
-zend_always_inline concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, concurrent_awaitable_func func)
+concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, concurrent_awaitable_func func)
 {
 	concurrent_awaitable_cb *cont;
 
@@ -34,7 +34,7 @@ zend_always_inline concurrent_awaitable_cb *concurrent_awaitable_create_continua
 	return cont;
 }
 
-zend_always_inline void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, concurrent_awaitable_func func)
+void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, concurrent_awaitable_func func)
 {
 	concurrent_awaitable_cb *cont;
 
@@ -49,7 +49,7 @@ zend_always_inline void concurrent_awaitable_append_continuation(concurrent_awai
 	prev->next = cont;
 }
 
-zend_always_inline void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, zval *result, zend_bool success)
+void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, zval *result, zend_bool success)
 {
 	concurrent_awaitable_cb *current;
 	concurrent_awaitable_cb *next;
@@ -72,7 +72,7 @@ zend_always_inline void concurrent_awaitable_trigger_continuation(concurrent_awa
 	*cont = NULL;
 }
 
-zend_always_inline void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont)
+void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont)
 {
 	concurrent_awaitable_cb *current;
 	concurrent_awaitable_cb *next;

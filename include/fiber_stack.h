@@ -28,8 +28,8 @@ typedef struct _concurrent_fiber_stack {
 #endif
 } concurrent_fiber_stack;
 
-zend_always_inline zend_bool concurrent_fiber_stack_allocate(concurrent_fiber_stack *stack, unsigned int size);
-zend_always_inline void concurrent_fiber_stack_free(concurrent_fiber_stack *stack);
+zend_bool concurrent_fiber_stack_allocate(concurrent_fiber_stack *stack, unsigned int size);
+void concurrent_fiber_stack_free(concurrent_fiber_stack *stack);
 
 #if _POSIX_MAPPED_FILES
 #define HAVE_MMAP 1

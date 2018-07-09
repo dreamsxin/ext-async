@@ -38,7 +38,7 @@ const zend_uchar CONCURRENT_TASK_OPERATION_RESUME = 2;
 static zend_object_handlers concurrent_task_handlers;
 
 
-zend_always_inline void concurrent_task_start(concurrent_task *task)
+void concurrent_task_start(concurrent_task *task)
 {
 	concurrent_context *context;
 
@@ -74,7 +74,7 @@ zend_always_inline void concurrent_task_start(concurrent_task *task)
 	zend_fcall_info_args_clear(&task->fiber.fci, 1);
 }
 
-zend_always_inline void concurrent_task_continue(concurrent_task *task)
+void concurrent_task_continue(concurrent_task *task)
 {
 	task->operation = CONCURRENT_TASK_OPERATION_NONE;
 	task->fiber.status = CONCURRENT_FIBER_STATUS_RUNNING;
@@ -107,7 +107,7 @@ static void concurrent_task_continuation(void *obj, zval *result, zend_bool succ
 	OBJ_RELEASE(&task->fiber.std);
 }
 
-zend_always_inline static void concurrent_task_execute_inline(concurrent_task *task, concurrent_task *inner)
+static void concurrent_task_execute_inline(concurrent_task *task, concurrent_task *inner)
 {
 	concurrent_context *context;
 	zend_bool success;

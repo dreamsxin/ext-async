@@ -66,8 +66,8 @@ extern const zend_uchar CONCURRENT_TASK_OPERATION_RESUME;
 
 concurrent_task *concurrent_task_object_create();
 
-zend_always_inline void concurrent_task_start(concurrent_task *task);
-zend_always_inline void concurrent_task_continue(concurrent_task *task);
+void concurrent_task_start(concurrent_task *task);
+void concurrent_task_continue(concurrent_task *task);
 
 void concurrent_task_ce_register();
 
