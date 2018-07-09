@@ -37,7 +37,7 @@ char *concurrent_fiber_backend_info()
 	return "winfib (Windows Fiber API)";
 }
 
-concurrent_fiber_context concurrent_fiber_create_root_context()
+zend_always_inline concurrent_fiber_context concurrent_fiber_create_root_context()
 {
 	concurrent_fiber_context_win32 *context;
 
@@ -58,7 +58,7 @@ concurrent_fiber_context concurrent_fiber_create_root_context()
 	return (concurrent_fiber_context)context;
 }
 
-concurrent_fiber_context concurrent_fiber_create_context()
+zend_always_inline concurrent_fiber_context concurrent_fiber_create_context()
 {
 	concurrent_fiber_context_win32 *context;
 
@@ -68,7 +68,7 @@ concurrent_fiber_context concurrent_fiber_create_context()
 	return (concurrent_fiber_context) context;
 }
 
-zend_bool concurrent_fiber_create(concurrent_fiber_context ctx, concurrent_fiber_func func, size_t stack_size)
+zend_always_inline zend_bool concurrent_fiber_create(concurrent_fiber_context ctx, concurrent_fiber_func func, size_t stack_size)
 {
 	concurrent_fiber_context_win32 *context;
 
@@ -89,7 +89,7 @@ zend_bool concurrent_fiber_create(concurrent_fiber_context ctx, concurrent_fiber
 	return 1;
 }
 
-void concurrent_fiber_destroy(concurrent_fiber_context ctx)
+zend_always_inline void concurrent_fiber_destroy(concurrent_fiber_context ctx)
 {
 	concurrent_fiber_context_win32 *context;
 
@@ -107,7 +107,7 @@ void concurrent_fiber_destroy(concurrent_fiber_context ctx)
 	}
 }
 
-zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, concurrent_fiber_context next)
+zend_always_inline zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, concurrent_fiber_context next)
 {
 	concurrent_fiber_context_win32 *from;
 	concurrent_fiber_context_win32 *to;
@@ -130,7 +130,7 @@ zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, conc
 	return 1;
 }
 
-zend_bool concurrent_fiber_yield(concurrent_fiber_context current)
+zend_always_inline zend_bool concurrent_fiber_yield(concurrent_fiber_context current)
 {
 	concurrent_fiber_context_win32 *from;
 

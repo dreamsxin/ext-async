@@ -21,7 +21,7 @@
 zend_class_entry *concurrent_awaitable_ce;
 
 
-concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, concurrent_awaitable_func func)
+zend_always_inline concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, concurrent_awaitable_func func)
 {
 	concurrent_awaitable_cb *cont;
 
@@ -34,7 +34,7 @@ concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, con
 	return cont;
 }
 
-void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, concurrent_awaitable_func func)
+zend_always_inline void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, concurrent_awaitable_func func)
 {
 	concurrent_awaitable_cb *cont;
 
@@ -49,19 +49,56 @@ void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, voi
 	prev->next = cont;
 }
 
-void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb *cont, zval *result, zend_bool success)
+zend_always_inline void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, zval *result, zend_bool success)
 {
+	concurrent_awaitable_cb *current;
 	concurrent_awaitable_cb *next;
 
-	while (cont != NULL) {
-		next = cont->next;
+	current = *cont;
 
-		cont->func(cont->object, result, success);
+	if (current != NULL) {
+		do {
+			next = current->next;
+			*cont = next;
 
-		efree(cont);
+			current->func(current->object, result, success);
 
-		cont = next;
+			efree(current);
+
+			current = next;
+		} while (current != NULL);
 	}
+
+	*cont = NULL;
+}
+
+zend_always_inline void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont)
+{
+	concurrent_awaitable_cb *current;
+	concurrent_awaitable_cb *next;
+	zval error;
+
+	current = *cont;
+
+	if (current != NULL) {
+		zend_throw_error(NULL, "Awaitable has been disposed before it was resolved");
+		ZVAL_OBJ(&error, EG(exception));
+
+		do {
+			next = current->next;
+			*cont = next;
+
+			current->func(current->object, &error, 0);
+
+			efree(current);
+
+			current = next;
+		} while (current != NULL);
+
+		zval_ptr_dtor(&error);
+	}
+
+	*cont = NULL;
 }
 
 static int concurrent_awaitable_implement_interface(zend_class_entry *interface, zend_class_entry *implementor)

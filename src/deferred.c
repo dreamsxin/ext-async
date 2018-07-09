@@ -105,7 +105,7 @@ static void concurrent_deferred_object_destroy(zend_object *object)
 	zval_ptr_dtor(&defer->result);
 
 	if (defer->continuation != NULL) {
-		concurrent_awaitable_trigger_continuation(defer->continuation, &defer->result, 0);
+		concurrent_awaitable_dispose_continuation(&defer->continuation);
 	}
 
 	zend_object_std_dtor(&defer->std);
@@ -129,7 +129,6 @@ ZEND_METHOD(Deferred, awaitable)
 ZEND_METHOD(Deferred, resolve)
 {
 	concurrent_deferred *defer;
-	concurrent_awaitable_cb *cont;
 
 	zval *val;
 
@@ -152,18 +151,12 @@ ZEND_METHOD(Deferred, resolve)
 
 	defer->status = CONCURRENT_DEFERRED_STATUS_RESOLVED;
 
-	if (defer->continuation != NULL) {
-		cont = defer->continuation;
-		defer->continuation = NULL;
-
-		concurrent_awaitable_trigger_continuation(cont, &defer->result, 1);
-	}
+	concurrent_awaitable_trigger_continuation(&defer->continuation, &defer->result, 1);
 }
 
 ZEND_METHOD(Deferred, fail)
 {
 	concurrent_deferred *defer;
-	concurrent_awaitable_cb *cont;
 
 	zval *error;
 
@@ -181,12 +174,7 @@ ZEND_METHOD(Deferred, fail)
 
 	defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
 
-	if (defer->continuation != NULL) {
-		cont = defer->continuation;
-		defer->continuation = NULL;
-
-		concurrent_awaitable_trigger_continuation(cont, &defer->result, 0);
-	}
+	concurrent_awaitable_trigger_continuation(&defer->continuation, &defer->result, 0);
 }
 
 ZEND_METHOD(Deferred, value)

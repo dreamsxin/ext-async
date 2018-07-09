@@ -38,7 +38,7 @@ const zend_uchar CONCURRENT_TASK_OPERATION_RESUME = 2;
 static zend_object_handlers concurrent_task_handlers;
 
 
-void concurrent_task_start(concurrent_task *task)
+zend_always_inline void concurrent_task_start(concurrent_task *task)
 {
 	concurrent_context *context;
 
@@ -74,7 +74,7 @@ void concurrent_task_start(concurrent_task *task)
 	zend_fcall_info_args_clear(&task->fiber.fci, 1);
 }
 
-void concurrent_task_continue(concurrent_task *task)
+zend_always_inline void concurrent_task_continue(concurrent_task *task)
 {
 	task->operation = CONCURRENT_TASK_OPERATION_NONE;
 	task->fiber.status = CONCURRENT_FIBER_STATUS_RUNNING;
@@ -107,10 +107,9 @@ static void concurrent_task_continuation(void *obj, zval *result, zend_bool succ
 	OBJ_RELEASE(&task->fiber.std);
 }
 
-void concurrent_task_execute_inline(concurrent_task *task, concurrent_task *inner)
+zend_always_inline static void concurrent_task_execute_inline(concurrent_task *task, concurrent_task *inner)
 {
 	concurrent_context *context;
-	concurrent_awaitable_cb *cont;
 	zend_bool success;
 
 	inner->operation = CONCURRENT_TASK_OPERATION_NONE;
@@ -138,12 +137,7 @@ void concurrent_task_execute_inline(concurrent_task *task, concurrent_task *inne
 		success = 1;
 	}
 
-	if (inner->continuation != NULL) {
-		cont = inner->continuation;
-		inner->continuation = NULL;
-
-		concurrent_awaitable_trigger_continuation(cont, &inner->result, success);
-	}
+	concurrent_awaitable_trigger_continuation(&inner->continuation, &inner->result, success);
 }
 
 concurrent_task *concurrent_task_object_create()
@@ -199,7 +193,7 @@ static void concurrent_task_object_destroy(zend_object *object)
 	}
 
 	if (task->continuation != NULL) {
-		concurrent_awaitable_trigger_continuation(task->continuation, &task->result, 0);
+		concurrent_awaitable_dispose_continuation(&task->continuation);
 	}
 
 	zval_ptr_dtor(&task->result);

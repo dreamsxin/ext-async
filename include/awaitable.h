@@ -35,9 +35,11 @@ struct _concurrent_awaitable_cb {
 	concurrent_awaitable_cb *next;
 };
 
-concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, concurrent_awaitable_func func);
-void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, concurrent_awaitable_func func);
-void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb *cont, zval *result, zend_bool success);
+zend_always_inline concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, concurrent_awaitable_func func);
+zend_always_inline void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, concurrent_awaitable_func func);
+
+zend_always_inline void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, zval *result, zend_bool success);
+zend_always_inline void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont);
 
 void concurrent_awaitable_ce_register();
 

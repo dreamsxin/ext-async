@@ -218,7 +218,6 @@ ZEND_METHOD(TaskScheduler, run)
 {
 	concurrent_task_scheduler *scheduler;
 	concurrent_task *task;
-	concurrent_awaitable_cb *cont;
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
@@ -254,18 +253,10 @@ ZEND_METHOD(TaskScheduler, run)
 				task->fiber.status = CONCURRENT_FIBER_STATUS_DEAD;
 			}
 
-			if (task->continuation != NULL) {
-				cont = task->continuation;
-
-				if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
-					task->continuation = NULL;
-
-					concurrent_awaitable_trigger_continuation(cont, &task->result, 1);
-				} else if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
-					task->continuation = NULL;
-
-					concurrent_awaitable_trigger_continuation(cont, &task->result, 0);
-				}
+			if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
+				concurrent_awaitable_trigger_continuation(&task->continuation, &task->result, 1);
+			} else if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
+				concurrent_awaitable_trigger_continuation(&task->continuation, &task->result, 0);
 			}
 		}
 
