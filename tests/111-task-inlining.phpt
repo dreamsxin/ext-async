@@ -9,7 +9,7 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new TaskScheduler([
+$scheduler = new TaskScheduler(null, [
     'num' => 123
 ]);
 

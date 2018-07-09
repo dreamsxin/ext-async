@@ -63,25 +63,20 @@ final class Task implements Awaitable
 
 The task scheduler is based on a queue of scheduled tasks that are run whenever `TaskScheduler->run()` is called. The scheduler will start (or resume) all tasks that are scheduled for execution and return when no more tasks are scheduled. Tasks may be re-scheduled (an hence run multiple times) during a single call to the run method. The scheduler implements `Countable` and will return the current number of scheduled tasks.
 
-The constructor takes an associative array of context variables that will be used by the root `Context`. Each task being run by the scheduler will be bound to the root context by default.
-
-You can set an `activator` callback, that will be called whenever the scheduler is not running and the first task is scheduled for execution. This allows for easy integration of the task scheduler with event loops as you can register the run method as future tick (react) or defer watcher (amp).
+Passing an activator callback to the constructor will have the scheduler execute the given calback whenever the scheduler is not running and the first task is scheduled for execution. This allows one to integrate a task scheduler with event loops as you can register the run method as future tick (react) or defer watcher (amp). The constructor takes an associative array of context variables as second argument that will be used by the root `Context`. Each task being run by the scheduler will be bound to the root context by default.
 
 ```php
 namespace Concurrent;
 
 final class TaskScheduler implements \Countable
 {
-    public function __construct(?array $context = null) { }
+    public function __construct(?callable $activator = null, ?array $context = null) { }
 
     public function count(): int { }
     
     public function task(callable $callback, ?array $args = null): Task { }
     
     public function run(): void { }
-    
-    /* Used for event loop integration, should be dropped if merged into PHP core. */
-    public function activator(callable(TaskScheduler) $callback): void { }
 }
 ```
 

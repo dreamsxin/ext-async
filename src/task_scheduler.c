@@ -127,19 +127,33 @@ static void concurrent_task_scheduler_object_destroy(zend_object *object)
 ZEND_METHOD(TaskScheduler, __construct)
 {
 	concurrent_task_scheduler *scheduler;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
 
 	zval *params;
 	HashTable *table;
 
 	scheduler = (concurrent_task_scheduler *)Z_OBJ_P(getThis());
 
+	fci = empty_fcall_info;
+	fcc = empty_fcall_info_cache;
+
 	params = NULL;
 	table = NULL;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 2)
 		Z_PARAM_OPTIONAL
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
 		Z_PARAM_ZVAL(params)
 	ZEND_PARSE_PARAMETERS_END();
+
+	if (Z_TYPE_P(&fci.function_name) != IS_UNDEF) {
+		scheduler->activator = 1;
+		scheduler->activator_fci = fci;
+		scheduler->activator_fcc = fcc;
+
+		Z_TRY_ADDREF_P(&fci.function_name);
+	}
 
 	if (params != NULL && Z_TYPE_P(params) == IS_ARRAY) {
 		table = Z_ARRVAL_P(params);
@@ -198,25 +212,6 @@ ZEND_METHOD(TaskScheduler, task)
 	ZVAL_OBJ(&obj, &task->fiber.std);
 
 	RETURN_ZVAL(&obj, 1, 1);
-}
-
-ZEND_METHOD(TaskScheduler, activator)
-{
-	concurrent_task_scheduler *scheduler;
-
-	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_FUNC_EX(scheduler->activator_fci, scheduler->activator_fcc, 1, 0)
-	ZEND_PARSE_PARAMETERS_END();
-
-	if (scheduler->activator) {
-		zval_ptr_dtor(&scheduler->activator_fci.function_name);
-	}
-
-	scheduler->activator = 1;
-
-	Z_TRY_ADDREF_P(&scheduler->activator_fci.function_name);
 }
 
 ZEND_METHOD(TaskScheduler, run)
@@ -291,6 +286,7 @@ ZEND_METHOD(TaskScheduler, __wakeup)
 }
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_ctor, 0, 0, 0)
+	ZEND_ARG_CALLABLE_INFO(0, callback, 1)
 	ZEND_ARG_ARRAY_INFO(0, context, 1)
 ZEND_END_ARG_INFO()
 
@@ -300,10 +296,6 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_task, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 	ZEND_ARG_ARRAY_INFO(0, arguments, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_activator, 0, 0, 1)
-	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_run, 0)
@@ -316,7 +308,6 @@ static const zend_function_entry task_scheduler_functions[] = {
 	ZEND_ME(TaskScheduler, __construct, arginfo_task_scheduler_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
 	ZEND_ME(TaskScheduler, count, arginfo_task_scheduler_count, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, task, arginfo_task_scheduler_task, ZEND_ACC_PUBLIC)
-	ZEND_ME(TaskScheduler, activator, arginfo_task_scheduler_activator, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, run, arginfo_task_scheduler_run, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, __wakeup, arginfo_task_scheduler_wakeup, ZEND_ACC_PUBLIC)
 	ZEND_FE_END

@@ -51,15 +51,13 @@ final class Task implements Awaitable
 
 final class TaskScheduler implements \Countable
 {
-    public function __construct(?array $context = null) { }
+    public function __construct(?callable $activator = null, ?array $context = null) { }
 
     public function count(): int { }
     
     public function task(callable $callback, ?array $args = null): Task { }
     
     public function run(): void { }
-    
-    public function activator(callable $callback): void { }
 }
 
 final class Fiber

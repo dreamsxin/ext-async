@@ -11,9 +11,7 @@ require_once __DIR__ . '/vendor/autoload.php';
 
 $loop = \React\EventLoop\Factory::create();
 
-$scheduler = new TaskScheduler();
-
-$scheduler->activator(function (TaskScheduler $scheduler) use ($loop) {
+$scheduler = new TaskScheduler(function (TaskScheduler $scheduler) use ($loop) {
     var_dump('=> RUN');
     
     $loop->futureTick([
