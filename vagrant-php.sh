@@ -10,8 +10,11 @@ sudo mkdir /usr/local/php
 cd /usr/local/php
 
 sudo mkdir cli
+
 sudo mkdir php-src
-sudo curl -LSs https://github.com/php/php-src/archive/php-$PHP_VERSION.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
+sudo curl -LSs https://github.com/concurrent-php/php-src/archive/async.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
+
+#sudo curl -LSs https://github.com/php/php-src/archive/php-$PHP_VERSION.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
 
 pushd php-src
 

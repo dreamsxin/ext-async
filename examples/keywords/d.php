@@ -1,7 +1,7 @@
 <?php
 
-
-
+// Example requires installing PHP from patched source (branch name is "async"!):
+// https://github.com/concurrent-php/php-src/tree/async
 
 namespace Concurrent;
 
@@ -15,18 +15,18 @@ function job(Deferred $defer)
     return 123;
 }
 
-$scheduler->task(function () {
+$scheduler->task(function () {    
     $context = Context::inherit([
         'number' => 777
     ]);
     
     $defer = new Deferred();
 
-    $t = Task::asyncWithContext($context, __NAMESPACE__ . '\\job', [$defer]);
+    $t = async $context => job($defer);
     
     var_dump('GO WAIT');
-    var_dump(Task::await($defer->awaitable()));
-    var_dump(Task::await($t));
+    var_dump(await $defer->awaitable());
+    var_dump(await $t);
     var_dump('OUTER DONE!');
 });
 

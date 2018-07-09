@@ -161,3 +161,48 @@ $result = Task::await($task);
 ```
 
 The second example shows how passing a new context to a task would also be possible using the `async` keyword. This would allow for a very simple and readable way to setup tasks in a specific context using a keyword-based syntax.
+
+### PHP with support for async & await keywords
+
+You can install a patched version of PHP that provides native support for `async` and `await` as described in the transformation section. To get up and running with it you can execute this in your shell:
+
+```shell
+mkdir php-src
+curl -LSs https://github.com/concurrent-php/php-src/archive/async.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
+
+pushd php-src
+./buildconf --force
+./configure --prefix=/usr/local/php/cli --with-config-file-path=/usr/local/php/cli --without-pear
+make -j4
+make install
+popd
+
+mkdir task
+curl -LSs https://github.com/concurrent-php/task/archive/master.tar.gz | sudo tar -xz -C "task" --strip-components 1
+
+pushd task
+phpize
+./configure
+make install
+popd
+```
+
+This will install a modified version of PHP's master branch that has full support for `async` and `await`. It will also install the `task` extension that is required for the actual async execution model.
+
+### Source Transformation Explained
+
+The source transformation needs to consider namespaces and preserve scope. Dealing with namespaces is a problem when it comes to function calls because there is a fallback to the global namespace involved and there is no way to determine the called function in all cases during compilation. Here are some examples of code using `async` / `await` syntax and the transformed source code:
+
+```php
+$task = async \max(1, 2, 3);
+
+$task = \Concurrent\Task::async('max', [1, 2, 3]);
+``` 
+
+```php
+namespace Foo;
+
+$task = async bar(1, 2);
+
+$task = \Concurrent\Task::async(\function_exists('Foo\\bar') ? 'Foo\\bar' : 'bar', [1, 2]);
+```
