@@ -36,6 +36,9 @@ struct _concurrent_task {
 	/* Embedded fiber. */
 	concurrent_fiber fiber;
 
+	/* Task scheduler being used to execute the task. */
+	concurrent_task_scheduler *scheduler;
+
 	/* Unique identifier of this task. */
 	size_t id;
 

@@ -11,7 +11,7 @@ namespace Concurrent;
 
 $scheduler = new TaskScheduler();
 
-$scheduler->task(function () {
+$scheduler->run(function () {
     var_dump('A');
     
     var_dump(Task::await('B'));
@@ -31,8 +31,6 @@ $scheduler->task(function () {
     
     var_dump(Task::await($t));
 });
-
-$scheduler->run();
 
 ?>
 --EXPECT--

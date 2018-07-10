@@ -51,8 +51,17 @@ ZEND_BEGIN_MODULE_GLOBALS(task)
 	/* Active fiber, NULL when in main thread. */
 	concurrent_fiber *current_fiber;
 
+	/* Root context. */
+	concurrent_context *context;
+
 	/* Active task context. */
 	concurrent_context *current_context;
+
+	/* Default shared task scheduler. */
+	concurrent_task_scheduler *scheduler;
+
+	/* Running task scheduler. */
+	concurrent_task_scheduler *current_scheduler;
 
 	/* Default fiber C stack size. */
 	zend_long stack_size;

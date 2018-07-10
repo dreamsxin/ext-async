@@ -6,7 +6,7 @@ use Concurrent\TaskScheduler;
 
 $scheduler = new TaskScheduler();
 
-$scheduler->task(function (): int {
+$result = $scheduler->run(function () {
     $t = Task::async(function (): int {
         return max(123, Task::await(Deferred::value()));
     });
@@ -18,6 +18,8 @@ $scheduler->task(function (): int {
     }
     
     var_dump(2 * Task::await($t));
+    
+    return 777;
 });
 
-$scheduler->run();
+var_dump($result);

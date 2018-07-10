@@ -98,6 +98,8 @@ static PHP_RINIT_FUNCTION(task)
 
 static PHP_RSHUTDOWN_FUNCTION(task)
 {
+	concurrent_task_scheduler_shutdown();
+	concurrent_context_shutdown();
 	concurrent_fiber_shutdown();
 
 	return SUCCESS;

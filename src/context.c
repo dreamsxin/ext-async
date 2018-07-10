@@ -31,6 +31,36 @@ zend_class_entry *concurrent_context_ce;
 static zend_object_handlers concurrent_context_handlers;
 
 
+concurrent_context *concurrent_context_get()
+{
+	concurrent_context *context;
+
+	context = TASK_G(current_context);
+
+	if (context != NULL) {
+		return context;
+	}
+
+	context = TASK_G(context);
+
+	if (context != NULL) {
+		return context;
+	}
+
+	context = emalloc(sizeof(concurrent_context));
+	ZEND_SECURE_ZERO(context, sizeof(concurrent_context));
+
+	zend_object_std_init(&context->std, concurrent_context_ce);
+	context->std.handlers = &concurrent_context_handlers;
+
+	GC_ADDREF(&context->std);
+
+	TASK_G(context) = context;
+
+	return context;
+}
+
+
 concurrent_context *concurrent_context_object_create(HashTable *params)
 {
 	concurrent_context *context;
@@ -43,10 +73,10 @@ concurrent_context *concurrent_context_object_create(HashTable *params)
 	context = emalloc(sizeof(concurrent_context));
 	ZEND_SECURE_ZERO(context, sizeof(concurrent_context));
 
-	GC_ADDREF(&context->std);
-
 	zend_object_std_init(&context->std, concurrent_context_ce);
 	context->std.handlers = &concurrent_context_handlers;
+
+	GC_ADDREF(&context->std);
 
 	if (params != NULL) {
 		context->param_count = zend_hash_num_elements(params);
@@ -72,10 +102,10 @@ static concurrent_context *concurrent_context_object_create_single_var(zend_stri
 	context = emalloc(sizeof(concurrent_context));
 	ZEND_SECURE_ZERO(context, sizeof(concurrent_context));
 
-	GC_ADDREF(&context->std);
-
 	zend_object_std_init(&context->std, concurrent_context_ce);
 	context->std.handlers = &concurrent_context_handlers;
+
+	GC_ADDREF(&context->std);
 
 	context->param_count = 1;
 
@@ -190,7 +220,6 @@ ZEND_METHOD(Context, with)
 	}
 
 	context->parent = current->parent;
-	context->scheduler = current->scheduler;
 
 	if (context->parent != NULL) {
 		GC_ADDREF(&context->parent->std);
@@ -245,7 +274,6 @@ ZEND_METHOD(Context, without)
 	}
 
 	context->parent = current->parent;
-	context->scheduler = current->scheduler;
 
 	if (context->parent != NULL) {
 		GC_ADDREF(&context->parent->std);
@@ -306,9 +334,9 @@ ZEND_METHOD(Context, var)
 	key = Z_STR_P(val);
 	ZSTR_HASH(key);
 
-	context = TASK_G(current_context);
+	context = concurrent_context_get();
 
-	while (context != NULL) {
+	do {
 		if (context->param_count == 1) {
 			if (zend_string_equals(key, context->data.var.name)) {
 				RETURN_ZVAL(&context->data.var.value, 1, 0);
@@ -320,25 +348,16 @@ ZEND_METHOD(Context, var)
 		}
 
 		context = context->parent;
-	}
+	} while (context != NULL);
 }
 
 ZEND_METHOD(Context, current)
 {
-	concurrent_context *context;
-
 	zval obj;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	context = TASK_G(current_context);
-
-	if (UNEXPECTED(context == NULL)) {
-		zend_throw_error(NULL, "Cannot access current context when no context is running");
-		return;
-	}
-
-	ZVAL_OBJ(&obj, &context->std);
+	ZVAL_OBJ(&obj, &concurrent_context_get()->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
@@ -360,12 +379,7 @@ ZEND_METHOD(Context, inherit)
 		Z_PARAM_ZVAL(params)
 	ZEND_PARSE_PARAMETERS_END();
 
-	current = TASK_G(current_context);
-
-	if (UNEXPECTED(current == NULL)) {
-		zend_throw_error(NULL, "Cannot inherit context when no context is running");
-		return;
-	}
+	current = concurrent_context_get();
 
 	if (params != NULL && Z_TYPE_P(params) == IS_ARRAY) {
 		table = Z_ARRVAL_P(params);
@@ -373,7 +387,6 @@ ZEND_METHOD(Context, inherit)
 
 	context = concurrent_context_object_create(table);
 	context->parent = current;
-	context->scheduler = current->scheduler;
 
 	GC_ADDREF(&context->parent->std);
 
@@ -399,12 +412,7 @@ ZEND_METHOD(Context, background)
 		Z_PARAM_ZVAL(params)
 	ZEND_PARSE_PARAMETERS_END();
 
-	current = TASK_G(current_context);
-
-	if (UNEXPECTED(current == NULL)) {
-		zend_throw_error(NULL, "Cannot inherit background context when no context is running");
-		return;
-	}
+	current = concurrent_context_get();
 
 	while (current->parent != NULL) {
 		current = current->parent;
@@ -416,7 +424,6 @@ ZEND_METHOD(Context, background)
 
 	context = concurrent_context_object_create(table);
 	context->parent = current;
-	context->scheduler = current->scheduler;
 
 	GC_ADDREF(&current->std);
 
@@ -488,6 +495,17 @@ void concurrent_context_ce_register()
 	memcpy(&concurrent_context_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	concurrent_context_handlers.free_obj = concurrent_context_object_destroy;
 	concurrent_context_handlers.clone_obj = NULL;
+}
+
+void concurrent_context_shutdown()
+{
+	concurrent_context *context;
+
+	context = TASK_G(context);
+
+	if (context != NULL) {
+		concurrent_context_object_destroy(&context->std);
+	}
 }
 
 

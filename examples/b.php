@@ -7,24 +7,42 @@ use Concurrent\TaskScheduler;
 
 require_once __DIR__ . '/vendor/autoload.php';
 
-// Event loop and promise API integration using a scheduler activator.
+// Event loop integration using a customized scheduler.
 
 $loop = \React\EventLoop\Factory::create();
 
-$scheduler = new TaskScheduler(function (TaskScheduler $scheduler) use ($loop) {
-    var_dump('=> RUN');
-    
-    $loop->futureTick([
-        $scheduler,
-        'run'
-    ]);
+TaskScheduler::setDefaultScheduler(new class($loop) extends TaskScheduler {
+
+    protected $loop;
+
+    public function __construct(\React\EventLoop\LoopInterface $loop)
+    {
+        $this->loop = $loop;
+    }
+
+    protected function activate()
+    {
+        var_dump('=> activate');
+        
+        $this->loop->futureTick(\Closure::fromCallable([
+            $this,
+            'dispatch'
+        ]));
+    }
+
+    protected function runLoop()
+    {
+        var_dump('START LOOP');
+        $this->loop->run();
+        var_dump('END LOOP');
+    }
 });
 
 function adapt(\React\Promise\PromiseInterface $promise): Awaitable
 {
     $defer = new Deferred();
     
-    $val->done(function ($v) use ($defer) {
+    $promise->done(function ($v) use ($defer) {
         $defer->resolve($v);
     }, function ($e) use ($defer) {
         $defer->fail(($e instanceof \Throwable) ? $e : new \Error((string) $e));
@@ -33,51 +51,51 @@ function adapt(\React\Promise\PromiseInterface $promise): Awaitable
     return $defer->awaitable();
 }
 
-$defer = new \React\Promise\Deferred();
-
-$work = function (string $title): void {
-    var_dump($title);
-};
-
-$scheduler->task($work, ['A']);
-$scheduler->task($work, ['B']);
-
-$scheduler->task(function () use ($loop) {
-    $defer = new Deferred();
+Task::await(Task::async(function () use ($loop) {
+    $defer = new \React\Promise\Deferred();
     
-    $loop->addTimer(.8, function () use ($defer) {
-        $defer->resolve('H :)');
+    $work = function (string $title): void {
+        var_dump($title);
+    };
+    
+    Task::async($work, ['A']);
+    Task::async($work, ['B']);
+    
+    Task::async(function () use ($loop) {
+        $defer = new Deferred();
+        
+        $loop->addTimer(.8, function () use ($defer) {
+            $defer->resolve('H :)');
+        });
+            
+        var_dump(Task::await($defer->awaitable()));
     });
-    
-    var_dump(Task::await($defer->awaitable()));
-});
-
-$scheduler->task(function () use ($defer) {
-    var_dump(Task::await(adapt($defer->promise())));
-});
-
-$loop->addTimer(.05, function () use ($scheduler, $work, $defer) {
-    $defer->resolve('F');
-    
-    $scheduler->task($work, ['G']);
-});
-
-$loop->futureTick(function () use ($loop, $scheduler, $work) {
-    $scheduler->task($work, [
-        'C'
-    ]);
-    
-    $loop->futureTick(function () use ($scheduler, $work) {
-        $scheduler->task($work, [
-            'E'
+        
+    Task::async(function () use ($defer) {
+        var_dump(Task::await(adapt($defer->promise())));
+    });
+        
+    $loop->addTimer(.05, function () use ($work, $defer) {
+        $defer->resolve('F');
+        
+        Task::async($work, ['G']);
+    });
+            
+    $loop->futureTick(function () use ($loop, $work) {
+        Task::async($work, [
+            'C'
         ]);
+        
+        $loop->futureTick(function () use ($work) {
+            Task::async($work, [
+                'E'
+            ]);
+        });
+        
+        Task::async(function ($v) {
+            var_dump(Task::await($v));
+        }, ['D']);
     });
-    
-    $scheduler->task(function ($v) {
-        var_dump(Task::await($v));
-    }, ['D']);
-});
+}));
 
-$loop->run();
-
-var_dump('EXIT LOOP');
+var_dump('DONE');

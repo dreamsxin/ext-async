@@ -1,5 +1,5 @@
 --TEST--
-Task activator is called whenever the first task is scheduled with a halted scheduler.
+Task can be executed using a custom user-defined default task scheduler.
 --SKIPIF--
 <?php
 if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
@@ -9,30 +9,30 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new class() extends TaskScheduler
+TaskScheduler::setDefaultScheduler(new class() extends TaskScheduler
 {
     protected function activate()
     {
         var_dump('ACTIVATE!');
     }
-};
+});
 
 $work = function (string $v): void {
     var_dump($v);
 };
 
-$scheduler->run($work, ['A']);
+Task::await(Task::async($work, ['A']));
 
-$scheduler->run(function () use ($work) {
+Task::await(Task::async(function () use ($work) {
     $work('B');
     
     Task::async($work, ['C']);
-});
+}));
 
-$scheduler->run(function () use ($work) {
+Task::await(Task::async(function () use ($work) {
     Task::async($work, ['D']);
     Task::async($work, ['E']);
-});
+}));
 
 ?>
 --EXPECT--

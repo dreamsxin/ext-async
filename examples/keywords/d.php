@@ -15,7 +15,7 @@ function job(Deferred $defer)
     return 123;
 }
 
-$scheduler->task(function () {    
+$scheduler->run(function () {    
     $context = Context::inherit([
         'number' => 777
     ]);
@@ -29,5 +29,3 @@ $scheduler->task(function () {
     var_dump(await $t);
     var_dump('OUTER DONE!');
 });
-
-$scheduler->run();

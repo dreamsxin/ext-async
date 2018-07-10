@@ -11,7 +11,7 @@ namespace Concurrent;
 
 $scheduler = new TaskScheduler();
 
-$scheduler->task(function () {
+$scheduler->run(function () {
 	$context = Context::current();
 	var_dump($context instanceof Context);
 	
@@ -29,8 +29,6 @@ $scheduler->task(function () {
 	
 	var_dump($context === Context::current());
 });
-
-$scheduler->run();
 
 ?>
 --EXPECT--

@@ -9,44 +9,25 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$defer = null;
-
 $scheduler = new TaskScheduler();
 
-$scheduler->task(function () {
-    var_dump('A');
+$scheduler->run(function () {
+    Task::async('var_dump', ['A']);
+
+    $defer = new Deferred();
     
-    Task::async(function () {
+    Task::async(function () use ($defer) {
+        var_dump(Task::await($defer->awaitable()));
+    });
+    
+    Task::async('var_dump', ['B']);
+    
+    Task::async(function () use ($defer) {
+        $defer->resolve('D');
+        
         var_dump('C');
     });
 });
-
-$scheduler->task(function () use (& $defer) {
-    $defer = new Deferred();
-
-    var_dump(Task::await($defer->awaitable()));
-});
-
-$scheduler->task(function () {
-    var_dump('B');
-    
-    Task::async(function () {
-       var_dump('D');
-   });
-});
-
-$scheduler->run();
-
-var_dump($defer instanceof Deferred);
-var_dump(count($scheduler));
-
-$defer->resolve('X');
-
-var_dump(count($scheduler));
-
-$scheduler->run();
-
-var_dump(count($scheduler));
 
 ?>
 --EXPECT--
@@ -54,8 +35,3 @@ string(1) "A"
 string(1) "B"
 string(1) "C"
 string(1) "D"
-bool(true)
-int(0)
-int(1)
-string(1) "X"
-int(0)
