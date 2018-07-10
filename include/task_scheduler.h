@@ -43,19 +43,18 @@ struct _concurrent_task_scheduler {
 	/* Points to the last task to be run (needed to insert tasks into the run queue. */
 	concurrent_task *last;
 
-	concurrent_context *context;
-
 	zend_bool running;
 	zend_bool activate;
-
-	zend_bool activator;
-	zend_fcall_info activator_fci;
-	zend_fcall_info_cache activator_fcc;
 };
+
+concurrent_task_scheduler *concurrent_task_scheduler_get();
 
 zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task);
 
+void concurrent_task_scheduler_run(concurrent_task_scheduler *scheduler);
+
 void concurrent_task_scheduler_ce_register();
+void concurrent_task_scheduler_shutdown();
 
 END_EXTERN_C()
 

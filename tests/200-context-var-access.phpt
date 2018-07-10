@@ -11,7 +11,9 @@ namespace Concurrent;
 
 $scheduler = new TaskScheduler();
 
-$scheduler->task(function () {
+var_dump(Context::var('foo'));
+
+$scheduler->run(function () {
     var_dump(Context::var('foo'));
     
     Task::asyncWithContext(Context::inherit([
@@ -33,19 +35,11 @@ $scheduler->task(function () {
     });
 });
 
-var_dump(Context::var('foo'));
-
-$scheduler->run();
-
-$scheduler = new TaskScheduler(null, [
+$scheduler->runWithContext(Context::inherit([
     'foo' => 'bar'
-]);
-
-$scheduler->task(function () {
+]), function () {
     var_dump(Context::var('foo'));
 });
-
-$scheduler->run();
 
 ?>
 --EXPECT--

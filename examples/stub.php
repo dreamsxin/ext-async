@@ -49,15 +49,19 @@ final class Task implements Awaitable
     public static function await($a) { }
 }
 
-final class TaskScheduler implements \Countable
+class TaskScheduler implements \Countable
 {
-    public function __construct(?callable $activator = null, ?array $context = null) { }
-
-    public function count(): int { }
+    public final function count(): int { }
     
-    public function task(callable $callback, ?array $args = null): Task { }
+    public final function run(callable $callback, ?array $args = null) { }
     
-    public function run(): void { }
+    public final function runWithContext(Context $context, callable $callback, ?array $args = null) { }
+    
+    protected final function dispatch(): void { }
+    
+    protected function activate() { }
+    
+    protected function runLoop() { }
 }
 
 final class Fiber

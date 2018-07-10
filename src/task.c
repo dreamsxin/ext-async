@@ -226,23 +226,16 @@ ZEND_METHOD(Task, isRunning)
 
 ZEND_METHOD(Task, async)
 {
-	concurrent_context *context;
 	concurrent_task * task;
 
 	zval *params;
 	zval obj;
 
-	context = TASK_G(current_context);
-
-	if (UNEXPECTED(context == NULL)) {
-		zend_throw_error(NULL, "Cannot create an async task while no task scheduler is running");
-		return;
-	}
-
 	task = concurrent_task_object_create();
-	task->context = context;
+	task->scheduler = concurrent_task_scheduler_get();
+	task->context = concurrent_context_get();
 
-	ZEND_ASSERT(task->context->scheduler != NULL);
+	ZEND_ASSERT(task->scheduler != NULL);
 
 	params = NULL;
 
@@ -300,9 +293,10 @@ ZEND_METHOD(Task, asyncWithContext)
 
 	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
 
+	task->scheduler = concurrent_task_scheduler_get();
 	task->context = (concurrent_context *) Z_OBJ_P(ctx);
 
-	ZEND_ASSERT(task->context->scheduler != NULL);
+	ZEND_ASSERT(task->scheduler != NULL);
 
 	GC_ADDREF(&task->context->std);
 
@@ -316,6 +310,7 @@ ZEND_METHOD(Task, asyncWithContext)
 ZEND_METHOD(Task, await)
 {
 	zend_class_entry *ce;
+	concurrent_fiber *fiber;
 	concurrent_task *task;
 	concurrent_task *inner;
 	concurrent_deferred *defer;
@@ -330,19 +325,58 @@ ZEND_METHOD(Task, await)
 		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
 
-	task = (concurrent_task *) TASK_G(current_fiber);
+	fiber = TASK_G(current_fiber);
 
-	if (UNEXPECTED(task == NULL)) {
+	if (fiber == NULL) {
+		ce = Z_OBJCE_P(val);
+
+		if (Z_TYPE_P(val) != IS_OBJECT || ce != concurrent_task_ce) {
+			zend_throw_error(NULL, "Only tasks can be waited when no scheduler is running");
+			return;
+		}
+
+		inner = (concurrent_task *) Z_OBJ_P(val);
+
+		ZEND_ASSERT(inner->scheduler != NULL);
+
+		if (inner->scheduler->running) {
+			zend_throw_error(NULL, "Cannot dispatch tasks because the dispatcher is already running");
+			return;
+		}
+
+		concurrent_task_scheduler_run(inner->scheduler);
+
+		if (inner->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
+			RETURN_ZVAL(&inner->result, 1, 0);
+		}
+
+		if (inner->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
+			Z_ADDREF_P(&inner->result);
+
+			execute_data->opline--;
+			zend_throw_exception_internal(&inner->result);
+			execute_data->opline++;
+
+			return;
+		}
+
+		zend_throw_error(NULL, "Awaited task did not run to completion");
+		return;
+	}
+
+	if (fiber->type != CONCURRENT_FIBER_TYPE_TASK) {
 		zend_throw_error(NULL, "Await must be called from within a running task");
 		return;
 	}
 
-	if (UNEXPECTED(task->fiber.status != CONCURRENT_FIBER_STATUS_RUNNING)) {
+	if (UNEXPECTED(fiber->status != CONCURRENT_FIBER_STATUS_RUNNING)) {
 		zend_throw_error(NULL, "Cannot await in a task that is not running");
 		return;
 	}
 
-	ZEND_ASSERT(task->context->scheduler != NULL);
+	task = (concurrent_task *) fiber;
+
+	ZEND_ASSERT(task->scheduler != NULL);
 
 	if (Z_TYPE_P(val) != IS_OBJECT) {
 		RETURN_ZVAL(val, 1, 0);
@@ -358,7 +392,7 @@ ZEND_METHOD(Task, await)
 	if (ce == concurrent_task_ce) {
 		inner = (concurrent_task *) Z_OBJ_P(val);
 
-		if (inner->context->scheduler != task->context->scheduler) {
+		if (inner->scheduler != task->scheduler) {
 			zend_throw_error(NULL, "Cannot await a task that runs on a different task scheduler");
 			return;
 		}
@@ -460,12 +494,12 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_is_running, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_task_async, 0, 0, 1)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_async, 0, 1, Concurrent\\Task, 0)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 	ZEND_ARG_ARRAY_INFO(0, arguments, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_task_async_with_context, 0, 0, 2)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_async_with_context, 0, 2, Concurrent\\Task, 0)
 	ZEND_ARG_OBJ_INFO(0, context, Concurrent\\Context, 0)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 	ZEND_ARG_ARRAY_INFO(0, arguments, 1)

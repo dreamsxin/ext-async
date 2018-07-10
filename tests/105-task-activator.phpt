@@ -9,26 +9,30 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new TaskScheduler(function () {
-    var_dump('ACTIVATE!');
-});
+$scheduler = new class() extends TaskScheduler
+{
+    protected function activate()
+    {
+        var_dump('ACTIVATE!');
+    }
+};
 
 $work = function (string $v): void {
     var_dump($v);
 };
 
-$scheduler->task($work, ['A']);
-$scheduler->run();
+$scheduler->run($work, ['A']);
 
-$scheduler->task($work, ['B']);
-$scheduler->task($work, ['C']);
-$scheduler->run();
+$scheduler->run(function () use ($work) {
+    $work('B');
+    
+    Task::async($work, ['C']);
+});
 
-$scheduler->task($work, ['D']);
-$scheduler->task(function () use ($work) {
+$scheduler->run(function () use ($work) {
+    Task::async($work, ['D']);
     Task::async($work, ['E']);
 });
-$scheduler->run();
 
 ?>
 --EXPECT--

@@ -11,31 +11,23 @@ namespace Concurrent;
 
 $scheduler = new TaskScheduler();
 
-$t = $scheduler->task(function () {
-    throw new \Error('Fail 1');
-});
-
-$scheduler->run();
-
-$scheduler->task(function () use ($t) {
-    try {
-        Task::await($t);
-    } catch (\Throwable $e) {
-        var_dump($e->getMessage());
-    }
-});
-
-$t = $scheduler->task(function () {
+$scheduler->run(function () {
     try {
         Task::await(Task::async(function () {
-            throw new \Error('Fail 2');
+            throw new \Error('Fail 1');
         }));
     } catch (\Throwable $e) {
         var_dump($e->getMessage());
     }
 });
 
-$scheduler->run();
+try {
+    $scheduler->run(function () {
+        throw new \Error('Fail 2');
+    });
+} catch (\Throwable $e) {
+    var_dump($e->getMessage());
+}
 
 ?>
 --EXPECT--

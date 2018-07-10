@@ -21,8 +21,6 @@
 
 #include "php.h"
 
-typedef struct _concurrent_task_scheduler concurrent_task_scheduler;
-
 BEGIN_EXTERN_C()
 
 extern zend_class_entry *concurrent_context_ce;
@@ -33,8 +31,6 @@ struct _concurrent_context {
 	zend_object std;
 
 	concurrent_context *parent;
-
-	concurrent_task_scheduler *scheduler;
 
 	uint32_t param_count;
 
@@ -49,7 +45,10 @@ struct _concurrent_context {
 
 concurrent_context *concurrent_context_object_create(HashTable *params);
 
+concurrent_context *concurrent_context_get();
+
 void concurrent_context_ce_register();
+void concurrent_context_shutdown();
 
 END_EXTERN_C()
 

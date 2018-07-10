@@ -11,7 +11,9 @@ namespace Concurrent;
 
 $scheduler = new TaskScheduler();
 
-$scheduler->task(function () {
+var_dump(count($scheduler));
+
+$scheduler->run(function () {
     $t = Task::async(function (string $title) {
         var_dump($title);
     }, ['A']);
@@ -31,13 +33,9 @@ $scheduler->task(function () {
 
 var_dump(count($scheduler));
 
-$scheduler->run();
-
-var_dump(count($scheduler));
-
 ?>
 --EXPECT--
-int(1)
+int(0)
 bool(true)
 string(1) "A"
 string(1) "B"

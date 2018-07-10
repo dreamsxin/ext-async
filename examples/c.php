@@ -8,7 +8,7 @@ $scheduler = new TaskScheduler(null, [
     'foo' => 'bar'
 ]);
 
-$t = $scheduler->task(function () {
+$scheduler->run(function () {
     $context = Context::inherit()->with('num', 777);
     $context = $context->with('num', 888);
     
@@ -28,5 +28,3 @@ $t = $scheduler->task(function () {
     
     var_dump(Context::var('num'));
 });
-
-$scheduler->run();

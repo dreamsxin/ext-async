@@ -15,13 +15,11 @@ $f = new Fiber(function () {
     var_dump(Fiber::isRunning(), Task::isRunning());
 });
 
-$scheduler->task(function () {
-    var_dump(Fiber::isRunning(), Task::isRunning());
-});
-
 var_dump(Task::isRunning());
 
-$scheduler->run();
+$scheduler->run(function () {
+    var_dump(Fiber::isRunning(), Task::isRunning());
+});
 
 var_dump(Task::isRunning());
 

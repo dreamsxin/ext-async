@@ -61,28 +61,32 @@ final class Task implements Awaitable
 
 ### TaskScheduler
 
-The task scheduler is based on a queue of scheduled tasks that are run whenever `TaskScheduler->run()` is called. The scheduler will start (or resume) all tasks that are scheduled for execution and return when no more tasks are scheduled. Tasks may be re-scheduled (an hence run multiple times) during a single call to the run method. The scheduler implements `Countable` and will return the current number of scheduled tasks.
+The task scheduler is based on a queue of scheduled tasks that are run whenever `dispatch()` is called. The scheduler will start (or resume) all tasks that are scheduled for execution and return when no more tasks are scheduled. Tasks may be re-scheduled (an hence run multiple times) during a single call to the dispatch method. The scheduler implements `Countable` and will return the current number of scheduled tasks.
 
-Passing an activator callback to the constructor will have the scheduler execute the given calback whenever the scheduler is not running and the first task is scheduled for execution. This allows one to integrate a task scheduler with event loops as you can register the run method as future tick (react) or defer watcher (amp). The constructor takes an associative array of context variables as second argument that will be used by the root `Context`. Each task being run by the scheduler will be bound to the root context by default.
+You can extend the `TaskScheduler` class to create a scheduler with support for an event loop. The scheduler provides integration by letting you override the `runLoop()` method that should start the event loop and keep it running until no more events can occur. The primary problem with event loop integration is that you need to call `dispatch()` whenever tasks are ready run. You can override the `activate()` method to schedule execution of the `dispatch()` with your event loop (future tick or defer watcher). The scheduler will call `activate` whenever a task is registered for execution and the scheduler is not in the process of dispatching tasks.
 
 ```php
 namespace Concurrent;
 
-final class TaskScheduler implements \Countable
+class TaskScheduler implements \Countable
 {
-    public function __construct(?callable $activator = null, ?array $context = null) { }
-
-    public function count(): int { }
+    public final function count(): int { }
     
-    public function task(callable $callback, ?array $args = null): Task { }
+    public final function run(callable $callback, ?array $args = null): mixed { }
     
-    public function run(): void { }
+    public final function runWithContext(Context $context, callable $callback, ?array $args = null): mixed { }
+    
+    protected final function dispatch(): void { }
+    
+    protected function activate(): void { }
+    
+    protected function runLoop(): void { }
 }
 ```
 
 ### Context
 
-Each task runs in a `Context` that provides access to task-local variables. These variables are are also available to every `Task` re-using the same context or an inherited context. The `TaskScheduler` creates an implicit root context that every created task will use by default. You can access a contextual value by calling `Context::var()` which will lookup the value in the current active context. The lookup call will return `null` when the value is not set in the active context or no context is active during the method call.
+Each task runs in a `Context` that provides access to task-local variables. These variables are are also available to every `Task` re-using the same context or an inherited context. An implicit root context is always available, therefore it is always possible to access the current context or inherit from it. You can access a contextual value by calling `Context::var()` which will lookup the value in the current active context. The lookup call will return `null` when the value is not set in the active context or no context is active during the method call.
 
 You need to inherit a new context whenever you want to set task-local variables. In order for your new context to be used you need have to pass it to a task using `Task::asyncWithContext()` or you can enable it for the duration of a function / method call by calling `run()`. The later is preferred if your code is executing in a single task and you just want to add some variables.
 
