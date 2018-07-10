@@ -11,7 +11,7 @@ require_once __DIR__ . '/vendor/autoload.php';
 
 $loop = \React\EventLoop\Factory::create();
 
-$scheduler = new class($loop) extends TaskScheduler {
+TaskScheduler::setDefaultScheduler(new class($loop) extends TaskScheduler {
 
     protected $loop;
 
@@ -36,7 +36,7 @@ $scheduler = new class($loop) extends TaskScheduler {
         $this->loop->run();
         var_dump('END LOOP');
     }
-};
+});
 
 function adapt(\React\Promise\PromiseInterface $promise): Awaitable
 {
@@ -51,7 +51,7 @@ function adapt(\React\Promise\PromiseInterface $promise): Awaitable
     return $defer->awaitable();
 }
 
-$scheduler->run(function (\React\EventLoop\LoopInterface $loop) {
+Task::await(Task::async(function () use ($loop) {
     $defer = new \React\Promise\Deferred();
     
     $work = function (string $title): void {
@@ -96,6 +96,6 @@ $scheduler->run(function (\React\EventLoop\LoopInterface $loop) {
             var_dump(Task::await($v));
         }, ['D']);
     });
-}, [$loop]);
+}));
 
 var_dump('DONE');

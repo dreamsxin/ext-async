@@ -62,6 +62,8 @@ class TaskScheduler implements \Countable
     protected function activate() { }
     
     protected function runLoop() { }
+    
+    public static final function setDefaultScheduler(TaskScheduler $scheduler): void { }
 }
 
 final class Fiber

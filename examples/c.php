@@ -3,12 +3,12 @@
 use Concurrent\Context;
 use Concurrent\TaskScheduler;
 
-$scheduler = new TaskScheduler(null, [
+$scheduler = new TaskScheduler();
+
+$scheduler->runWithContext(Context::inherit([
     'num' => 123,
     'foo' => 'bar'
-]);
-
-$scheduler->run(function () {
+]), function () {
     $context = Context::inherit()->with('num', 777);
     $context = $context->with('num', 888);
     

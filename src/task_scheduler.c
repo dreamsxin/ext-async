@@ -108,7 +108,29 @@ zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task)
 	return 1;
 }
 
-void concurrent_task_scheduler_run(concurrent_task_scheduler *scheduler)
+void concurrent_task_scheduler_run_loop(concurrent_task_scheduler *scheduler)
+{
+	concurrent_task_scheduler *prev;
+
+	zval obj;
+	zval retval;
+
+	prev = TASK_G(current_scheduler);
+	TASK_G(current_scheduler) = scheduler;
+
+	ZVAL_OBJ(&obj, &scheduler->std);
+
+	zend_string *name = zend_string_init("runloop", sizeof("runloop")-1, 0);
+	zval *entry = zend_hash_find_ex(&scheduler->std.ce->function_table, name, 0);
+	zend_function *func = Z_FUNC_P(entry);
+
+	zend_call_method_with_0_params(&obj, Z_OBJCE_P(&obj), &func, "runloop", &retval);
+	zval_ptr_dtor(&retval);
+
+	TASK_G(current_scheduler) = prev;
+}
+
+static void concurrent_task_scheduler_run(concurrent_task_scheduler *scheduler)
 {
 	concurrent_task *task;
 
@@ -212,12 +234,9 @@ ZEND_METHOD(TaskScheduler, activate)
 ZEND_METHOD(TaskScheduler, run)
 {
 	concurrent_task_scheduler *scheduler;
-	concurrent_task_scheduler *prev;
 	concurrent_task *task;
 
 	zval *params;
-	zval obj;
-	zval retval;
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
@@ -246,20 +265,7 @@ ZEND_METHOD(TaskScheduler, run)
 	GC_ADDREF(&task->context->std);
 
 	concurrent_task_scheduler_enqueue(task);
-
-	prev = TASK_G(current_scheduler);
-	TASK_G(current_scheduler) = scheduler;
-
-	ZVAL_OBJ(&obj, &scheduler->std);
-
-	zend_string *name = zend_string_init("runloop", sizeof("runloop")-1, 0);
-	zval *entry = zend_hash_find_ex(&scheduler->std.ce->function_table, name, 0);
-	zend_function *func = Z_FUNC_P(entry);
-
-	zend_call_method_with_0_params(&obj, Z_OBJCE_P(&obj), &func, "runloop", &retval);
-	zval_ptr_dtor(&retval);
-
-	TASK_G(current_scheduler) = prev;
+	concurrent_task_scheduler_run_loop(scheduler);
 
 	if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
 		RETURN_ZVAL(&task->result, 1, 0);
@@ -281,13 +287,10 @@ ZEND_METHOD(TaskScheduler, run)
 ZEND_METHOD(TaskScheduler, runWithContext)
 {
 	concurrent_task_scheduler *scheduler;
-	concurrent_task_scheduler *prev;
 	concurrent_task *task;
 
 	zval *ctx;
 	zval *params;
-	zval obj;
-	zval retval;
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
@@ -317,20 +320,7 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 	GC_ADDREF(&task->context->std);
 
 	concurrent_task_scheduler_enqueue(task);
-
-	prev = TASK_G(current_scheduler);
-	TASK_G(current_scheduler) = scheduler;
-
-	ZVAL_OBJ(&obj, &scheduler->std);
-
-	zend_string *name = zend_string_init("runloop", sizeof("runloop")-1, 0);
-	zval *entry = zend_hash_find_ex(&scheduler->std.ce->function_table, name, 0);
-	zend_function *func = Z_FUNC_P(entry);
-
-	zend_call_method_with_0_params(&obj, Z_OBJCE_P(&obj), &func, "runloop", &retval);
-	zval_ptr_dtor(&retval);
-
-	TASK_G(current_scheduler) = prev;
+	concurrent_task_scheduler_run_loop(scheduler);
 
 	if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
 		RETURN_ZVAL(&task->result, 1, 0);
@@ -381,6 +371,29 @@ ZEND_METHOD(TaskScheduler, runLoop)
 	concurrent_task_scheduler_run(scheduler);
 }
 
+ZEND_METHOD(TaskScheduler, setDefaultScheduler)
+{
+	concurrent_task_scheduler *scheduler;
+
+	zval *val;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ZVAL(val)
+	ZEND_PARSE_PARAMETERS_END();
+
+	scheduler = TASK_G(scheduler);
+
+	if (scheduler != NULL) {
+		zend_throw_error(NULL, "The default task scheduler must not be changed after it has been used for the first time");
+		return;
+	}
+
+	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(val);
+
+	TASK_G(scheduler) = scheduler;
+
+	GC_ADDREF(&scheduler->std);
+}
 
 ZEND_METHOD(TaskScheduler, __wakeup)
 {
@@ -412,6 +425,10 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_dispatch, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_set_default_scheduler, 0, 0, 1)
+	ZEND_ARG_OBJ_INFO(0, scheduler, Concurrent\\TaskScheduler, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_wakeup, 0)
 ZEND_END_ARG_INFO()
 
@@ -422,6 +439,7 @@ static const zend_function_entry task_scheduler_functions[] = {
 	ZEND_ME(TaskScheduler, runWithContext, arginfo_task_scheduler_run_with_context, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, dispatch, arginfo_task_scheduler_dispatch, ZEND_ACC_PROTECTED | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, runLoop, arginfo_task_scheduler_run_loop, ZEND_ACC_PROTECTED)
+	ZEND_ME(TaskScheduler, setDefaultScheduler, arginfo_task_scheduler_set_default_scheduler, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, __wakeup, arginfo_task_scheduler_wakeup, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_FE_END
 };

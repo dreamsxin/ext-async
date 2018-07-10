@@ -344,7 +344,7 @@ ZEND_METHOD(Task, await)
 			return;
 		}
 
-		concurrent_task_scheduler_run(inner->scheduler);
+		concurrent_task_scheduler_run_loop(inner->scheduler);
 
 		if (inner->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
 			RETURN_ZVAL(&inner->result, 1, 0);
