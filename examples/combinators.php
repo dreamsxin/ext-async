@@ -4,7 +4,7 @@ namespace Concurrent;
 
 $scheduler = new TaskScheduler();
 
-function all(array $awaitables): Awaitable
+function all2(array $awaitables): Awaitable
 {
     if (empty($awaitables)) {
         return Deferred::value([]);
@@ -38,7 +38,7 @@ function all(array $awaitables): Awaitable
     return $defer->awaitable();
 }
 
-function all2(array $awaitables): Awaitable
+function all(array $awaitables): Awaitable
 {
     if (empty($awaitables)) {
         return Deferred::value([]);
@@ -63,25 +63,17 @@ function all2(array $awaitables): Awaitable
 
 function race(array $awaitables): Awaitable
 {
-    if (empty($awaitables)) {
-        throw new \InvalidArgumentException('At least one awaitable is required');
-    }
-    
-    foreach ($awaitables as $a) {
-        if (!$a instanceof Awaitable) {
-            throw new \InvalidArgumentException('All awaited items must be awaitables');
+    $race = function (Deferred $defer, $last, $k, $e, $v) {
+        if ($e) {
+            if ($last) {
+                $defer->fail(new \Error('None of the awaitables resolved'));
+            }
+        } else {
+            $defer->resolve($v);
         }
-    }
+    };
     
-    $defer = new Deferred();
-    
-    foreach ($awaitables as $a) {
-        Task::async(function () use ($a, $defer) {
-            $defer->resolve(Task::await($a));
-        });
-    }
-    
-    return $defer->awaitable();
+    return Deferred::combine($awaitables, $race);
 }
 
 function any(array $awaitables): Awaitable
@@ -116,7 +108,7 @@ $result = $scheduler->run(function () {
         return 321;
     });
     
-    return Task::await(all2([
+    return Task::await(all([
         'A' => $t,
         'B' => Deferred::value(777)
     ]));
