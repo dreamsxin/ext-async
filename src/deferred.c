@@ -143,9 +143,11 @@ ZEND_METHOD(Deferred, resolve)
 
 	defer = (concurrent_deferred *) Z_OBJ_P(getThis());
 
-	if (Z_TYPE_P(val) == IS_OBJECT && instanceof_function_ex(Z_OBJCE_P(val), concurrent_awaitable_ce, 1) != 0) {
-		zend_throw_error(NULL, "Deferred must not be resolved with an object implementing Awaitable");
-		return;
+	if (val != NULL && Z_TYPE_P(val) == IS_OBJECT) {
+		if (instanceof_function_ex(Z_OBJCE_P(val), concurrent_awaitable_ce, 1) != 0) {
+			zend_throw_error(NULL, "Deferred must not be resolved with an object implementing Awaitable");
+			return;
+		}
 	}
 
 	if (defer->status != CONCURRENT_DEFERRED_STATUS_PENDING) {
