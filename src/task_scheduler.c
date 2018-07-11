@@ -360,7 +360,8 @@ ZEND_METHOD(TaskScheduler, dispatch)
 {
 	concurrent_task_scheduler *scheduler;
 
-	ZEND_PARSE_PARAMETERS_NONE();
+	// Left out on purpose to allow for simplified event-loop integration.
+	// ZEND_PARSE_PARAMETERS_NONE();
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
