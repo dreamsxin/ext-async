@@ -45,19 +45,20 @@ function all2(array $awaitables): Awaitable
     }
     
     $result = \array_fill_keys(\array_keys($awaitables), null);
-    $remaining = \count($awaitables);
     
-    return Deferred::combine($awaitables, function (Deferred $defer, $k, ?\Throwable $e, $v = null) use (& $result, & $remaining) {
+    $all = function (Deferred $defer, $last, $k, $e, $v) use (& $result) {
         if ($e) {
             $defer->fail($e);
         } else {
             $result[$k] = $v;
             
-            if (--$remaining === 0) {
+            if ($last) {
                 $defer->resolve($result);
             }
         }
-    });
+    };
+    
+    return Deferred::combine($awaitables, $all);
 }
 
 function race(array $awaitables): Awaitable

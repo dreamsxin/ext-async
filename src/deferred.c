@@ -259,35 +259,31 @@ static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *r
 {
 	concurrent_defer_combine *combined;
 
-	zval args[4];
+	zval args[5];
 	zval retval;
 
 	combined = (concurrent_defer_combine *) obj;
 	combined->counter--;
 
 	ZVAL_OBJ(&args[0], &combined->defer->std);
-	ZVAL_COPY(&args[1], data);
+	ZVAL_BOOL(&args[1], combined->counter == 0);
+	ZVAL_COPY(&args[2], data);
 
 	if (success) {
-		ZVAL_NULL(&args[2]);
-		ZVAL_COPY(&args[3], result);
-
-		combined->fci.param_count = 4;
+		ZVAL_NULL(&args[3]);
+		ZVAL_COPY(&args[4], result);
 	} else {
-		ZVAL_COPY(&args[2], result);
-
-		combined->fci.param_count = 3;
+		ZVAL_COPY(&args[3], result);
+		ZVAL_NULL(&args[4]);
 	}
 
+	combined->fci.param_count = 5;
 	combined->fci.params = args;
 	combined->fci.retval = &retval;
 
 	zend_call_function(&combined->fci, &combined->fcc);
 
-	zval_ptr_dtor(&args[0]);
-	zval_ptr_dtor(&args[1]);
-	zval_ptr_dtor(&args[2]);
-	zval_ptr_dtor(&args[3]);
+	zval_ptr_dtor(args);
 	zval_ptr_dtor(&retval);
 
 	if (UNEXPECTED(EG(exception))) {
