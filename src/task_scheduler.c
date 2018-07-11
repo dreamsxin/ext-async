@@ -169,7 +169,7 @@ static void concurrent_task_scheduler_run(concurrent_task_scheduler *scheduler)
 
 			if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
 				if (Z_TYPE_P(&task->result) == IS_OBJECT && instanceof_function_ex(Z_OBJCE_P(&task->result), concurrent_awaitable_ce, 1) != 0) {
-					zend_throw_error(NULL, "Deferred must not be resolved with an object implementing Awaitable");
+					zend_throw_error(NULL, "Task must not return an object implementing Awaitable");
 
 					zval_ptr_dtor(&task->result);
 					ZVAL_OBJ(&task->result, EG(exception));
