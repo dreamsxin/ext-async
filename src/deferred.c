@@ -102,11 +102,13 @@ static void concurrent_deferred_object_destroy(zend_object *object)
 
 	defer = (concurrent_deferred *) object;
 
-	zval_ptr_dtor(&defer->result);
+	defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
 
 	if (defer->continuation != NULL) {
 		concurrent_awaitable_dispose_continuation(&defer->continuation);
 	}
+
+	zval_ptr_dtor(&defer->result);
 
 	zend_object_std_dtor(&defer->std);
 }
@@ -246,6 +248,191 @@ ZEND_METHOD(Deferred, error)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
+typedef struct _concurrent_defer_combine concurrent_defer_combine;
+
+struct _concurrent_defer_combine {
+	concurrent_deferred *defer;
+	zend_long counter;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+};
+
+static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *result, zend_bool success)
+{
+	concurrent_defer_combine *combined;
+
+	zval args[5];
+	zval retval;
+
+	combined = (concurrent_defer_combine *) obj;
+	combined->counter--;
+
+	ZVAL_OBJ(&args[0], &combined->defer->std);
+	GC_ADDREF(&combined->defer->std);
+
+	ZVAL_BOOL(&args[1], combined->counter == 0);
+	ZVAL_COPY(&args[2], data);
+
+	if (success) {
+		ZVAL_NULL(&args[3]);
+		ZVAL_COPY(&args[4], result);
+	} else {
+		ZVAL_COPY(&args[3], result);
+		ZVAL_NULL(&args[4]);
+	}
+
+	combined->fci.param_count = 5;
+	combined->fci.params = args;
+	combined->fci.retval = &retval;
+
+	zend_call_function(&combined->fci, &combined->fcc);
+
+	zval_ptr_dtor(&args[0]);
+	zval_ptr_dtor(&args[1]);
+	zval_ptr_dtor(&args[2]);
+	zval_ptr_dtor(&args[3]);
+	zval_ptr_dtor(&args[4]);
+	zval_ptr_dtor(&retval);
+
+	if (UNEXPECTED(EG(exception))) {
+		if (combined->defer->status == CONCURRENT_DEFERRED_STATUS_PENDING) {
+			combined->defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
+
+			ZVAL_OBJ(&combined->defer->result, EG(exception));
+			EG(exception) = NULL;
+
+			concurrent_awaitable_trigger_continuation(&combined->defer->continuation, &combined->defer->result, 0);
+		} else {
+			EG(exception) = NULL;
+		}
+	}
+
+	if (combined->counter == 0) {
+		zval_ptr_dtor(&combined->fci.function_name);
+
+		if (combined->defer->status == CONCURRENT_DEFERRED_STATUS_PENDING) {
+			concurrent_awaitable_dispose_continuation(&combined->defer->continuation);
+		}
+
+		OBJ_RELEASE(&combined->defer->std);
+
+		efree(combined);
+	}
+}
+
+ZEND_METHOD(Deferred, combine)
+{
+	concurrent_deferred *defer;
+	concurrent_deferred_awaitable *awaitable;
+	concurrent_defer_combine *combined;
+	concurrent_task *task;
+	concurrent_deferred_awaitable *inner;
+
+	zend_class_entry *ce;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+	uint32_t count;
+
+	zval *args;
+	zend_ulong i;
+	zend_string *k;
+	zval key;
+	zval *entry;
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 2)
+		Z_PARAM_ARRAY(args)
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
+	ZEND_PARSE_PARAMETERS_END();
+
+	count = zend_array_count(Z_ARRVAL_P(args));
+
+	if (count == 0) {
+		zend_throw_error(zend_ce_argument_count_error, "At least one awaitable is required");
+		return;
+	}
+
+	fci.no_separation = 1;
+
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(args), entry) {
+		if (Z_TYPE_P(entry) != IS_OBJECT) {
+			zend_throw_error(zend_ce_type_error, "All input elements must be awaitable");
+			return;
+		}
+
+		ce = Z_OBJCE_P(entry);
+
+		if (ce != concurrent_task_ce && ce != concurrent_deferred_awaitable_ce) {
+			zend_throw_error(zend_ce_type_error, "All input elements must be awaitable");
+			return;
+		}
+	} ZEND_HASH_FOREACH_END();
+
+	defer = emalloc(sizeof(concurrent_deferred));
+	ZEND_SECURE_ZERO(defer, sizeof(concurrent_deferred));
+
+	zend_object_std_init(&defer->std, concurrent_deferred_ce);
+	defer->std.handlers = &concurrent_deferred_handlers;
+
+	defer->status = CONCURRENT_DEFERRED_STATUS_PENDING;
+
+	awaitable = concurrent_deferred_awaitable_object_create(defer);
+
+	ZVAL_OBJ(&obj, &awaitable->std);
+
+	combined = emalloc(sizeof(concurrent_defer_combine));
+	combined->defer = defer;
+	combined->counter = count;
+	combined->fci = fci;
+	combined->fcc = fcc;
+
+	Z_TRY_ADDREF_P(&combined->fci.function_name);
+
+	ZEND_HASH_FOREACH_KEY_VAL_IND(Z_ARRVAL_P(args), i, k, entry) {
+		ce = Z_OBJCE_P(entry);
+
+		if (k == NULL) {
+			ZVAL_LONG(&key, i);
+		} else {
+			ZVAL_STR(&key, k);
+		}
+
+		if (ce == concurrent_task_ce) {
+			task = (concurrent_task *) Z_OBJ_P(entry);
+
+			if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
+				concurrent_defer_combine_continuation(combined, &key, &task->result, 1);
+			} else if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
+				concurrent_defer_combine_continuation(combined, &key, &task->result, 0);
+			} else {
+				if (task->continuation == NULL) {
+					task->continuation = concurrent_awaitable_create_continuation(combined, &key, concurrent_defer_combine_continuation);
+				} else {
+					concurrent_awaitable_append_continuation(task->continuation, combined, &key, concurrent_defer_combine_continuation);
+				}
+			}
+		} else {
+			inner = (concurrent_deferred_awaitable *) Z_OBJ_P(entry);
+
+			if (inner->defer->status == CONCURRENT_DEFERRED_STATUS_RESOLVED) {
+				concurrent_defer_combine_continuation(combined, &key, &inner->defer->result, 1);
+			} else if (inner->defer->status == CONCURRENT_DEFERRED_STATUS_FAILED) {
+				concurrent_defer_combine_continuation(combined, &key, &inner->defer->result, 0);
+			} else {
+				if (inner->defer->continuation == NULL) {
+					inner->defer->continuation = concurrent_awaitable_create_continuation(combined, &key, concurrent_defer_combine_continuation);
+				} else {
+					concurrent_awaitable_append_continuation(inner->defer->continuation, combined, &key, concurrent_defer_combine_continuation);
+				}
+			}
+		}
+
+		zval_ptr_dtor(&key);
+	} ZEND_HASH_FOREACH_END();
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_deferred_awaitable, 0, 0, Concurrent\\Awaitable, 0)
 ZEND_END_ARG_INFO()
 
@@ -265,12 +452,18 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_deferred_error, 0, 1, Concurrent\
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_deferred_combine, 0, 2, Concurrent\\Awaitable, 0)
+	ZEND_ARG_ARRAY_INFO(0, params, 0)
+	ZEND_ARG_CALLABLE_INFO(0, continuation, 0)
+ZEND_END_ARG_INFO()
+
 static const zend_function_entry deferred_functions[] = {
 	ZEND_ME(Deferred, awaitable, arginfo_deferred_awaitable, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, resolve, arginfo_deferred_resolve, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, fail, arginfo_deferred_fail, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, value, arginfo_deferred_value, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Deferred, error, arginfo_deferred_error, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Deferred, combine, arginfo_deferred_combine, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_FE_END
 };
 

@@ -24,7 +24,7 @@ $scheduler->run(function () {
     
     Task::async(function () use ($defer) {
         $defer->resolve('D');
-        
+
         var_dump('C');
     });
 });

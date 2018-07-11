@@ -84,7 +84,7 @@ void concurrent_task_continue(concurrent_task *task)
 	}
 }
 
-static void concurrent_task_continuation(void *obj, zval *result, zend_bool success)
+static void concurrent_task_continuation(void *obj, zval *data, zval *result, zend_bool success)
 {
 	concurrent_task *task;
 
@@ -418,9 +418,9 @@ ZEND_METHOD(Task, await)
 		}
 
 		if (inner->continuation == NULL) {
-			inner->continuation = concurrent_awaitable_create_continuation(task, concurrent_task_continuation);
+			inner->continuation = concurrent_awaitable_create_continuation(task, NULL, concurrent_task_continuation);
 		} else {
-			concurrent_awaitable_append_continuation(inner->continuation, task, concurrent_task_continuation);
+			concurrent_awaitable_append_continuation(inner->continuation, task, NULL, concurrent_task_continuation);
 		}
 	} else if (ce == concurrent_deferred_awaitable_ce) {
 		defer = ((concurrent_deferred_awaitable *) Z_OBJ_P(val))->defer;
@@ -440,9 +440,9 @@ ZEND_METHOD(Task, await)
 		}
 
 		if (defer->continuation == NULL) {
-			defer->continuation = concurrent_awaitable_create_continuation(task, concurrent_task_continuation);
+			defer->continuation = concurrent_awaitable_create_continuation(task, NULL, concurrent_task_continuation);
 		} else {
-			concurrent_awaitable_append_continuation(defer->continuation, task, concurrent_task_continuation);
+			concurrent_awaitable_append_continuation(defer->continuation, task, NULL, concurrent_task_continuation);
 		}
 	} else {
 		RETURN_ZVAL(val, 1, 0);
@@ -466,11 +466,6 @@ ZEND_METHOD(Task, await)
 
 	task->fiber.value = value;
 
-	if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
-		zend_throw_error(NULL, "Task has been destroyed");
-		return;
-	}
-
 	if (Z_TYPE_P(&task->error) != IS_UNDEF) {
 		error = task->error;
 		ZVAL_UNDEF(&task->error);
@@ -478,6 +473,13 @@ ZEND_METHOD(Task, await)
 		execute_data->opline--;
 		zend_throw_exception_internal(&error);
 		execute_data->opline++;
+
+		return;
+	}
+
+	if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
+		zend_throw_error(NULL, "Task has been destroyed");
+		return;
 	}
 }
 

@@ -21,7 +21,7 @@
 zend_class_entry *concurrent_awaitable_ce;
 
 
-concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, concurrent_awaitable_func func)
+concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, zval *data, concurrent_awaitable_func func)
 {
 	concurrent_awaitable_cb *cont;
 
@@ -31,10 +31,16 @@ concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, con
 	cont->func = func;
 	cont->next = NULL;
 
+	if (data == NULL) {
+		ZVAL_UNDEF(&cont->data);
+	} else {
+		ZVAL_COPY(&cont->data, data);
+	}
+
 	return cont;
 }
 
-void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, concurrent_awaitable_func func)
+void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, zval *data, concurrent_awaitable_func func)
 {
 	concurrent_awaitable_cb *cont;
 
@@ -45,6 +51,12 @@ void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, voi
 	cont->object = obj;
 	cont->func = func;
 	cont->next = NULL;
+
+	if (data == NULL) {
+		ZVAL_UNDEF(&cont->data);
+	} else {
+		ZVAL_COPY(&cont->data, data);
+	}
 
 	prev->next = cont;
 }
@@ -61,7 +73,9 @@ void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, z
 			next = current->next;
 			*cont = next;
 
-			current->func(current->object, result, success);
+			current->func(current->object, &current->data, result, success);
+
+			zval_ptr_dtor(&current->data);
 
 			efree(current);
 
@@ -81,14 +95,16 @@ void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont)
 	current = *cont;
 
 	if (current != NULL) {
-		zend_throw_error(NULL, "Awaitable has been disposed before it was resolved");
-		ZVAL_OBJ(&error, EG(exception));
+		// FIXME: Create a proper error to be forwared into tasks.
+		ZVAL_NULL(&error);
 
 		do {
 			next = current->next;
 			*cont = next;
 
-			current->func(current->object, &error, 0);
+			current->func(current->object, &current->data, &error, 0);
+
+			zval_ptr_dtor(&current->data);
 
 			efree(current);
 
