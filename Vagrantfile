@@ -14,9 +14,14 @@ Vagrant.configure("2") do |config|
   config.ssh.password = 'vagrant'
   config.ssh.insert_key = 'true'
 
-  config.vm.define "php-master" do |box|
+  config.vm.define "nts" do |box|
     box.vm.network :forwarded_port, guest: 22, host: 2222, id: "ssh"
-    box.vm.provision "shell", path: "vagrant-php.sh"
+    box.vm.provision "shell", path: "vagrant-nts.sh"
+  end
+  
+  config.vm.define "zts" do |box|
+    box.vm.network :forwarded_port, guest: 22, host: 2220, id: "ssh"
+    box.vm.provision "shell", path: "vagrant-zts.sh"
   end
   
 end

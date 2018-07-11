@@ -12,9 +12,7 @@ cd /usr/local/php
 sudo mkdir cli
 
 sudo mkdir php-src
-sudo curl -LSs https://github.com/concurrent-php/php-src/archive/async.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
-
-#sudo curl -LSs https://github.com/php/php-src/archive/php-$PHP_VERSION.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
+sudo curl -LSs https://github.com/php/php-src/archive/php-$PHP_VERSION.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
 
 pushd php-src
 
@@ -22,7 +20,6 @@ sudo ./buildconf --force
 sudo ./configure \
     --prefix=/usr/local/php/cli \
     --with-config-file-path=/usr/local/php/cli \
-    --enable-maintainer-zts \
     --with-zlib \
     --without-pear \
     --enable-debug \
@@ -45,7 +42,7 @@ cd /vagrant
 sudo phpize --clean
 sudo phpize
 sudo ./configure
-sudo make install
+sudo make install -B
 
 sudo echo "extension=\"task.so\"" >> /usr/local/php/cli/php.ini
 
