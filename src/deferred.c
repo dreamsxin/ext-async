@@ -266,6 +266,8 @@ static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *r
 	combined->counter--;
 
 	ZVAL_OBJ(&args[0], &combined->defer->std);
+	GC_ADDREF(&combined->defer->std);
+
 	ZVAL_BOOL(&args[1], combined->counter == 0);
 	ZVAL_COPY(&args[2], data);
 

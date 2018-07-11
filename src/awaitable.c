@@ -96,7 +96,9 @@ void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont)
 
 	if (current != NULL) {
 		zend_throw_error(NULL, "Awaitable has been disposed before it was resolved");
+
 		ZVAL_OBJ(&error, EG(exception));
+		EG(exception) = NULL;
 
 		do {
 			next = current->next;

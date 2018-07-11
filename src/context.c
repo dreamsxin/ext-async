@@ -53,8 +53,6 @@ concurrent_context *concurrent_context_get()
 	zend_object_std_init(&context->std, concurrent_context_ce);
 	context->std.handlers = &concurrent_context_handlers;
 
-	GC_ADDREF(&context->std);
-
 	TASK_G(context) = context;
 
 	return context;
@@ -75,8 +73,6 @@ concurrent_context *concurrent_context_object_create(HashTable *params)
 
 	zend_object_std_init(&context->std, concurrent_context_ce);
 	context->std.handlers = &concurrent_context_handlers;
-
-	GC_ADDREF(&context->std);
 
 	if (params != NULL) {
 		context->param_count = zend_hash_num_elements(params);
@@ -104,8 +100,6 @@ static concurrent_context *concurrent_context_object_create_single_var(zend_stri
 
 	zend_object_std_init(&context->std, concurrent_context_ce);
 	context->std.handlers = &concurrent_context_handlers;
-
-	GC_ADDREF(&context->std);
 
 	context->param_count = 1;
 
@@ -504,7 +498,7 @@ void concurrent_context_shutdown()
 	context = TASK_G(context);
 
 	if (context != NULL) {
-		concurrent_context_object_destroy(&context->std);
+		OBJ_RELEASE(&context->std);
 	}
 }
 

@@ -57,8 +57,6 @@ concurrent_task_scheduler *concurrent_task_scheduler_get()
 	zend_object_std_init(&scheduler->std, concurrent_task_scheduler_ce);
 	scheduler->std.handlers = &concurrent_task_scheduler_handlers;
 
-	GC_ADDREF(&scheduler->std);
-
 	TASK_G(scheduler) = scheduler;
 
 	return scheduler;
@@ -99,11 +97,13 @@ zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task)
 		scheduler->activate = 0;
 
 		ZVAL_OBJ(&obj, &scheduler->std);
+		GC_ADDREF(&scheduler->std);
 
 		zval *entry = zend_hash_find_ex(&scheduler->std.ce->function_table, str_activate, 1);
 		zend_function *func = Z_FUNC_P(entry);
 
 		zend_call_method_with_0_params(&obj, Z_OBJCE_P(&obj), &func, "activate", &retval);
+		zval_ptr_dtor(&obj);
 		zval_ptr_dtor(&retval);
 	}
 
@@ -121,11 +121,13 @@ void concurrent_task_scheduler_run_loop(concurrent_task_scheduler *scheduler)
 	TASK_G(current_scheduler) = scheduler;
 
 	ZVAL_OBJ(&obj, &scheduler->std);
+	GC_ADDREF(&scheduler->std);
 
 	zval *entry = zend_hash_find_ex(&scheduler->std.ce->function_table, str_runloop, 1);
 	zend_function *func = Z_FUNC_P(entry);
 
 	zend_call_method_with_0_params(&obj, Z_OBJCE_P(&obj), &func, "runloop", &retval);
+	zval_ptr_dtor(&obj);
 	zval_ptr_dtor(&retval);
 
 	TASK_G(current_scheduler) = prev;
@@ -238,12 +240,15 @@ ZEND_METHOD(TaskScheduler, run)
 	concurrent_task *task;
 
 	zval *params;
+	zval retval;
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
 	task = concurrent_task_object_create();
 	task->scheduler = scheduler;
 	task->context = concurrent_context_get();
+
+	GC_ADDREF(&task->context->std);
 
 	params = NULL;
 
@@ -263,24 +268,28 @@ ZEND_METHOD(TaskScheduler, run)
 
 	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
 
-	GC_ADDREF(&task->context->std);
-
 	concurrent_task_scheduler_enqueue(task);
 	concurrent_task_scheduler_run_loop(scheduler);
 
 	if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
-		RETURN_ZVAL(&task->result, 1, 0);
+		ZVAL_COPY(&retval, &task->result);
+		OBJ_RELEASE(&task->fiber.std);
+
+		RETURN_ZVAL(&retval, 1, 1);
 	}
 
 	if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
-		Z_ADDREF_P(&task->result);
+		ZVAL_COPY(&retval, &task->result);
+		OBJ_RELEASE(&task->fiber.std);
 
 		execute_data->opline--;
-		zend_throw_exception_internal(&task->result);
+		zend_throw_exception_internal(&retval);
 		execute_data->opline++;
 
 		return;
 	}
+
+	OBJ_RELEASE(&task->fiber.std);
 
 	zend_throw_error(NULL, "Scheduled task did not run to completion");
 }
@@ -292,6 +301,7 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 
 	zval *ctx;
 	zval *params;
+	zval retval;
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
@@ -310,6 +320,8 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 	task->context = (concurrent_context *) Z_OBJ_P(ctx);
 	task->fiber.fci.no_separation = 1;
 
+	GC_ADDREF(&task->context->std);
+
 	if (params == NULL) {
 		task->fiber.fci.param_count = 0;
 	} else {
@@ -318,24 +330,28 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 
 	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
 
-	GC_ADDREF(&task->context->std);
-
 	concurrent_task_scheduler_enqueue(task);
 	concurrent_task_scheduler_run_loop(scheduler);
 
 	if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
-		RETURN_ZVAL(&task->result, 1, 0);
+		ZVAL_COPY(&retval, &task->result);
+		OBJ_RELEASE(&task->fiber.std);
+
+		RETURN_ZVAL(&retval, 1, 1);
 	}
 
 	if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
-		Z_ADDREF_P(&task->result);
+		ZVAL_COPY(&retval, &task->result);
+		OBJ_RELEASE(&task->fiber.std);
 
 		execute_data->opline--;
-		zend_throw_exception_internal(&task->result);
+		zend_throw_exception_internal(&retval);
 		execute_data->opline++;
 
 		return;
 	}
+
+	OBJ_RELEASE(&task->fiber.std);
 
 	zend_throw_error(NULL, "Scheduled task did not run to completion");
 }
@@ -482,7 +498,7 @@ void concurrent_task_scheduler_shutdown()
 	scheduler = TASK_G(scheduler);
 
 	if (scheduler != NULL) {
-		concurrent_task_scheduler_object_destroy(&scheduler->std);
+		OBJ_RELEASE(&scheduler->std);
 	}
 }
 
