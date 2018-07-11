@@ -45,6 +45,13 @@ $a = $scheduler->run(function () {
 
 var_dump($a);
 
+var_dump($scheduler->run(function () {
+    $defer = new Deferred();
+    $defer->resolve();
+    
+    return Task::await($defer->awaitable());
+}));
+
 ?>
 --EXPECT--
 int(321)
@@ -53,3 +60,4 @@ string(5) "Fail!"
 string(1) "A"
 string(1) "B"
 int(777)
+NULL
