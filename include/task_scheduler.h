@@ -54,6 +54,8 @@ zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task);
 void concurrent_task_scheduler_run_loop(concurrent_task_scheduler *scheduler);
 
 void concurrent_task_scheduler_ce_register();
+void concurrent_task_scheduler_ce_unregister();
+
 void concurrent_task_scheduler_shutdown();
 
 END_EXTERN_C()

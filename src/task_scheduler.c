@@ -31,6 +31,9 @@ zend_class_entry *concurrent_task_scheduler_ce;
 
 static zend_object_handlers concurrent_task_scheduler_handlers;
 
+static zend_string *str_activate;
+static zend_string *str_runloop;
+
 
 concurrent_task_scheduler *concurrent_task_scheduler_get()
 {
@@ -97,8 +100,7 @@ zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task)
 
 		ZVAL_OBJ(&obj, &scheduler->std);
 
-		zend_string *name = zend_string_init("activate", sizeof("activate")-1, 0);
-		zval *entry = zend_hash_find_ex(&scheduler->std.ce->function_table, name, 0);
+		zval *entry = zend_hash_find_ex(&scheduler->std.ce->function_table, str_activate, 1);
 		zend_function *func = Z_FUNC_P(entry);
 
 		zend_call_method_with_0_params(&obj, Z_OBJCE_P(&obj), &func, "activate", &retval);
@@ -120,8 +122,7 @@ void concurrent_task_scheduler_run_loop(concurrent_task_scheduler *scheduler)
 
 	ZVAL_OBJ(&obj, &scheduler->std);
 
-	zend_string *name = zend_string_init("runloop", sizeof("runloop")-1, 0);
-	zval *entry = zend_hash_find_ex(&scheduler->std.ce->function_table, name, 0);
+	zval *entry = zend_hash_find_ex(&scheduler->std.ce->function_table, str_runloop, 1);
 	zend_function *func = Z_FUNC_P(entry);
 
 	zend_call_method_with_0_params(&obj, Z_OBJCE_P(&obj), &func, "runloop", &retval);
@@ -460,6 +461,18 @@ void concurrent_task_scheduler_ce_register()
 	memcpy(&concurrent_task_scheduler_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	concurrent_task_scheduler_handlers.free_obj = concurrent_task_scheduler_object_destroy;
 	concurrent_task_scheduler_handlers.clone_obj = NULL;
+
+	str_activate = zend_string_init("activate", sizeof("activate")-1, 1);
+	str_runloop = zend_string_init("runloop", sizeof("runloop")-1, 1);
+
+	ZSTR_HASH(str_activate);
+	ZSTR_HASH(str_runloop);
+}
+
+void concurrent_task_scheduler_ce_unregister()
+{
+	zend_string_free(str_activate);
+	zend_string_free(str_runloop);
 }
 
 void concurrent_task_scheduler_shutdown()

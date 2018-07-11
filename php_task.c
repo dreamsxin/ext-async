@@ -69,6 +69,7 @@ PHP_MINIT_FUNCTION(task)
 
 PHP_MSHUTDOWN_FUNCTION(task)
 {
+	concurrent_task_scheduler_ce_unregister();
 	concurrent_fiber_ce_unregister();
 
 	UNREGISTER_INI_ENTRIES();
