@@ -90,14 +90,20 @@ static void concurrent_task_continuation(void *obj, zval *data, zval *result, ze
 
 	task = (concurrent_task *) obj;
 
-	ZEND_ASSERT(task->fiber.status == CONCURRENT_FIBER_STATUS_SUSPENDED);
+	if (task->fiber.status != CONCURRENT_FIBER_STATUS_SUSPENDED) {
+		task->fiber.value = NULL;
 
-	if (success) {
-		if (task->fiber.value != NULL) {
-			ZVAL_COPY(task->fiber.value, result);
+		return;
+	}
+
+	if (result != NULL) {
+		if (success) {
+			if (task->fiber.value != NULL) {
+				ZVAL_COPY(task->fiber.value, result);
+			}
+		} else {
+			ZVAL_COPY(&task->error, result);
 		}
-	} else {
-		ZVAL_COPY(&task->error, result);
 	}
 
 	task->fiber.value = NULL;
@@ -376,6 +382,10 @@ ZEND_METHOD(Task, await)
 
 		concurrent_task_scheduler_run_loop(inner->scheduler);
 
+		if (inner->fiber.status == CONCURRENT_FIBER_STATUS_SUSPENDED) {
+			OBJ_RELEASE(&inner->fiber.std);
+		}
+
 		if (inner->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
 			RETURN_ZVAL(&inner->result, 1, 0);
 		}
@@ -391,6 +401,7 @@ ZEND_METHOD(Task, await)
 		}
 
 		zend_throw_error(NULL, "Awaited task did not run to completion");
+
 		return;
 	}
 
@@ -478,13 +489,13 @@ ZEND_METHOD(Task, await)
 		RETURN_ZVAL(val, 1, 0);
 	}
 
-	GC_ADDREF(&task->fiber.std);
-
 	// Switch the value pointer to the return value of await() until the task is continued.
 	value = task->fiber.value;
 	task->fiber.value = USED_RET() ? return_value : NULL;
 
 	task->fiber.status = CONCURRENT_FIBER_STATUS_SUSPENDED;
+
+	GC_ADDREF(&task->fiber.std);
 
 	context = TASK_G(current_context);
 

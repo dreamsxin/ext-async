@@ -90,19 +90,15 @@ void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont)
 {
 	concurrent_awaitable_cb *current;
 	concurrent_awaitable_cb *next;
-	zval error;
 
 	current = *cont;
 
 	if (current != NULL) {
-		// FIXME: Create a proper error to be forwared into tasks.
-		ZVAL_NULL(&error);
-
 		do {
 			next = current->next;
 			*cont = next;
 
-			current->func(current->object, &current->data, &error, 0);
+			current->func(current->object, &current->data, NULL, 0);
 
 			zval_ptr_dtor(&current->data);
 
@@ -110,8 +106,6 @@ void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont)
 
 			current = next;
 		} while (current != NULL);
-
-		zval_ptr_dtor(&error);
 	}
 
 	*cont = NULL;

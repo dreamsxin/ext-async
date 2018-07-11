@@ -272,6 +272,7 @@ struct _concurrent_defer_combine {
 static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *result, zend_bool success)
 {
 	concurrent_defer_combine *combined;
+	uint32_t i;
 
 	zval args[5];
 	zval retval;
@@ -285,7 +286,14 @@ static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *r
 	ZVAL_BOOL(&args[1], combined->counter == 0);
 	ZVAL_COPY(&args[2], data);
 
-	if (success) {
+	if (result == NULL) {
+		zend_throw_error(NULL, "Awaited object was disposed before it could resolve");
+
+		ZVAL_OBJ(&args[3], EG(exception));
+		EG(exception) = NULL;
+
+		ZVAL_NULL(&args[4]);
+	} else if (success) {
 		ZVAL_NULL(&args[3]);
 		ZVAL_COPY(&args[4], result);
 	} else {
@@ -298,13 +306,6 @@ static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *r
 	combined->fci.retval = &retval;
 
 	zend_call_function(&combined->fci, &combined->fcc);
-
-	zval_ptr_dtor(&args[0]);
-	zval_ptr_dtor(&args[1]);
-	zval_ptr_dtor(&args[2]);
-	zval_ptr_dtor(&args[3]);
-	zval_ptr_dtor(&args[4]);
-	zval_ptr_dtor(&retval);
 
 	if (UNEXPECTED(EG(exception))) {
 		if (combined->defer->status == CONCURRENT_DEFERRED_STATUS_PENDING) {
@@ -323,13 +324,26 @@ static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *r
 		zval_ptr_dtor(&combined->fci.function_name);
 
 		if (combined->defer->status == CONCURRENT_DEFERRED_STATUS_PENDING) {
-			concurrent_awaitable_dispose_continuation(&combined->defer->continuation);
+			combined->defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
+
+			zend_throw_error(NULL, "Awaitable combinator was not resolved");
+
+			ZVAL_OBJ(&combined->defer->result, EG(exception));
+			EG(exception) = NULL;
+
+			concurrent_awaitable_trigger_continuation(&combined->defer->continuation, &combined->defer->result, 0);
 		}
 
 		OBJ_RELEASE(&combined->defer->std);
 
 		efree(combined);
 	}
+
+	for (i = 0; i < 5; i++) {
+		zval_ptr_dtor(&args[i]);
+	}
+
+	zval_ptr_dtor(&retval);
 }
 
 ZEND_METHOD(Deferred, combine)
