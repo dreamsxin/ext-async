@@ -313,6 +313,7 @@ ZEND_METHOD(Task, await)
 	concurrent_fiber *fiber;
 	concurrent_task *task;
 	concurrent_task *inner;
+	concurrent_task_scheduler *scheduler;
 	concurrent_deferred *defer;
 	concurrent_context *context;
 	size_t stack_page_size;
@@ -330,8 +331,37 @@ ZEND_METHOD(Task, await)
 	if (fiber == NULL) {
 		ce = Z_OBJCE_P(val);
 
-		if (Z_TYPE_P(val) != IS_OBJECT || ce != concurrent_task_ce) {
-			zend_throw_error(NULL, "Only tasks can be waited when no scheduler is running");
+		if (Z_TYPE_P(val) != IS_OBJECT) {
+			RETURN_ZVAL(val, 1, 0);
+		}
+
+		if (ce == concurrent_deferred_awaitable_ce) {
+			scheduler = concurrent_task_scheduler_get();
+
+			if (scheduler->running) {
+				zend_throw_error(NULL, "Cannot dispatch tasks because the dispatcher is already running");
+				return;
+			}
+
+			concurrent_task_scheduler_run_loop(scheduler);
+
+			defer = ((concurrent_deferred_awaitable *) Z_OBJ_P(val))->defer;
+
+			if (defer->status == CONCURRENT_DEFERRED_STATUS_RESOLVED) {
+				RETURN_ZVAL(&defer->result, 1, 0);
+			}
+
+			if (defer->status == CONCURRENT_DEFERRED_STATUS_FAILED) {
+				Z_ADDREF_P(&defer->result);
+
+				execute_data->opline--;
+				zend_throw_exception_internal(&defer->result);
+				execute_data->opline++;
+
+				return;
+			}
+
+			zend_throw_error(NULL, "Awaitable was not resolved during await");
 			return;
 		}
 
