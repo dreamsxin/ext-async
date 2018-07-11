@@ -102,11 +102,13 @@ static void concurrent_deferred_object_destroy(zend_object *object)
 
 	defer = (concurrent_deferred *) object;
 
-	zval_ptr_dtor(&defer->result);
+	defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
 
 	if (defer->continuation != NULL) {
 		concurrent_awaitable_dispose_continuation(&defer->continuation);
 	}
+
+	zval_ptr_dtor(&defer->result);
 
 	zend_object_std_dtor(&defer->std);
 }
@@ -285,7 +287,11 @@ static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *r
 
 	zend_call_function(&combined->fci, &combined->fcc);
 
-	zval_ptr_dtor(args);
+	zval_ptr_dtor(&args[0]);
+	zval_ptr_dtor(&args[1]);
+	zval_ptr_dtor(&args[2]);
+	zval_ptr_dtor(&args[3]);
+	zval_ptr_dtor(&args[4]);
 	zval_ptr_dtor(&retval);
 
 	if (UNEXPECTED(EG(exception))) {
@@ -325,6 +331,7 @@ ZEND_METHOD(Deferred, combine)
 	zend_class_entry *ce;
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
+	uint32_t count;
 
 	zval *args;
 	zend_ulong i;
@@ -338,18 +345,25 @@ ZEND_METHOD(Deferred, combine)
 		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
+	count = zend_array_count(Z_ARRVAL_P(args));
+
+	if (count == 0) {
+		zend_throw_error(zend_ce_argument_count_error, "At least one awaitable is required");
+		return;
+	}
+
 	fci.no_separation = 1;
 
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(args), entry) {
 		if (Z_TYPE_P(entry) != IS_OBJECT) {
-			zend_throw_error(NULL, "All input elements must be awaitable");
+			zend_throw_error(zend_ce_type_error, "All input elements must be awaitable");
 			return;
 		}
 
 		ce = Z_OBJCE_P(entry);
 
 		if (ce != concurrent_task_ce && ce != concurrent_deferred_awaitable_ce) {
-			zend_throw_error(NULL, "All input elements must be awaitable");
+			zend_throw_error(zend_ce_type_error, "All input elements must be awaitable");
 			return;
 		}
 	} ZEND_HASH_FOREACH_END();
@@ -368,7 +382,7 @@ ZEND_METHOD(Deferred, combine)
 
 	combined = emalloc(sizeof(concurrent_defer_combine));
 	combined->defer = defer;
-	combined->counter = zend_array_count(Z_ARRVAL_P(args));
+	combined->counter = count;
 	combined->fci = fci;
 	combined->fcc = fcc;
 

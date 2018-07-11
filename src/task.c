@@ -466,11 +466,6 @@ ZEND_METHOD(Task, await)
 
 	task->fiber.value = value;
 
-	if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
-		zend_throw_error(NULL, "Task has been destroyed");
-		return;
-	}
-
 	if (Z_TYPE_P(&task->error) != IS_UNDEF) {
 		error = task->error;
 		ZVAL_UNDEF(&task->error);
@@ -478,6 +473,13 @@ ZEND_METHOD(Task, await)
 		execute_data->opline--;
 		zend_throw_exception_internal(&error);
 		execute_data->opline++;
+
+		return;
+	}
+
+	if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
+		zend_throw_error(NULL, "Task has been destroyed");
+		return;
 	}
 }
 
