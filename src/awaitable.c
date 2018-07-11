@@ -21,44 +21,27 @@
 zend_class_entry *concurrent_awaitable_ce;
 
 
-concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, zval *data, concurrent_awaitable_func func)
+void concurrent_awaitable_register_continuation(concurrent_awaitable_cb **cont, void *obj, zval *data, concurrent_awaitable_func func)
 {
-	concurrent_awaitable_cb *cont;
+	concurrent_awaitable_cb *current;
 
-	cont = emalloc(sizeof(concurrent_awaitable_cb));
+	current = emalloc(sizeof(concurrent_awaitable_cb));
 
-	cont->object = obj;
-	cont->func = func;
-	cont->next = NULL;
+	current->object = obj;
+	current->func = func;
+	current->next = NULL;
 
 	if (data == NULL) {
-		ZVAL_UNDEF(&cont->data);
+		ZVAL_UNDEF(&current->data);
 	} else {
-		ZVAL_COPY(&cont->data, data);
+		ZVAL_COPY(&current->data, data);
 	}
 
-	return cont;
-}
-
-void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, zval *data, concurrent_awaitable_func func)
-{
-	concurrent_awaitable_cb *cont;
-
-	ZEND_ASSERT(prev != NULL);
-
-	cont = emalloc(sizeof(concurrent_awaitable_cb));
-
-	cont->object = obj;
-	cont->func = func;
-	cont->next = NULL;
-
-	if (data == NULL) {
-		ZVAL_UNDEF(&cont->data);
+	if (*cont == NULL) {
+		*cont = current;
 	} else {
-		ZVAL_COPY(&cont->data, data);
+		(*cont)->next = current;
 	}
-
-	prev->next = cont;
 }
 
 void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, zval *result, zend_bool success)

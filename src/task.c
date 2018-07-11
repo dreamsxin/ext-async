@@ -458,11 +458,7 @@ ZEND_METHOD(Task, await)
 			return;
 		}
 
-		if (inner->continuation == NULL) {
-			inner->continuation = concurrent_awaitable_create_continuation(task, NULL, concurrent_task_continuation);
-		} else {
-			concurrent_awaitable_append_continuation(inner->continuation, task, NULL, concurrent_task_continuation);
-		}
+		concurrent_awaitable_register_continuation(&inner->continuation, task, NULL, concurrent_task_continuation);
 	} else if (ce == concurrent_deferred_awaitable_ce) {
 		defer = ((concurrent_deferred_awaitable *) Z_OBJ_P(val))->defer;
 
@@ -480,11 +476,7 @@ ZEND_METHOD(Task, await)
 			return;
 		}
 
-		if (defer->continuation == NULL) {
-			defer->continuation = concurrent_awaitable_create_continuation(task, NULL, concurrent_task_continuation);
-		} else {
-			concurrent_awaitable_append_continuation(defer->continuation, task, NULL, concurrent_task_continuation);
-		}
+		concurrent_awaitable_register_continuation(&defer->continuation, task, NULL, concurrent_task_continuation);
 	} else {
 		RETURN_ZVAL(val, 1, 0);
 	}

@@ -433,11 +433,7 @@ ZEND_METHOD(Deferred, combine)
 			} else if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
 				concurrent_defer_combine_continuation(combined, &key, &task->result, 0);
 			} else {
-				if (task->continuation == NULL) {
-					task->continuation = concurrent_awaitable_create_continuation(combined, &key, concurrent_defer_combine_continuation);
-				} else {
-					concurrent_awaitable_append_continuation(task->continuation, combined, &key, concurrent_defer_combine_continuation);
-				}
+				concurrent_awaitable_register_continuation(&task->continuation, combined, &key, concurrent_defer_combine_continuation);
 			}
 		} else {
 			inner = (concurrent_deferred_awaitable *) Z_OBJ_P(entry);
@@ -447,11 +443,7 @@ ZEND_METHOD(Deferred, combine)
 			} else if (inner->defer->status == CONCURRENT_DEFERRED_STATUS_FAILED) {
 				concurrent_defer_combine_continuation(combined, &key, &inner->defer->result, 0);
 			} else {
-				if (inner->defer->continuation == NULL) {
-					inner->defer->continuation = concurrent_awaitable_create_continuation(combined, &key, concurrent_defer_combine_continuation);
-				} else {
-					concurrent_awaitable_append_continuation(inner->defer->continuation, combined, &key, concurrent_defer_combine_continuation);
-				}
+				concurrent_awaitable_register_continuation(&inner->defer->continuation, combined, &key, concurrent_defer_combine_continuation);
 			}
 		}
 

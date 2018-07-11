@@ -36,9 +36,7 @@ struct _concurrent_awaitable_cb {
 	concurrent_awaitable_cb *next;
 };
 
-concurrent_awaitable_cb *concurrent_awaitable_create_continuation(void *obj, zval *data, concurrent_awaitable_func func);
-void concurrent_awaitable_append_continuation(concurrent_awaitable_cb *prev, void *obj, zval *data, concurrent_awaitable_func func);
-
+void concurrent_awaitable_register_continuation(concurrent_awaitable_cb **cont, void *obj, zval *data, concurrent_awaitable_func func);
 void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, zval *result, zend_bool success);
 void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont);
 
