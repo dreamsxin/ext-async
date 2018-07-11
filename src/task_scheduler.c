@@ -301,7 +301,7 @@ ZEND_METHOD(TaskScheduler, run)
 
 	OBJ_RELEASE(&task->fiber.std);
 
-	zend_throw_error(NULL, "Scheduled task did not run to completion");
+	zend_throw_error(NULL, "Awaitable has not been resolved");
 }
 
 ZEND_METHOD(TaskScheduler, runWithContext)
@@ -363,7 +363,7 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 
 	OBJ_RELEASE(&task->fiber.std);
 
-	zend_throw_error(NULL, "Scheduled task did not run to completion");
+	zend_throw_error(NULL, "Awaitable has not been resolved");
 }
 
 ZEND_METHOD(TaskScheduler, dispatch)

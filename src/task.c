@@ -367,7 +367,7 @@ ZEND_METHOD(Task, await)
 				return;
 			}
 
-			zend_throw_error(NULL, "Awaitable was not resolved during await");
+			zend_throw_error(NULL, "Awaitable has not been resolved");
 			return;
 		}
 
@@ -400,7 +400,7 @@ ZEND_METHOD(Task, await)
 			return;
 		}
 
-		zend_throw_error(NULL, "Awaited task did not run to completion");
+		zend_throw_error(NULL, "Awaitable has not been resolved");
 
 		return;
 	}

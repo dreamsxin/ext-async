@@ -37,5 +37,5 @@ try {
 
 ?>
 --EXPECT--
-string(39) "Awaitable was not resolved during await"
-string(38) "Awaited task did not run to completion"
+string(31) "Awaitable has not been resolved"
+string(31) "Awaitable has not been resolved"

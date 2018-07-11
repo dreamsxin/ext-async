@@ -49,7 +49,7 @@ try {
 
 ?>
 --EXPECT--
-string(37) "Awaitable combinator was not resolved"
-string(37) "Awaitable combinator was not resolved"
-string(51) "Awaited object was disposed before it could resolve"
-string(51) "Awaited object was disposed before it could resolve"
+string(50) "Awaitable has been disposed before it was resolved"
+string(50) "Awaitable has been disposed before it was resolved"
+string(50) "Awaitable has been disposed before it was resolved"
+string(50) "Awaitable has been disposed before it was resolved"

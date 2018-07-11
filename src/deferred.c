@@ -289,7 +289,7 @@ static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *r
 	ZVAL_COPY(&args[2], data);
 
 	if (result == NULL) {
-		zend_throw_error(NULL, "Awaited object was disposed before it could resolve");
+		zend_throw_error(NULL, "Awaitable has been disposed before it was resolved");
 
 		ZVAL_OBJ(&args[3], EG(exception));
 		EG(exception) = NULL;
@@ -328,7 +328,7 @@ static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *r
 		if (combined->defer->status == CONCURRENT_DEFERRED_STATUS_PENDING) {
 			combined->defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
 
-			zend_throw_error(NULL, "Awaitable combinator was not resolved");
+			zend_throw_error(NULL, "Awaitable has been disposed before it was resolved");
 
 			ZVAL_OBJ(&combined->defer->result, EG(exception));
 			EG(exception) = NULL;
