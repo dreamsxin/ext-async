@@ -1,0 +1,37 @@
+language: php
+
+compiler:
+  - gcc
+
+php:
+  - nightly
+
+sudo: false
+
+addons:
+  apt:
+    packages:
+      - valgrind
+env:
+  global:
+    - REPORT_EXIT_STATUS=1
+  matrix:
+    - TEST_PHP_ARGS="-q --show-diff"
+    - TEST_PHP_ARGS="-q -m --show-mem"
+
+matrix:
+  allow_failures:
+    - php: nightly
+      env: TEST_PHP_ARGS="-q -m --show-mem"
+
+before_install:
+  - pip install --user cpp-coveralls
+
+script:
+  - phpize
+  - wget -q -O run-tests.php https://raw.githubusercontent.com/php/php-src/master/run-tests.php
+  - ./configure
+  - make test-coverage
+
+after_success:
+  - coveralls -b $TRAVIS_BUILD_DIR -E Zend --gcov-options '\-lp'

@@ -42,6 +42,6 @@ RUN ./configure
 RUN make install -B
 RUN echo "extension=\"task.so\"" >> /usr/local/php/cli/php.ini
 
-RUN make test
+RUN make test-coverage
 RUN php -v
 RUN php -m
