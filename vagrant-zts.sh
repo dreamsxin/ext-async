@@ -19,9 +19,11 @@ sudo ./configure \
     --prefix=/usr/local/php/cli \
     --with-config-file-path=/usr/local/php/cli \
     --enable-maintainer-zts \
+    --with-openssl \
     --with-zlib \
     --without-pear \
     --enable-debug \
+    --enable-mbstring \
     --enable-pcntl \
     --enable-sockets
 

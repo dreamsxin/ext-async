@@ -76,6 +76,11 @@ void concurrent_task_ce_register();
 
 END_EXTERN_C()
 
+typedef struct _concurrent_task_stop_info {
+	concurrent_task_scheduler *scheduler;
+	zend_bool required;
+} concurrent_task_stop_info;
+
 #endif
 
 /*

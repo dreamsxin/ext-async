@@ -65,7 +65,7 @@ final class Task implements Awaitable
 
 The task scheduler is based on a queue of scheduled tasks that are run whenever `dispatch()` is called. The scheduler will start (or resume) all tasks that are scheduled for execution and return when no more tasks are scheduled. Tasks may be re-scheduled (an hence run multiple times) during a single call to the dispatch method. The scheduler implements `Countable` and will return the current number of scheduled tasks.
 
-You can extend the `TaskScheduler` class to create a scheduler with support for an event loop. The scheduler provides integration by letting you override the `runLoop()` method that should start the event loop and keep it running until no more events can occur. The primary problem with event loop integration is that you need to call `dispatch()` whenever tasks are ready run. You can override the `activate()` method to schedule execution of the `dispatch()` with your event loop (future tick or defer watcher). The scheduler will call `activate` whenever a task is registered for execution and the scheduler is not in the process of dispatching tasks.
+You can extend the `TaskScheduler` class to create a scheduler with support for an event loop. The scheduler provides integration by letting you override the `runLoop()` method that should start the event loop and keep it running until no more events can occur. The primary problem with event loop integration is that you need to call `dispatch()` whenever tasks are ready run. You can override the `activate()` method to schedule execution of the `dispatch()` with your event loop (future tick or defer watcher). The scheduler will call `activate` whenever a task is registered for execution and the scheduler is not in the process of dispatching tasks. When `Task::await()` is called at the root level (using the default scheduler) it will register `stopLoop()` as a continuation function. You should stop your (running) event loop after the current tick to allow the main PHP execution to continue.
 
 There is an implicit default scheduler that will be used when `Task::async()` or `Task::asyncWithContext()` is used in PHP code that is not running in a `Task`. You can replace the default scheduler with your own scheduler as long as no async tasks have been created yet.
 
@@ -85,6 +85,8 @@ class TaskScheduler implements \Countable
     protected function activate(): void { }
     
     protected function runLoop(): void { }
+    
+    protected function stopLoop(): void { }
     
     public static final function setDefaultScheduler(TaskScheduler $scheduler): void { }
 }

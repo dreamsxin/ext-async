@@ -61,9 +61,11 @@ class TaskScheduler implements \Countable
     
     protected final function dispatch(): void { }
     
-    protected function activate() { }
+    protected function activate(): void { }
     
-    protected function runLoop() { }
+    protected function runLoop(): void { }
+    
+    protected function stopLoop(): void { }
     
     public static final function setDefaultScheduler(TaskScheduler $scheduler): void { }
 }

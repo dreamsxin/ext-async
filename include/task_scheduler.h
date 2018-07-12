@@ -44,6 +44,7 @@ struct _concurrent_task_scheduler {
 	concurrent_task *last;
 
 	zend_bool running;
+	zend_bool dispatching;
 	zend_bool activate;
 };
 
@@ -52,6 +53,7 @@ concurrent_task_scheduler *concurrent_task_scheduler_get();
 zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task);
 
 void concurrent_task_scheduler_run_loop(concurrent_task_scheduler *scheduler);
+void concurrent_task_scheduler_stop_loop(concurrent_task_scheduler *scheduler);
 
 void concurrent_task_scheduler_ce_register();
 void concurrent_task_scheduler_ce_unregister();

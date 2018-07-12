@@ -20,9 +20,11 @@ sudo ./buildconf --force
 sudo ./configure \
     --prefix=/usr/local/php/cli \
     --with-config-file-path=/usr/local/php/cli \
+    --with-openssl \
     --with-zlib \
     --without-pear \
     --enable-debug \
+    --enable-mbstring \
     --enable-pcntl \
     --enable-sockets
 

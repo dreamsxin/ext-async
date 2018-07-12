@@ -311,6 +311,21 @@ ZEND_METHOD(Task, asyncWithContext)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
+static void concurrent_task_top_level_continuation(void *obj, zval *data, zval *result, zend_bool success)
+{
+	concurrent_task_stop_info *stop;
+
+	stop = (concurrent_task_stop_info *) obj;
+
+	if (stop->required) {
+		stop->required = 0;
+
+		concurrent_task_scheduler_stop_loop(stop->scheduler);
+	} else {
+		efree(stop);
+	}
+}
+
 ZEND_METHOD(Task, await)
 {
 	zend_class_entry *ce;
@@ -321,6 +336,8 @@ ZEND_METHOD(Task, await)
 	concurrent_deferred *defer;
 	concurrent_context *context;
 	size_t stack_page_size;
+
+	concurrent_task_stop_info *stop;
 
 	zval *val;
 	zval *value;
@@ -343,13 +360,25 @@ ZEND_METHOD(Task, await)
 			scheduler = concurrent_task_scheduler_get();
 
 			if (scheduler->running) {
-				zend_throw_error(NULL, "Cannot dispatch tasks because the dispatcher is already running");
+				zend_throw_error(NULL, "Cannot dispatch tasks because the scheduler is already running");
 				return;
 			}
 
+			defer = ((concurrent_deferred_awaitable *) Z_OBJ_P(val))->defer;
+
+			stop = (concurrent_task_stop_info *) emalloc(sizeof(concurrent_task_stop_info));
+			stop->scheduler = scheduler;
+			stop->required = 1;
+
+			concurrent_awaitable_register_continuation(&defer->continuation, stop, NULL, concurrent_task_top_level_continuation);
+
 			concurrent_task_scheduler_run_loop(scheduler);
 
-			defer = ((concurrent_deferred_awaitable *) Z_OBJ_P(val))->defer;
+			if (stop->required) {
+				stop->required = 0;
+			} else {
+				efree(stop);
+			}
 
 			if (defer->status == CONCURRENT_DEFERRED_STATUS_RESOLVED) {
 				RETURN_ZVAL(&defer->result, 1, 0);
@@ -374,11 +403,23 @@ ZEND_METHOD(Task, await)
 		ZEND_ASSERT(inner->scheduler != NULL);
 
 		if (inner->scheduler->running) {
-			zend_throw_error(NULL, "Cannot dispatch tasks because the dispatcher is already running");
+			zend_throw_error(NULL, "Cannot dispatch tasks because the scheduler is already running");
 			return;
 		}
 
+		stop = (concurrent_task_stop_info *) emalloc(sizeof(concurrent_task_stop_info));
+		stop->scheduler = inner->scheduler;
+		stop->required = 1;
+
+		concurrent_awaitable_register_continuation(&inner->continuation, stop, NULL, concurrent_task_top_level_continuation);
+
 		concurrent_task_scheduler_run_loop(inner->scheduler);
+
+		if (stop->required) {
+			stop->required = 0;
+		} else {
+			efree(stop);
+		}
 
 		if (inner->fiber.status == CONCURRENT_FIBER_STATUS_SUSPENDED) {
 			OBJ_RELEASE(&inner->fiber.std);

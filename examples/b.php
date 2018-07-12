@@ -11,6 +11,10 @@ require_once __DIR__ . '/vendor/autoload.php';
 
 $loop = \React\EventLoop\Factory::create();
 
+register_shutdown_function(function () {
+    var_dump('SHUT ME DOWN!');
+});
+
 TaskScheduler::setDefaultScheduler(new class($loop) extends TaskScheduler {
 
     protected $loop;
@@ -36,6 +40,12 @@ TaskScheduler::setDefaultScheduler(new class($loop) extends TaskScheduler {
         $this->loop->run();
         var_dump('END LOOP');
     }
+    
+    protected function stopLoop()
+    {
+        var_dump('STOP LOOP');
+        $this->loop->stop();
+    }
 });
 
 function adapt(\React\Promise\PromiseInterface $promise): Awaitable
@@ -51,12 +61,12 @@ function adapt(\React\Promise\PromiseInterface $promise): Awaitable
     return $defer->awaitable();
 }
 
-Task::await(Task::async(function () use ($loop) {
+$work = function (string $title): void {
+    var_dump($title);
+};
+
+Task::await(Task::async(function () use ($loop, $work) {
     $defer = new \React\Promise\Deferred();
-    
-    $work = function (string $title): void {
-        var_dump($title);
-    };
     
     Task::async($work, 'A');
     Task::async($work, 'B');
@@ -81,17 +91,19 @@ Task::await(Task::async(function () use ($loop) {
         Task::async($work, 'G');
     });
     
-    $loop->futureTick(function () use ($loop, $work) {
-        Task::async($work, 'C');
-        
-        $loop->futureTick(function () use ($work) {
-            Task::async($work, 'E');
-        });
-        
-        Task::async(function ($v) {
-            var_dump(Task::await($v));
-        }, 'D');
-    });
+    var_dump('ROOT TASK DONE');
 }));
 
-var_dump('DONE');
+$loop->futureTick(function () use ($loop, $work) {
+    Task::async($work, 'C');
+    
+    $loop->futureTick(function () use ($work) {
+        Task::async($work, 'E');
+    });
+    
+    Task::async(function ($v) {
+        var_dump(Task::await($v));
+    }, 'D');
+});
+
+var_dump('=> END OF MAIN SCRIPT');

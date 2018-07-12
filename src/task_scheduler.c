@@ -33,6 +33,7 @@ static zend_object_handlers concurrent_task_scheduler_handlers;
 
 static zend_string *str_activate;
 static zend_string *str_runloop;
+static zend_string *str_stoploop;
 
 
 concurrent_task_scheduler *concurrent_task_scheduler_get()
@@ -93,7 +94,7 @@ zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task)
 
 	scheduler->scheduled++;
 
-	if (scheduler->activate && !scheduler->running) {
+	if (scheduler->activate && !scheduler->dispatching) {
 		scheduler->activate = 0;
 
 		ZVAL_OBJ(&obj, &scheduler->std);
@@ -120,6 +121,8 @@ void concurrent_task_scheduler_run_loop(concurrent_task_scheduler *scheduler)
 	prev = TASK_G(current_scheduler);
 	TASK_G(current_scheduler) = scheduler;
 
+	scheduler->running = 1;
+
 	ZVAL_OBJ(&obj, &scheduler->std);
 	GC_ADDREF(&scheduler->std);
 
@@ -130,14 +133,32 @@ void concurrent_task_scheduler_run_loop(concurrent_task_scheduler *scheduler)
 	zval_ptr_dtor(&obj);
 	zval_ptr_dtor(&retval);
 
+	scheduler->running = 0;
+
 	TASK_G(current_scheduler) = prev;
+}
+
+void concurrent_task_scheduler_stop_loop(concurrent_task_scheduler *scheduler)
+{
+	zval obj;
+	zval retval;
+
+	ZVAL_OBJ(&obj, &scheduler->std);
+	GC_ADDREF(&scheduler->std);
+
+	zval *entry = zend_hash_find_ex(&scheduler->std.ce->function_table, str_stoploop, 1);
+	zend_function *func = Z_FUNC_P(entry);
+
+	zend_call_method_with_0_params(&obj, Z_OBJCE_P(&obj), &func, "stoploop", &retval);
+	zval_ptr_dtor(&obj);
+	zval_ptr_dtor(&retval);
 }
 
 static void concurrent_task_scheduler_run(concurrent_task_scheduler *scheduler)
 {
 	concurrent_task *task;
 
-	scheduler->running = 1;
+	scheduler->dispatching = 1;
 	scheduler->activate = 0;
 
 	while (scheduler->first != NULL) {
@@ -189,7 +210,7 @@ static void concurrent_task_scheduler_run(concurrent_task_scheduler *scheduler)
 
 	scheduler->last = NULL;
 
-	scheduler->running = 0;
+	scheduler->dispatching = 0;
 	scheduler->activate = 1;
 }
 
@@ -212,18 +233,10 @@ static zend_object *concurrent_task_scheduler_object_create(zend_class_entry *ce
 static void concurrent_task_scheduler_object_destroy(zend_object *object)
 {
 	concurrent_task_scheduler *scheduler;
-	concurrent_task *task;
 
 	scheduler = (concurrent_task_scheduler *) object;
 
-	while (scheduler->first != NULL) {
-		task = scheduler->first;
-
-		scheduler->scheduled--;
-		scheduler->first = task->next;
-
-		OBJ_RELEASE(&task->fiber.std);
-	}
+	concurrent_task_scheduler_run_loop(scheduler);
 
 	zend_object_std_dtor(&scheduler->std);
 }
@@ -377,7 +390,7 @@ ZEND_METHOD(TaskScheduler, dispatch)
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
-	if (scheduler->running) {
+	if (scheduler->dispatching) {
 		zend_throw_error(NULL, "Cannot dispatch tasks because the dispatcher is already running");
 		return;
 	}
@@ -393,12 +406,26 @@ ZEND_METHOD(TaskScheduler, runLoop)
 
 	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
 
-	if (scheduler->running) {
+	if (scheduler->dispatching) {
 		zend_throw_error(NULL, "Cannot dispatch tasks because the dispatcher is already running");
 		return;
 	}
 
 	concurrent_task_scheduler_run(scheduler);
+}
+
+ZEND_METHOD(TaskScheduler, stopLoop)
+{
+	concurrent_task_scheduler *scheduler;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	scheduler = (concurrent_task_scheduler *) Z_OBJ_P(getThis());
+
+	if (!scheduler->dispatching) {
+		zend_throw_error(NULL, "Cannot stop loop that is not running");
+		return;
+	}
 }
 
 ZEND_METHOD(TaskScheduler, setDefaultScheduler)
@@ -452,6 +479,9 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_run_loop, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_stop_loop, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_dispatch, 0)
 ZEND_END_ARG_INFO()
 
@@ -469,6 +499,7 @@ static const zend_function_entry task_scheduler_functions[] = {
 	ZEND_ME(TaskScheduler, runWithContext, arginfo_task_scheduler_run_with_context, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, dispatch, arginfo_task_scheduler_dispatch, ZEND_ACC_PROTECTED | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, runLoop, arginfo_task_scheduler_run_loop, ZEND_ACC_PROTECTED)
+	ZEND_ME(TaskScheduler, stopLoop, arginfo_task_scheduler_stop_loop, ZEND_ACC_PROTECTED)
 	ZEND_ME(TaskScheduler, setDefaultScheduler, arginfo_task_scheduler_set_default_scheduler, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, __wakeup, arginfo_task_scheduler_wakeup, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_FE_END
@@ -493,15 +524,18 @@ void concurrent_task_scheduler_ce_register()
 
 	str_activate = zend_string_init("activate", sizeof("activate")-1, 1);
 	str_runloop = zend_string_init("runloop", sizeof("runloop")-1, 1);
+	str_stoploop = zend_string_init("stoploop", sizeof("stoploop")-1, 1);
 
 	ZSTR_HASH(str_activate);
 	ZSTR_HASH(str_runloop);
+	ZSTR_HASH(str_stoploop);
 }
 
 void concurrent_task_scheduler_ce_unregister()
 {
 	zend_string_free(str_activate);
 	zend_string_free(str_runloop);
+	zend_string_free(str_stoploop);
 }
 
 void concurrent_task_scheduler_shutdown()
