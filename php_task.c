@@ -27,6 +27,32 @@
 
 ZEND_DECLARE_MODULE_GLOBALS(task)
 
+static void task_execute_ex(zend_execute_data *exec);
+static void (*orig_execute_ex)(zend_execute_data *exec);
+
+
+/* Custom executor being used to run the task scheduler before shutdown functions. */
+static void task_execute_ex(zend_execute_data *exec)
+{
+	concurrent_fiber *fiber;
+	concurrent_task_scheduler *scheduler;
+
+	fiber = TASK_G(current_fiber);
+
+	if (orig_execute_ex) {
+		orig_execute_ex(exec);
+	}
+
+	if (fiber == NULL && exec->prev_execute_data == NULL) {
+		scheduler = TASK_G(scheduler);
+
+		if (scheduler != NULL) {
+			concurrent_task_scheduler_run_loop(scheduler);
+		}
+	}
+}
+
+
 static PHP_INI_MH(OnUpdateFiberStackSize)
 {
 	OnUpdateLong(entry, new_value, mh_arg1, mh_arg2, mh_arg3, stage);
@@ -63,6 +89,9 @@ PHP_MINIT_FUNCTION(task)
 
 	REGISTER_INI_ENTRIES();
 
+	orig_execute_ex = zend_execute_ex;
+	zend_execute_ex = task_execute_ex;
+
 	return SUCCESS;
 }
 
@@ -73,6 +102,8 @@ PHP_MSHUTDOWN_FUNCTION(task)
 	concurrent_fiber_ce_unregister();
 
 	UNREGISTER_INI_ENTRIES();
+
+	zend_execute_ex = orig_execute_ex;
 
 	return SUCCESS;
 }

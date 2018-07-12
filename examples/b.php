@@ -12,7 +12,7 @@ require_once __DIR__ . '/vendor/autoload.php';
 $loop = \React\EventLoop\Factory::create();
 
 register_shutdown_function(function () {
-    var_dump('SHUT ME DOWN!');
+    echo "===> Shutdown function(s) execute here.\n";
 });
 
 TaskScheduler::setDefaultScheduler(new class($loop) extends TaskScheduler {

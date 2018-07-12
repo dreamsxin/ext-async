@@ -236,7 +236,10 @@ static void concurrent_task_scheduler_object_destroy(zend_object *object)
 
 	scheduler = (concurrent_task_scheduler *) object;
 
-	concurrent_task_scheduler_run_loop(scheduler);
+	// Do not re-run root scheduler, this is done by the executor hook instead.
+	if (TASK_G(scheduler) != scheduler) {
+		concurrent_task_scheduler_run_loop(scheduler);
+	}
 
 	zend_object_std_dtor(&scheduler->std);
 }
