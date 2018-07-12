@@ -1,6 +1,7 @@
 # Concurrent Task Extension
 
 [![Build Status](https://travis-ci.org/concurrent-php/task.svg?branch=master)](https://travis-ci.org/concurrent-php/task)
+[![Coverage Status](https://coveralls.io/repos/github/concurrent-php/task/badge.svg?branch=master)](https://coveralls.io/github/concurrent-php/task?branch=master)
 
 Provides concurrent task execution using native C fibers in PHP.
 
