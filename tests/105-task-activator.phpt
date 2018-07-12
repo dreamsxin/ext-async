@@ -21,17 +21,17 @@ $work = function (string $v): void {
     var_dump($v);
 };
 
-$scheduler->run($work, ['A']);
+$scheduler->run($work, 'A');
 
 $scheduler->run(function () use ($work) {
     $work('B');
     
-    Task::async($work, ['C']);
+    Task::async($work, 'C');
 });
 
 $scheduler->run(function () use ($work) {
-    Task::async($work, ['D']);
-    Task::async($work, ['E']);
+    Task::async($work, 'D');
+    Task::async($work, 'E');
 });
 
 ?>

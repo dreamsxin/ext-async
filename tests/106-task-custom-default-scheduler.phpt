@@ -21,17 +21,17 @@ $work = function (string $v): void {
     var_dump($v);
 };
 
-Task::await(Task::async($work, ['A']));
+Task::await(Task::async($work, 'A'));
 
 Task::await(Task::async(function () use ($work) {
     $work('B');
     
-    Task::async($work, ['C']);
+    Task::async($work, 'C');
 }));
 
 Task::await(Task::async(function () use ($work) {
-    Task::async($work, ['D']);
-    Task::async($work, ['E']);
+    Task::async($work, 'D');
+    Task::async($work, 'E');
 }));
 
 ?>

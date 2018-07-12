@@ -1,8 +1,6 @@
 <?php
 
-use Concurrent\Deferred;
-use Concurrent\Task;
-use Concurrent\TaskScheduler;
+namespace Concurrent;
 
 $scheduler = new TaskScheduler();
 
@@ -12,7 +10,7 @@ $result = $scheduler->run(function () {
     });
   
     try {
-      Task::await(Deferred::error(new \Error('Fail!')));
+        Task::await(Deferred::error(new \Error('Fail!')));
     } catch (\Throwable $e) {
         var_dump($e->getMessage());
     }

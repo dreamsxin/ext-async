@@ -12,7 +12,7 @@ namespace Concurrent;
 $scheduler = new TaskScheduler();
 
 $scheduler->run(function () {
-    Task::async('var_dump', ['A']);
+    Task::async('var_dump', 'A');
 
     $defer = new Deferred();
     
@@ -20,7 +20,7 @@ $scheduler->run(function () {
         var_dump(Task::await($defer->awaitable()));
     });
     
-    Task::async('var_dump', ['B']);
+    Task::async('var_dump', 'B');
     
     Task::async(function () use ($defer) {
         $defer->resolve('D');

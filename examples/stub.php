@@ -44,9 +44,9 @@ final class Task implements Awaitable
 {
     public static function isRunning(): bool { }
     
-    public static function async(callable $callback, ?array $args = null): Task { }
+    public static function async(callable $callback, ...$args): Task { }
     
-    public static function asyncWithContext(Context $context, callable $callback, ?array $args = null): Task { }
+    public static function asyncWithContext(Context $context, callable $callback, ...$args): Task { }
     
     public static function await($a) { }
 }
@@ -55,9 +55,9 @@ class TaskScheduler implements \Countable
 {
     public final function count(): int { }
     
-    public final function run(callable $callback, ?array $args = null) { }
+    public final function run(callable $callback, ...$args) { }
     
-    public final function runWithContext(Context $context, callable $callback, ?array $args = null) { }
+    public final function runWithContext(Context $context, callable $callback, ...$args) { }
     
     protected final function dispatch(): void { }
     

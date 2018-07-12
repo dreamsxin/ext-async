@@ -15,27 +15,6 @@ try {
     var_dump($e->getMessage());
 }
 
-try {
-    return Task::await(Task::async(function () {
-        return Task::await((new Deferred())->awaitable());
-    }));
-} catch (\Throwable $e) {
-    var_dump($e->getMessage());
-}
-
-/*
-try {
-    return Task::await(Task::async(function () {
-        return Task::await(Task::async(function () {
-            return Task::await((new Deferred())->awaitable());
-        }));
-    }));
-} catch (\Throwable $e) {
-    var_dump($e->getMessage());
-}
-*/
-
 ?>
 --EXPECT--
-string(31) "Awaitable has not been resolved"
 string(31) "Awaitable has not been resolved"

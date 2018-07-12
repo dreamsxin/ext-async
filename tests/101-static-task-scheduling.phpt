@@ -16,7 +16,7 @@ var_dump(count($scheduler));
 $scheduler->run(function () {
     $t = Task::async(function (string $title) {
         var_dump($title);
-    }, ['A']);
+    }, 'A');
     
     var_dump($t instanceof Task);
     

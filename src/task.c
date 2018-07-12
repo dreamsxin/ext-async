@@ -233,6 +233,7 @@ ZEND_METHOD(Task, isRunning)
 ZEND_METHOD(Task, async)
 {
 	concurrent_task * task;
+	uint32_t count;
 
 	zval *params;
 	zval obj;
@@ -243,20 +244,18 @@ ZEND_METHOD(Task, async)
 
 	ZEND_ASSERT(task->scheduler != NULL);
 
-	params = NULL;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
 		Z_PARAM_FUNC_EX(task->fiber.fci, task->fiber.fcc, 1, 0)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ARRAY(params)
+		Z_PARAM_VARIADIC('+', params, count)
 	ZEND_PARSE_PARAMETERS_END();
 
 	task->fiber.fci.no_separation = 1;
 
-	if (params == NULL) {
+	if (count == 0) {
 		task->fiber.fci.param_count = 0;
 	} else {
-		zend_fcall_info_args(&task->fiber.fci, params);
+		zend_fcall_info_argp(&task->fiber.fci, count, params);
 	}
 
 	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
@@ -273,6 +272,7 @@ ZEND_METHOD(Task, async)
 ZEND_METHOD(Task, asyncWithContext)
 {
 	concurrent_task * task;
+	uint32_t count;
 
 	zval *ctx;
 	zval *params;
@@ -280,21 +280,19 @@ ZEND_METHOD(Task, asyncWithContext)
 
 	task = concurrent_task_object_create();
 
-	params = NULL;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 3)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, -1)
 		Z_PARAM_ZVAL(ctx)
 		Z_PARAM_FUNC_EX(task->fiber.fci, task->fiber.fcc, 1, 0)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ARRAY(params)
+		Z_PARAM_VARIADIC('+', params, count)
 	ZEND_PARSE_PARAMETERS_END();
 
 	task->fiber.fci.no_separation = 1;
 
-	if (params == NULL) {
+	if (count == 0) {
 		task->fiber.fci.param_count = 0;
 	} else {
-		zend_fcall_info_args(&task->fiber.fci, params);
+		zend_fcall_info_argp(&task->fiber.fci, count, params);
 	}
 
 	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
@@ -531,13 +529,13 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_async, 0, 1, Concurrent\\Task, 0)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-	ZEND_ARG_ARRAY_INFO(0, arguments, 1)
+	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_async_with_context, 0, 2, Concurrent\\Task, 0)
 	ZEND_ARG_OBJ_INFO(0, context, Concurrent\\Context, 0)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-	ZEND_ARG_ARRAY_INFO(0, arguments, 1)
+	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_await, 0, 0, 1)

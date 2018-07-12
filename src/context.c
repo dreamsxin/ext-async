@@ -284,23 +284,25 @@ ZEND_METHOD(Context, run)
 	concurrent_context *prev;
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
-	uint32_t param_count;
+	uint32_t count;
 
 	zval *params;
 	zval result;
 
-	params = NULL;
-
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
 		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_VARIADIC('+', params, param_count)
+		Z_PARAM_VARIADIC('+', params, count)
 	ZEND_PARSE_PARAMETERS_END();
 
 	context = (concurrent_context *) Z_OBJ_P(getThis());
 
-	fci.params = params;
-	fci.param_count = param_count;
+	if (count == 0) {
+		fci.param_count = 0;
+	} else {
+		zend_fcall_info_argp(&fci, count, params);
+	}
+
 	fci.retval = &result;
 	fci.no_separation = 1;
 

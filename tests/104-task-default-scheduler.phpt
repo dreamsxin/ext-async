@@ -13,8 +13,8 @@ $work = function (string $a) {
     return $a;
 };
 
-var_dump(Task::await(Task::async($work, ['A'])));
-var_dump(Task::await(Task::async($work, ['B'])));
+var_dump(Task::await(Task::async($work, 'A')));
+var_dump(Task::await(Task::async($work, 'B')));
 
 $t = Task::async(function () {
     $defer = new Deferred();

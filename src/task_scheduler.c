@@ -150,10 +150,10 @@ static void concurrent_task_scheduler_run(concurrent_task_scheduler *scheduler)
 			scheduler->last = NULL;
 		}
 
+		task->next = NULL;
+
 		// A task scheduled for start might have been inlined, do not take action in this case.
 		if (task->operation != CONCURRENT_TASK_OPERATION_NONE) {
-			task->next = NULL;
-
 			if (task->operation == CONCURRENT_TASK_OPERATION_START) {
 				concurrent_task_start(task);
 			} else {
@@ -248,6 +248,7 @@ ZEND_METHOD(TaskScheduler, run)
 {
 	concurrent_task_scheduler *scheduler;
 	concurrent_task *task;
+	uint32_t count;
 
 	zval *params;
 	zval retval;
@@ -262,18 +263,18 @@ ZEND_METHOD(TaskScheduler, run)
 
 	params = NULL;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
 		Z_PARAM_FUNC_EX(task->fiber.fci, task->fiber.fcc, 1, 0)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ARRAY(params)
+		Z_PARAM_VARIADIC('+', params, count)
 	ZEND_PARSE_PARAMETERS_END();
 
 	task->fiber.fci.no_separation = 1;
 
-	if (params == NULL) {
+	if (count == 0) {
 		task->fiber.fci.param_count = 0;
 	} else {
-		zend_fcall_info_args(&task->fiber.fci, params);
+		zend_fcall_info_argp(&task->fiber.fci, count, params);
 	}
 
 	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
@@ -308,6 +309,7 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 {
 	concurrent_task_scheduler *scheduler;
 	concurrent_task *task;
+	uint32_t count;
 
 	zval *ctx;
 	zval *params;
@@ -320,11 +322,11 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 
 	params = NULL;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 3)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, -1)
 		Z_PARAM_ZVAL(ctx)
 		Z_PARAM_FUNC_EX(task->fiber.fci, task->fiber.fcc, 1, 0)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ARRAY(params)
+		Z_PARAM_VARIADIC('+', params, count)
 	ZEND_PARSE_PARAMETERS_END();
 
 	task->context = (concurrent_context *) Z_OBJ_P(ctx);
@@ -332,10 +334,10 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 
 	GC_ADDREF(&task->context->std);
 
-	if (params == NULL) {
+	if (count == 0) {
 		task->fiber.fci.param_count = 0;
 	} else {
-		zend_fcall_info_args(&task->fiber.fci, params);
+		zend_fcall_info_argp(&task->fiber.fci, count, params);
 	}
 
 	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
@@ -438,13 +440,13 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_run, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-	ZEND_ARG_ARRAY_INFO(0, arguments, 1)
+	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_run_with_context, 0, 0, 2)
 	ZEND_ARG_OBJ_INFO(0, context, Concurrent\\Context, 0)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-	ZEND_ARG_ARRAY_INFO(0, arguments, 1)
+	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_run_loop, 0)

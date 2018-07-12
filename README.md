@@ -51,10 +51,10 @@ final class Task implements Awaitable
     public static function isRunning(): bool { }
     
     /* Should be replaced with async keyword if merged into PHP core. */
-    public static function async(callable $callback, ?array $args = null): Task { }
+    public static function async(callable $callback, ...$args): Task { }
     
     /* Should be replaced with extended async keyword expression if merged into PHP core. */
-    public static function asyncWithContext(Context $context, callable $callback, ?array $args = null): Task { }
+    public static function asyncWithContext(Context $context, callable $callback, ...$args): Task { }
     
     /* Should be replaced with await keyword if merged into PHP core. */
     public static function await($a): mixed { }
@@ -76,9 +76,9 @@ class TaskScheduler implements \Countable
 {
     public final function count(): int { }
     
-    public final function run(callable $callback, ?array $args = null): mixed { }
+    public final function run(callable $callback, ...$args): mixed { }
     
-    public final function runWithContext(Context $context, callable $callback, ?array $args = null): mixed { }
+    public final function runWithContext(Context $context, callable $callback, ...$args): mixed { }
     
     protected final function dispatch(): void { }
     
@@ -153,7 +153,7 @@ $task = async $this->sendRequest($request, $timeout);
 $response = await $task;
 
 // The above code would be equivalent to the following:
-$task = Task::async(Closure::fromCallable($this, 'sendRequest'), [$request, $timeout]);
+$task = Task::async(Closure::fromCallable($this, 'sendRequest'), $request, $timeout);
 $response = Task::await($task);
 ```
 
@@ -207,7 +207,7 @@ The source transformation needs to consider namespaces and preserve scope. Deali
 $task = async max(1, 2, 3);
 $result = await $task;
 
-$task = \Concurrent\Task::async('max', [1, 2, 3]);
+$task = \Concurrent\Task::async('max', 1, 2, 3);
 $result = \Concurrent\Task::await($task);
 ``` 
 Function calls in global namespace only have to check imported functions, the correct function can be determined at compile time.
@@ -217,7 +217,7 @@ namespace Foo;
 
 $task = async bar(1, 2);
 
-$task = \Concurrent\Task::async(\function_exists('Foo\\bar') ? 'Foo\\bar' : 'bar', [1, 2]);
+$task = \Concurrent\Task::async(\function_exists('Foo\\bar') ? 'Foo\\bar' : 'bar', 1, 2);
 ```
 Unqualified function calls in namespace require runtime evaluation of the function to be called (unless the function is imported via use statement).
 
@@ -229,6 +229,6 @@ $work = function (int $a): int { return $a + Context::var('num'); };
 
 $result = await async $context => $work(42);
 
-$result = \Concurrent\Task::await(\Concurrent\Task::asyncWithContext(\Closure::fromCallable($work), [42]));
+$result = \Concurrent\Task::await(\Concurrent\Task::asyncWithContext(\Closure::fromCallable($work), 42));
 ```
 Calling functions stored in variables requires to keep track of the calling scope because `$work` might contain a method call (or an object with `__invoke()` method) with a visibility other than `public`.

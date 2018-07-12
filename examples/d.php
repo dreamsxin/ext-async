@@ -22,7 +22,7 @@ $scheduler->run(function () {
     
     $defer = new Deferred();
 
-    $t = Task::asyncWithContext($context, __NAMESPACE__ . '\\job', [$defer]);
+    $t = Task::asyncWithContext($context, __NAMESPACE__ . '\\job', $defer);
     
     var_dump('GO WAIT');
     var_dump(Task::await($defer->awaitable()));

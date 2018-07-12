@@ -23,7 +23,7 @@ $scheduler->run(function () {
     
     var_dump(Task::await(Task::async(function (string $x): string {
         return $x;
-    }, ['D'])));
+    }, 'D')));
     
     Task::await($t = Task::async(function () {
         return 'E';

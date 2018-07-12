@@ -15,7 +15,7 @@ var_dump(count($scheduler));
 $result = $scheduler->run(function () use ($scheduler) {
 	var_dump(count($scheduler));
 	
-	$t1 = Task::async('var_dump', ['B']);
+	$t1 = Task::async('var_dump', 'B');
 	
 	var_dump(count($scheduler));
 	
