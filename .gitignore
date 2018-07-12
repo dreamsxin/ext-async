@@ -18,6 +18,7 @@ install-sh
 libtool
 ltmain.sh
 Makefile*
+!Makefile.frag
 modules
 missing
 mkinstalldirs
