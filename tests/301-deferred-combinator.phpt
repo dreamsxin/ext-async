@@ -15,13 +15,18 @@ $a = $scheduler->run(function () {
     var_dump('A');
 
     return Task::await(Deferred::combine([
-        Deferred::value('D'),
-        Deferred::value(777)
-    ], function (Deferred $defer, bool $last, int $index, ?\Throwable $e, $v) {
+        0 => Deferred::value('D'),
+        'X' => Deferred::value(777)
+    ], function (Deferred $defer, bool $last, $index, ?\Throwable $e, $v) {
         var_dump('B');
         var_dump($last);
+        var_dump($index);
         var_dump($e);
-        $defer->resolve($v);
+        
+        if ($last) {
+            $defer->resolve($v);
+        }
+        
         var_dump('C');
     }));
 });
@@ -33,10 +38,12 @@ var_dump($a);
 string(1) "A"
 string(1) "B"
 bool(false)
+int(0)
 NULL
 string(1) "C"
 string(1) "B"
 bool(true)
+string(1) "X"
 NULL
 string(1) "C"
-string(1) "D"
+int(777)

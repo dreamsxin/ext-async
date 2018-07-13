@@ -309,6 +309,12 @@ static void async_deferred_combine_continuation(void *obj, zval *data, zval *res
 
 	zend_call_function(&combined->fci, &combined->fcc);
 
+	for (i = 0; i < 5; i++) {
+		zval_ptr_dtor(&args[i]);
+	}
+
+	zval_ptr_dtor(&retval);
+
 	if (UNEXPECTED(EG(exception))) {
 		if (combined->defer->status == ASYNC_DEFERRED_STATUS_PENDING) {
 			combined->defer->status = ASYNC_DEFERRED_STATUS_FAILED;
@@ -340,12 +346,6 @@ static void async_deferred_combine_continuation(void *obj, zval *data, zval *res
 
 		efree(combined);
 	}
-
-	for (i = 0; i < 5; i++) {
-		zval_ptr_dtor(&args[i]);
-	}
-
-	zval_ptr_dtor(&retval);
 }
 
 ZEND_METHOD(Deferred, combine)
