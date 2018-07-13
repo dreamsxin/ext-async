@@ -7,7 +7,7 @@ Provides concurrent Zend VM executions using native C fibers in PHP.
 
 ## Async API
 
-The async extension exposes a public API that can be used to create, run and interact with fiber-based async executions.
+The async extension exposes a public API that can be used to create, run and interact with fiber-based async executions. You can obtain the API stub files for code completion in your IDE by installing `concurrent-php/async-api` via Composer.
 
 ### Awaitable
 
