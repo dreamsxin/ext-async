@@ -1,0 +1,27 @@
+{
+	"name" : "concurrent-php/async-api",
+	"description" : "Async extension API stubs.",
+	"license" : "PHP-3.01",
+	"homepage" : "https://github.com/concurrent-php/ext-async",
+	"authors" : [{
+			"name" : "Martin Schröder",
+			"email" : "m.schroeder2007@gmail.com"
+		}
+	],
+	"require" : {
+		"php" : ">=7.2"
+	},
+	"require-dev" : {
+		"phpunit/phpunit" : "~7",
+		"react/event-loop" : "~1.0",
+		"react/promise" : "~2.7"
+	},
+	"autoload" : {
+		"psr-4" : {
+			"Concurrent\\" : "lib/"
+		}
+	},
+	"support" : {
+		"issues" : "https://github.com/concurrent-php/ext-async/issues"
+	}
+}

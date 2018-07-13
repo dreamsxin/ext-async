@@ -1,4 +1,5 @@
 .*
+!.gitattributes
 !.gitignore
 !.travis.yml
 
@@ -27,4 +28,6 @@ run-*
 tests/*
 !tests/*.phpt
 
+composer.lock
 local
+vendor
