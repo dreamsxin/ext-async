@@ -1,7 +1,7 @@
 # Async Extension for PHP
 
 [![Build Status](https://travis-ci.org/concurrent-php/ext-async.svg?branch=master)](https://travis-ci.org/concurrent-php/ext-async)
-[![Coverage Status](https://coveralls.io/repos/github/concurrent-php/ext-async/badge.svg?branch=master)](https://coveralls.io/github/concurrent-php/ext-async?branch=master)
+[![Coverage Status](https://coveralls.io/repos/github/concurrent-php/ext-async/badge.svg)](https://coveralls.io/github/concurrent-php/ext-async)
 
 Provides concurrent Zend VM executions using native C fibers in PHP.
 
