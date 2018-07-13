@@ -1,6 +1,6 @@
 {
 	"name" : "concurrent-php/async-api",
-	"description" : "Async extension API stubs.",
+	"description" : "Async extension API stubs and helpers.",
 	"license" : "PHP-3.01",
 	"homepage" : "https://github.com/concurrent-php/ext-async",
 	"authors" : [{

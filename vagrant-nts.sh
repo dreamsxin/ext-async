@@ -46,7 +46,7 @@ sudo phpize
 sudo ./configure
 sudo make install -B
 
-sudo echo "extension=\"task.so\"" >> /usr/local/php/cli/php.ini
+sudo echo "extension=\"async.so\"" >> /usr/local/php/cli/php.ini
 
 php -v
 php -m
