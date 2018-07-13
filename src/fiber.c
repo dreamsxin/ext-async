@@ -111,8 +111,6 @@ void async_fiber_run()
 	fiber->exec = NULL;
 
 	async_fiber_yield(fiber->context);
-
-	abort();
 }
 
 
@@ -377,6 +375,11 @@ ZEND_METHOD(Fiber, yield)
 
 	if (UNEXPECTED(fiber == NULL)) {
 		zend_throw_error(NULL, "Cannot yield from outside a fiber");
+		return;
+	}
+
+	if (fiber->type != ASYNC_FIBER_TYPE_DEFAULT) {
+		zend_throw_error(NULL, "Cannot yield from an async task");
 		return;
 	}
 
