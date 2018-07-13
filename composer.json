@@ -19,7 +19,10 @@
 	"autoload" : {
 		"psr-4" : {
 			"Concurrent\\" : "lib/"
-		}
+		},
+		"files" : [
+			"lib/functions.php"
+		]
 	},
 	"support" : {
 		"issues" : "https://github.com/concurrent-php/ext-async/issues"

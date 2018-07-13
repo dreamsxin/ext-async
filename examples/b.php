@@ -1,13 +1,10 @@
 <?php
 
-use Concurrent\Awaitable;
-use Concurrent\Deferred;
-use Concurrent\Task;
-use Concurrent\TaskScheduler;
+// Event loop integration using a customized scheduler.
+
+namespace Concurrent;
 
 require_once dirname(__DIR__) . '/vendor/autoload.php';
-
-// Event loop integration using a customized scheduler.
 
 $loop = \React\EventLoop\Factory::create();
 
@@ -40,7 +37,7 @@ TaskScheduler::setDefaultScheduler(new class($loop) extends TaskScheduler {
         $this->loop->run();
         var_dump('END LOOP');
     }
-    
+
     protected function stopLoop()
     {
         var_dump('STOP LOOP');
@@ -68,8 +65,10 @@ $work = function (string $title): void {
 Task::await(Task::async(function () use ($loop, $work) {
     $defer = new \React\Promise\Deferred();
     
-    Task::async($work, 'A');
-    Task::async($work, 'B');
+    Task::await(all([
+        Task::async($work, 'A'),
+        Task::async($work, 'B')
+    ]));
     
     Task::async(function () use ($loop) {
         $defer = new Deferred();
