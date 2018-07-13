@@ -16,21 +16,21 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef CONCURRENT_DEFERRED_H
-#define CONCURRENT_DEFERRED_H
+#ifndef ASYNC_DEFERRED_H
+#define ASYNC_DEFERRED_H
 
 #include "php.h"
 #include "awaitable.h"
 
 BEGIN_EXTERN_C()
 
-extern zend_class_entry *concurrent_deferred_ce;
-extern zend_class_entry *concurrent_deferred_awaitable_ce;
+extern zend_class_entry *async_deferred_ce;
+extern zend_class_entry *async_deferred_awaitable_ce;
 
-typedef struct _concurrent_deferred concurrent_deferred;
-typedef struct _concurrent_deferred_awaitable concurrent_deferred_awaitable;
+typedef struct _async_deferred async_deferred;
+typedef struct _async_deferred_awaitable async_deferred_awaitable;
 
-struct _concurrent_deferred {
+struct _async_deferred {
 	zend_object std;
 
 	zend_uchar status;
@@ -38,20 +38,20 @@ struct _concurrent_deferred {
 	zval result;
 
 	/* Linked list of registered continuation callbacks. */
-	concurrent_awaitable_cb *continuation;
+	async_awaitable_cb *continuation;
 };
 
-extern const zend_uchar CONCURRENT_DEFERRED_STATUS_PENDING;
-extern const zend_uchar CONCURRENT_DEFERRED_STATUS_RESOLVED;
-extern const zend_uchar CONCURRENT_DEFERRED_STATUS_FAILED;
+extern const zend_uchar ASYNC_DEFERRED_STATUS_PENDING;
+extern const zend_uchar ASYNC_DEFERRED_STATUS_RESOLVED;
+extern const zend_uchar ASYNC_DEFERRED_STATUS_FAILED;
 
-struct _concurrent_deferred_awaitable {
+struct _async_deferred_awaitable {
 	zend_object std;
 
-	concurrent_deferred *defer;
+	async_deferred *defer;
 };
 
-void concurrent_deferred_ce_register();
+void async_deferred_ce_register();
 
 END_EXTERN_C()
 

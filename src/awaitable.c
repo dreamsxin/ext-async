@@ -16,16 +16,16 @@
   +----------------------------------------------------------------------+
 */
 
-#include "php_task.h"
+#include "php_async.h"
 
-zend_class_entry *concurrent_awaitable_ce;
+zend_class_entry *async_awaitable_ce;
 
 
-void concurrent_awaitable_register_continuation(concurrent_awaitable_cb **cont, void *obj, zval *data, concurrent_awaitable_func func)
+void async_awaitable_register_continuation(async_awaitable_cb **cont, void *obj, zval *data, async_awaitable_func func)
 {
-	concurrent_awaitable_cb *current;
+	async_awaitable_cb *current;
 
-	current = emalloc(sizeof(concurrent_awaitable_cb));
+	current = emalloc(sizeof(async_awaitable_cb));
 
 	current->object = obj;
 	current->func = func;
@@ -44,10 +44,10 @@ void concurrent_awaitable_register_continuation(concurrent_awaitable_cb **cont, 
 	}
 }
 
-void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, zval *result, zend_bool success)
+void async_awaitable_trigger_continuation(async_awaitable_cb **cont, zval *result, zend_bool success)
 {
-	concurrent_awaitable_cb *current;
-	concurrent_awaitable_cb *next;
+	async_awaitable_cb *current;
+	async_awaitable_cb *next;
 
 	current = *cont;
 
@@ -69,10 +69,10 @@ void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, z
 	*cont = NULL;
 }
 
-void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont)
+void async_awaitable_dispose_continuation(async_awaitable_cb **cont)
 {
-	concurrent_awaitable_cb *current;
-	concurrent_awaitable_cb *next;
+	async_awaitable_cb *current;
+	async_awaitable_cb *next;
 
 	current = *cont;
 
@@ -94,13 +94,13 @@ void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont)
 	*cont = NULL;
 }
 
-static int concurrent_awaitable_implement_interface(zend_class_entry *interface, zend_class_entry *implementor)
+static int async_awaitable_implement_interface(zend_class_entry *interface, zend_class_entry *implementor)
 {
-	if (implementor == concurrent_deferred_awaitable_ce) {
+	if (implementor == async_deferred_awaitable_ce) {
 		return SUCCESS;
 	}
 
-	if (implementor == concurrent_task_ce) {
+	if (implementor == async_task_ce) {
 		return SUCCESS;
 	}
 
@@ -109,7 +109,7 @@ static int concurrent_awaitable_implement_interface(zend_class_entry *interface,
 		"Class %s must not implement interface %s, create an awaitable using %s instead",
 		ZSTR_VAL(implementor->name),
 		ZSTR_VAL(interface->name),
-		ZSTR_VAL(concurrent_deferred_ce->name)
+		ZSTR_VAL(async_deferred_ce->name)
 	);
 
 	return FAILURE;
@@ -120,13 +120,13 @@ static const zend_function_entry awaitable_functions[] = {
 };
 
 
-void concurrent_awaitable_ce_register()
+void async_awaitable_ce_register()
 {
 	zend_class_entry ce;
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Awaitable", awaitable_functions);
-	concurrent_awaitable_ce = zend_register_internal_interface(&ce);
-	concurrent_awaitable_ce->interface_gets_implemented = concurrent_awaitable_implement_interface;
+	async_awaitable_ce = zend_register_internal_interface(&ce);
+	async_awaitable_ce->interface_gets_implemented = async_awaitable_implement_interface;
 }
 
 

@@ -16,21 +16,21 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef CONCURRENT_TASK_SCHEDULER_H
-#define CONCURRENT_TASK_SCHEDULER_H
+#ifndef ASYNC_TASK_SCHEDULER_H
+#define ASYNC_TASK_SCHEDULER_H
 
 #include "php.h"
 
-typedef struct _concurrent_task concurrent_task;
-typedef struct _concurrent_context concurrent_context;
+typedef struct _async_task async_task;
+typedef struct _async_context async_context;
 
 BEGIN_EXTERN_C()
 
-extern zend_class_entry *concurrent_task_scheduler_ce;
+extern zend_class_entry *async_task_scheduler_ce;
 
-typedef struct _concurrent_task_scheduler concurrent_task_scheduler;
+typedef struct _async_task_scheduler async_task_scheduler;
 
-struct _concurrent_task_scheduler {
+struct _async_task_scheduler {
 	/* Task PHP object handle. */
 	zend_object std;
 
@@ -38,27 +38,27 @@ struct _concurrent_task_scheduler {
 	size_t scheduled;
 
 	/* Points to the next task to be run. */
-	concurrent_task *first;
+	async_task *first;
 
 	/* Points to the last task to be run (needed to insert tasks into the run queue. */
-	concurrent_task *last;
+	async_task *last;
 
 	zend_bool running;
 	zend_bool dispatching;
 	zend_bool activate;
 };
 
-concurrent_task_scheduler *concurrent_task_scheduler_get();
+async_task_scheduler *async_task_scheduler_get();
 
-zend_bool concurrent_task_scheduler_enqueue(concurrent_task *task);
+zend_bool async_task_scheduler_enqueue(async_task *task);
 
-void concurrent_task_scheduler_run_loop(concurrent_task_scheduler *scheduler);
-void concurrent_task_scheduler_stop_loop(concurrent_task_scheduler *scheduler);
+void async_task_scheduler_run_loop(async_task_scheduler *scheduler);
+void async_task_scheduler_stop_loop(async_task_scheduler *scheduler);
 
-void concurrent_task_scheduler_ce_register();
-void concurrent_task_scheduler_ce_unregister();
+void async_task_scheduler_ce_register();
+void async_task_scheduler_ce_unregister();
 
-void concurrent_task_scheduler_shutdown();
+void async_task_scheduler_shutdown();
 
 END_EXTERN_C()
 

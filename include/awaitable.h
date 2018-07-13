@@ -16,31 +16,31 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef CONCURRENT_AWAITABLE_H
-#define CONCURRENT_AWAITABLE_H
+#ifndef ASYNC_AWAITABLE_H
+#define ASYNC_AWAITABLE_H
 
 #include "php.h"
 
 BEGIN_EXTERN_C()
 
-extern zend_class_entry *concurrent_awaitable_ce;
+extern zend_class_entry *async_awaitable_ce;
 
-typedef struct _concurrent_awaitable_cb concurrent_awaitable_cb;
+typedef struct _async_awaitable_cb async_awaitable_cb;
 
-typedef void (*concurrent_awaitable_func)(void *obj, zval *data, zval *result, zend_bool success);
+typedef void (*async_awaitable_func)(void *obj, zval *data, zval *result, zend_bool success);
 
-struct _concurrent_awaitable_cb {
+struct _async_awaitable_cb {
 	void *object;
 	zval data;
-	concurrent_awaitable_func func;
-	concurrent_awaitable_cb *next;
+	async_awaitable_func func;
+	async_awaitable_cb *next;
 };
 
-void concurrent_awaitable_register_continuation(concurrent_awaitable_cb **cont, void *obj, zval *data, concurrent_awaitable_func func);
-void concurrent_awaitable_trigger_continuation(concurrent_awaitable_cb **cont, zval *result, zend_bool success);
-void concurrent_awaitable_dispose_continuation(concurrent_awaitable_cb **cont);
+void async_awaitable_register_continuation(async_awaitable_cb **cont, void *obj, zval *data, async_awaitable_func func);
+void async_awaitable_trigger_continuation(async_awaitable_cb **cont, zval *result, zend_bool success);
+void async_awaitable_dispose_continuation(async_awaitable_cb **cont);
 
-void concurrent_awaitable_ce_register();
+void async_awaitable_ce_register();
 
 END_EXTERN_C()
 

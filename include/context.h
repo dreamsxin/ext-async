@@ -16,21 +16,21 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef CONCURRENT_CONTEXT_H
-#define CONCURRENT_CONTEXT_H
+#ifndef ASYNC_CONTEXT_H
+#define ASYNC_CONTEXT_H
 
 #include "php.h"
 
 BEGIN_EXTERN_C()
 
-extern zend_class_entry *concurrent_context_ce;
+extern zend_class_entry *async_context_ce;
 
-typedef struct _concurrent_context concurrent_context;
+typedef struct _async_context async_context;
 
-struct _concurrent_context {
+struct _async_context {
 	zend_object std;
 
-	concurrent_context *parent;
+	async_context *parent;
 
 	uint32_t param_count;
 
@@ -43,12 +43,12 @@ struct _concurrent_context {
 	} data;
 };
 
-concurrent_context *concurrent_context_object_create(HashTable *params);
+async_context *async_context_object_create(HashTable *params);
 
-concurrent_context *concurrent_context_get();
+async_context *async_context_get();
 
-void concurrent_context_ce_register();
-void concurrent_context_shutdown();
+void async_context_ce_register();
+void async_context_shutdown();
 
 END_EXTERN_C()
 

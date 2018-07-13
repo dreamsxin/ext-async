@@ -1,13 +1,13 @@
-# Concurrent Task Extension
+# Async Extension
 
-[![Build Status](https://travis-ci.org/concurrent-php/task.svg?branch=master)](https://travis-ci.org/concurrent-php/task)
-[![Coverage Status](https://coveralls.io/repos/github/concurrent-php/task/badge.svg?branch=master)](https://coveralls.io/github/concurrent-php/task?branch=master)
+[![Build Status](https://travis-ci.org/concurrent-php/ext-async.svg?branch=master)](https://travis-ci.org/concurrent-php/ext-async)
+[![Coverage Status](https://coveralls.io/repos/github/concurrent-php/ext-async/badge.svg?branch=master)](https://coveralls.io/github/concurrent-php/ext-async?branch=master)
 
-Provides concurrent task execution using native C fibers in PHP.
+Provides concurrent Zend VM executions using native C fibers in PHP.
 
-## Task API
+## Async API
 
-The task extension exposes a public API that can be used to create, run and interact with fiber-based async tasks.
+The async extension exposes a public API that can be used to create, run and interact with fiber-based async executions.
 
 ### Awaitable
 
@@ -192,17 +192,17 @@ make -j4
 make install
 popd
 
-mkdir task
-curl -LSs https://github.com/concurrent-php/task/archive/master.tar.gz | sudo tar -xz -C "task" --strip-components 1
+mkdir ext-async
+curl -LSs https://github.com/concurrent-php/ext-async/archive/master.tar.gz | sudo tar -xz -C "ext-async" --strip-components 1
 
-pushd task
+pushd ext-async
 phpize
 ./configure
 make install
 popd
 ```
 
-This will install a modified version of PHP's master branch that has full support for `async` and `await`. It will also install the `task` extension that is required for the actual async execution model.
+This will install a modified version of PHP's master branch that has full support for `async` and `await`. It will also install the `async` extension that is required for the actual async execution model.
 
 ### Source Transformation Examples
 

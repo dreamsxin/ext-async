@@ -16,39 +16,39 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef CONCURRENT_TASK_H
-#define CONCURRENT_TASK_H
+#ifndef ASYNC_TASK_H
+#define ASYNC_TASK_H
 
 #include "php.h"
 #include "awaitable.h"
 
-typedef void* concurrent_fiber_context;
-typedef struct _concurrent_context concurrent_context;
-typedef struct _concurrent_task_scheduler concurrent_task_scheduler;
+typedef void* async_fiber_context;
+typedef struct _async_context async_context;
+typedef struct _async_task_scheduler async_task_scheduler;
 
 BEGIN_EXTERN_C()
 
-extern zend_class_entry *concurrent_task_ce;
+extern zend_class_entry *async_task_ce;
 
-typedef struct _concurrent_task concurrent_task;
+typedef struct _async_task async_task;
 
-struct _concurrent_task {
+struct _async_task {
 	/* Embedded fiber. */
-	concurrent_fiber fiber;
+	async_fiber fiber;
 
 	/* Task scheduler being used to execute the task. */
-	concurrent_task_scheduler *scheduler;
+	async_task_scheduler *scheduler;
 
 	/* Unique identifier of this task. */
 	size_t id;
 
 	/* Async execution context provided to the task. */
-	concurrent_context *context;
+	async_context *context;
 
 	/* Next task scheduled for execution. */
-	concurrent_task *next;
+	async_task *next;
 
-	/* Next operation to be performed by the scheduler, one of the CONCURRENT_TASK_OPERATION_* constants. */
+	/* Next operation to be performed by the scheduler, one of the ASYNC_TASK_OPERATION_* constants. */
 	zend_uchar operation;
 
 	/* Error to be thrown into a task, must be set to UNDEF to resume tasks with a value. */
@@ -58,28 +58,28 @@ struct _concurrent_task {
 	zval result;
 
 	/* Linked list of registered continuation callbacks. */
-	concurrent_awaitable_cb *continuation;
+	async_awaitable_cb *continuation;
 };
 
-extern const zend_uchar CONCURRENT_FIBER_TYPE_TASK;
+extern const zend_uchar ASYNC_FIBER_TYPE_TASK;
 
-extern const zend_uchar CONCURRENT_TASK_OPERATION_NONE;
-extern const zend_uchar CONCURRENT_TASK_OPERATION_START;
-extern const zend_uchar CONCURRENT_TASK_OPERATION_RESUME;
+extern const zend_uchar ASYNC_TASK_OPERATION_NONE;
+extern const zend_uchar ASYNC_TASK_OPERATION_START;
+extern const zend_uchar ASYNC_TASK_OPERATION_RESUME;
 
-concurrent_task *concurrent_task_object_create();
+async_task *async_task_object_create();
 
-void concurrent_task_start(concurrent_task *task);
-void concurrent_task_continue(concurrent_task *task);
+void async_task_start(async_task *task);
+void async_task_continue(async_task *task);
 
-void concurrent_task_ce_register();
+void async_task_ce_register();
 
 END_EXTERN_C()
 
-typedef struct _concurrent_task_stop_info {
-	concurrent_task_scheduler *scheduler;
+typedef struct _async_task_stop_info {
+	async_task_scheduler *scheduler;
 	zend_bool required;
-} concurrent_task_stop_info;
+} async_task_stop_info;
 
 #endif
 
