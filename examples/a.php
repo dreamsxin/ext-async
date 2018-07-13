@@ -2,6 +2,8 @@
 
 namespace Concurrent;
 
+var_dump(Fiber::backend());
+
 $scheduler = new TaskScheduler();
 
 $result = $scheduler->run(function () {

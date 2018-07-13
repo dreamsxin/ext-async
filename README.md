@@ -145,6 +145,8 @@ final class Fiber
     
     public static function isRunning(): bool { }
     
+    public static function backend(): string { }
+    
     public static function yield($val = null): mixed { }
 }
 ```
