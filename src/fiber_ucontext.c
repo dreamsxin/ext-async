@@ -28,55 +28,55 @@
 #include "fiber.h"
 #include "fiber_stack.h"
 
-typedef struct _concurrent_fiber_context_ucontext concurrent_fiber_context_ucontext;
+typedef struct _async_fiber_context_ucontext async_fiber_context_ucontext;
 
-struct _concurrent_fiber_context_ucontext {
+struct _async_fiber_context_ucontext {
 	ucontext_t ctx;
-	concurrent_fiber_stack stack;
-	concurrent_fiber_context_ucontext *caller;
+	async_fiber_stack stack;
+	async_fiber_context_ucontext *caller;
 	zend_bool initialized;
 	zend_bool root;
 };
 
-char *concurrent_fiber_backend_info()
+char *async_fiber_backend_info()
 {
 	return "ucontext (POSIX.1-2001, deprecated since POSIX.1-2004)";
 }
 
-concurrent_fiber_context concurrent_fiber_create_root_context()
+async_fiber_context async_fiber_create_root_context()
 {
-	concurrent_fiber_context_ucontext *context;
+	async_fiber_context_ucontext *context;
 
-	context = emalloc(sizeof(concurrent_fiber_context_ucontext));
-	ZEND_SECURE_ZERO(context, sizeof(concurrent_fiber_context_ucontext));
+	context = emalloc(sizeof(async_fiber_context_ucontext));
+	ZEND_SECURE_ZERO(context, sizeof(async_fiber_context_ucontext));
 
 	context->initialized = 1;
 	context->root = 1;
 
-	return (concurrent_fiber_context) context;
+	return (async_fiber_context) context;
 }
 
-concurrent_fiber_context concurrent_fiber_create_context()
+async_fiber_context async_fiber_create_context()
 {
-	concurrent_fiber_context_ucontext *context;
+	async_fiber_context_ucontext *context;
 
-	context = emalloc(sizeof(concurrent_fiber_context_ucontext));
-	ZEND_SECURE_ZERO(context, sizeof(concurrent_fiber_context_ucontext));
+	context = emalloc(sizeof(async_fiber_context_ucontext));
+	ZEND_SECURE_ZERO(context, sizeof(async_fiber_context_ucontext));
 
-	return (concurrent_fiber_context) context;
+	return (async_fiber_context) context;
 }
 
-zend_bool concurrent_fiber_create(concurrent_fiber_context ctx, concurrent_fiber_func func, size_t stack_size)
+zend_bool async_fiber_create(async_fiber_context ctx, async_fiber_func func, size_t stack_size)
 {
-	concurrent_fiber_context_ucontext *context;
+	async_fiber_context_ucontext *context;
 
-	context = (concurrent_fiber_context_ucontext *) ctx;
+	context = (async_fiber_context_ucontext *) ctx;
 
 	if (UNEXPECTED(context->initialized == 1)) {
 		return 0;
 	}
 
-	if (!concurrent_fiber_stack_allocate(&context->stack, stack_size)) {
+	if (!async_fiber_stack_allocate(&context->stack, stack_size)) {
 		return 0;
 	}
 
@@ -96,15 +96,15 @@ zend_bool concurrent_fiber_create(concurrent_fiber_context ctx, concurrent_fiber
 	return 1;
 }
 
-void concurrent_fiber_destroy(concurrent_fiber_context ctx)
+void async_fiber_destroy(async_fiber_context ctx)
 {
-	concurrent_fiber_context_ucontext *context;
+	async_fiber_context_ucontext *context;
 
-	context = (concurrent_fiber_context_ucontext *) ctx;
+	context = (async_fiber_context_ucontext *) ctx;
 
 	if (context != NULL) {
 		if (!context->root && context->initialized) {
-			concurrent_fiber_stack_free(&context->stack);
+			async_fiber_stack_free(&context->stack);
 		}
 
 		efree(context);
@@ -112,17 +112,17 @@ void concurrent_fiber_destroy(concurrent_fiber_context ctx)
 	}
 }
 
-zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, concurrent_fiber_context next)
+zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next)
 {
-	concurrent_fiber_context_ucontext *from;
-	concurrent_fiber_context_ucontext *to;
+	async_fiber_context_ucontext *from;
+	async_fiber_context_ucontext *to;
 
 	if (UNEXPECTED(current == NULL) || UNEXPECTED(next == NULL)) {
 		return 0;
 	}
 
-	from = (concurrent_fiber_context_ucontext *) current;
-	to = (concurrent_fiber_context_ucontext *) next;
+	from = (async_fiber_context_ucontext *) current;
+	to = (async_fiber_context_ucontext *) next;
 
 	if (UNEXPECTED(from->initialized == 0) || UNEXPECTED(to->initialized == 0)) {
 		return 0;
@@ -137,15 +137,15 @@ zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, conc
 	return 1;
 }
 
-zend_bool concurrent_fiber_yield(concurrent_fiber_context current)
+zend_bool async_fiber_yield(async_fiber_context current)
 {
-	concurrent_fiber_context_ucontext *fiber;
+	async_fiber_context_ucontext *fiber;
 
 	if (UNEXPECTED(current == NULL)) {
 		return 0;
 	}
 
-	fiber = (concurrent_fiber_context_ucontext *) current;
+	fiber = (async_fiber_context_ucontext *) current;
 
 	if (UNEXPECTED(fiber->initialized == 0)) {
 		return 0;

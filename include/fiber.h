@@ -16,31 +16,31 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef FIBER_H
-#define FIBER_H
+#ifndef ASYNC_FIBER_H
+#define ASYNC_FIBER_H
 
 #include "php.h"
 
 BEGIN_EXTERN_C()
 
-extern zend_class_entry *concurrent_fiber_ce;
+extern zend_class_entry *async_fiber_ce;
 
-void concurrent_fiber_ce_register();
-void concurrent_fiber_ce_unregister();
+void async_fiber_ce_register();
+void async_fiber_ce_unregister();
 
-void concurrent_fiber_shutdown();
+void async_fiber_shutdown();
 
-typedef void* concurrent_fiber_context;
-typedef struct _concurrent_fiber concurrent_fiber;
+typedef void* async_fiber_context;
+typedef struct _async_fiber async_fiber;
 
-struct _concurrent_fiber {
+struct _async_fiber {
 	/* Fiber PHP object handle. */
 	zend_object std;
 
 	/* Implementation-specific fiber type. */
 	zend_uchar type;
 
-	/* Status of the fiber, one of the CONCURRENT_FIBER_STATUS_* constants. */
+	/* Status of the fiber, one of the ASYNC_FIBER_STATUS_* constants. */
 	zend_uchar status;
 
 	/* Callback and info / cache to be used when fiber is started. */
@@ -48,7 +48,7 @@ struct _concurrent_fiber {
 	zend_fcall_info_cache fcc;
 
 	/* Native fiber context of this fiber, will be created during call to start(). */
-	concurrent_fiber_context context;
+	async_fiber_context context;
 
 	/* Destination for a PHP value being passed into or returned from the fiber. */
 	zval *value;
@@ -63,31 +63,31 @@ struct _concurrent_fiber {
 	size_t stack_size;
 };
 
-extern const zend_uchar CONCURRENT_FIBER_TYPE_DEFAULT;
+extern const zend_uchar ASYNC_FIBER_TYPE_DEFAULT;
 
-extern const zend_uchar CONCURRENT_FIBER_STATUS_INIT;
-extern const zend_uchar CONCURRENT_FIBER_STATUS_SUSPENDED;
-extern const zend_uchar CONCURRENT_FIBER_STATUS_RUNNING;
-extern const zend_uchar CONCURRENT_FIBER_STATUS_FINISHED;
-extern const zend_uchar CONCURRENT_FIBER_STATUS_DEAD;
+extern const zend_uchar ASYNC_FIBER_STATUS_INIT;
+extern const zend_uchar ASYNC_FIBER_STATUS_SUSPENDED;
+extern const zend_uchar ASYNC_FIBER_STATUS_RUNNING;
+extern const zend_uchar ASYNC_FIBER_STATUS_FINISHED;
+extern const zend_uchar ASYNC_FIBER_STATUS_DEAD;
 
-typedef void (* concurrent_fiber_func)();
+typedef void (* async_fiber_func)();
 
-void concurrent_fiber_run();
-zend_bool concurrent_fiber_switch_to(concurrent_fiber *fiber);
+void async_fiber_run();
+zend_bool async_fiber_switch_to(async_fiber *fiber);
 
-char *concurrent_fiber_backend_info();
+char *async_fiber_backend_info();
 
-concurrent_fiber_context concurrent_fiber_create_root_context();
-concurrent_fiber_context concurrent_fiber_create_context();
+async_fiber_context async_fiber_create_root_context();
+async_fiber_context async_fiber_create_context();
 
-zend_bool concurrent_fiber_create(concurrent_fiber_context context, concurrent_fiber_func func, size_t stack_size);
-void concurrent_fiber_destroy(concurrent_fiber_context context);
+zend_bool async_fiber_create(async_fiber_context context, async_fiber_func func, size_t stack_size);
+void async_fiber_destroy(async_fiber_context context);
 
-zend_bool concurrent_fiber_switch_context(concurrent_fiber_context current, concurrent_fiber_context next);
-zend_bool concurrent_fiber_yield(concurrent_fiber_context current);
+zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next);
+zend_bool async_fiber_yield(async_fiber_context current);
 
-#define CONCURRENT_FIBER_BACKUP_EG(stack, stack_page_size, exec) do { \
+#define ASYNC_FIBER_BACKUP_EG(stack, stack_page_size, exec) do { \
 	stack = EG(vm_stack); \
 	stack->top = EG(vm_stack_top); \
 	stack->end = EG(vm_stack_end); \
@@ -95,7 +95,7 @@ zend_bool concurrent_fiber_yield(concurrent_fiber_context current);
 	exec = EG(current_execute_data); \
 } while (0)
 
-#define CONCURRENT_FIBER_RESTORE_EG(stack, stack_page_size, exec) do { \
+#define ASYNC_FIBER_RESTORE_EG(stack, stack_page_size, exec) do { \
 	EG(vm_stack) = stack; \
 	EG(vm_stack_top) = stack->top; \
 	EG(vm_stack_end) = stack->end; \
@@ -106,9 +106,9 @@ zend_bool concurrent_fiber_yield(concurrent_fiber_context current);
 END_EXTERN_C()
 
 #define REGISTER_FIBER_CLASS_CONST_LONG(const_name, value) \
-	zend_declare_class_constant_long(concurrent_fiber_ce, const_name, sizeof(const_name)-1, (zend_long)value);
+	zend_declare_class_constant_long(async_fiber_ce, const_name, sizeof(const_name)-1, (zend_long)value);
 
-#define CONCURRENT_FIBER_VM_STACK_SIZE 4096
+#define ASYNC_FIBER_VM_STACK_SIZE 4096
 
 #endif
 

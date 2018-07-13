@@ -31,16 +31,16 @@ RUN touch /usr/local/php/cli/php.ini \
     && ln -s /usr/local/php/cli/bin/phpize /usr/local/bin/phpize \
     && ln -s /usr/local/php/cli/bin/php-config /usr/local/bin/php-config
 
-COPY . /tmp/ext-task
+COPY . /tmp/ext-async
 
-WORKDIR /tmp/ext-task
+WORKDIR /tmp/ext-async
 
 RUN phpize --clean \
     && phpize
 
 RUN ./configure
 RUN make install -B
-RUN echo "extension=\"task.so\"" >> /usr/local/php/cli/php.ini
+RUN echo "extension=\"async.so\"" >> /usr/local/php/cli/php.ini
 
 RUN make test-coverage
 RUN php -v

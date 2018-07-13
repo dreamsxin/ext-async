@@ -16,20 +16,20 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef FIBER_STACK_H
-#define FIBER_STACK_H
+#ifndef ASYNC_FIBER_STACK_H
+#define ASYNC_FIBER_STACK_H
 
-typedef struct _concurrent_fiber_stack {
+typedef struct _async_fiber_stack {
 	void *pointer;
 	size_t size;
 
 #ifdef HAVE_VALGRIND_H
 	int valgrind;
 #endif
-} concurrent_fiber_stack;
+} async_fiber_stack;
 
-zend_bool concurrent_fiber_stack_allocate(concurrent_fiber_stack *stack, unsigned int size);
-void concurrent_fiber_stack_free(concurrent_fiber_stack *stack);
+zend_bool async_fiber_stack_allocate(async_fiber_stack *stack, unsigned int size);
+void async_fiber_stack_free(async_fiber_stack *stack);
 
 #if _POSIX_MAPPED_FILES
 #define HAVE_MMAP 1
@@ -48,17 +48,17 @@ void concurrent_fiber_stack_free(concurrent_fiber_stack *stack);
 #endif
 
 #if _POSIX_MEMORY_PROTECTION
-#define CONCURRENT_FIBER_GUARDPAGES 4
+#define ASYNC_FIBER_GUARDPAGES 4
 #endif
 
-#ifndef CONCURRENT_FIBER_GUARDPAGES
-#define CONCURRENT_FIBER_GUARDPAGES 0
+#ifndef ASYNC_FIBER_GUARDPAGES
+#define ASYNC_FIBER_GUARDPAGES 0
 #endif
 
 #ifdef HAVE_MMAP
-#define CONCURRENT_STACK_PAGESIZE sysconf(_SC_PAGESIZE)
+#define ASYNC_STACK_PAGESIZE sysconf(_SC_PAGESIZE)
 #else
-#define CONCURRENT_STACK_PAGESIZE 4096
+#define ASYNC_STACK_PAGESIZE 4096
 #endif
 
 #endif

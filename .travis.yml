@@ -36,3 +36,6 @@ script:
 
 after_success:
   - coveralls -b $TRAVIS_BUILD_DIR -E Zend --gcov-options '\-lp'
+
+notifications:
+  email: false

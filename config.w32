@@ -1,13 +1,13 @@
-ARG_ENABLE('task', 'task support', 'yes');
+ARG_ENABLE('async', 'async support', 'yes');
 
-if (PHP_TASK != 'no') {
-	AC_DEFINE('HAVE_TASK', 1, 'task support enabled');
+if (PHP_ASYNC != 'no') {
+	AC_DEFINE('HAVE_ASYNC', 1, 'async support enabled');
 
 	ADD_FLAG("CFLAGS", "/I " + configure_module_dirname);
 	ADD_FLAG("CFLAGS", "/I " + configure_module_dirname + "\\include");
 	
-	var task_source_files = [
-		'php_task.c',
+	var async_source_files = [
+		'php_async.c',
 		'src\\fiber.c',
 		'src\\fiber_winfib.c',
 		'src\\awaitable.c',
@@ -17,7 +17,7 @@ if (PHP_TASK != 'no') {
 		'src\\task_scheduler.c'
 	];
 	
-	var task_header_files = [
+	var async_header_files = [
 		'include\\fiber.h',
 		'include\\awaitable.h',
 		'include\\context.h',
@@ -26,7 +26,7 @@ if (PHP_TASK != 'no') {
 		'include\\task_scheduler.h'
 	];
 
-	PHP_INSTALL_HEADERS('ext/task', task_header_files.join(' '));
+	PHP_INSTALL_HEADERS('ext/async', async_header_files.join(' '));
 
-	EXTENSION('task', task_source_files.join(' '), PHP_TASK_SHARED, '/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1');
+	EXTENSION('async', async_source_files.join(' '), PHP_ASYNC_SHARED, '/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1');
 }

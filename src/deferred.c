@@ -22,28 +22,28 @@
 #include "zend_interfaces.h"
 #include "zend_exceptions.h"
 
-#include "php_task.h"
+#include "php_async.h"
 
-zend_class_entry *concurrent_deferred_ce;
-zend_class_entry *concurrent_deferred_awaitable_ce;
+zend_class_entry *async_deferred_ce;
+zend_class_entry *async_deferred_awaitable_ce;
 
-const zend_uchar CONCURRENT_DEFERRED_STATUS_PENDING = 0;
-const zend_uchar CONCURRENT_DEFERRED_STATUS_RESOLVED = 1;
-const zend_uchar CONCURRENT_DEFERRED_STATUS_FAILED = 2;
+const zend_uchar ASYNC_DEFERRED_STATUS_PENDING = 0;
+const zend_uchar ASYNC_DEFERRED_STATUS_RESOLVED = 1;
+const zend_uchar ASYNC_DEFERRED_STATUS_FAILED = 2;
 
-static zend_object_handlers concurrent_deferred_handlers;
-static zend_object_handlers concurrent_deferred_awaitable_handlers;
+static zend_object_handlers async_deferred_handlers;
+static zend_object_handlers async_deferred_awaitable_handlers;
 
 
-static concurrent_deferred_awaitable *concurrent_deferred_awaitable_object_create(concurrent_deferred *defer)
+static async_deferred_awaitable *async_deferred_awaitable_object_create(async_deferred *defer)
 {
-	concurrent_deferred_awaitable *awaitable;
+	async_deferred_awaitable *awaitable;
 
-	awaitable = emalloc(sizeof(concurrent_deferred));
-	ZEND_SECURE_ZERO(awaitable, sizeof(concurrent_deferred));
+	awaitable = emalloc(sizeof(async_deferred));
+	ZEND_SECURE_ZERO(awaitable, sizeof(async_deferred));
 
-	zend_object_std_init(&awaitable->std, concurrent_deferred_awaitable_ce);
-	awaitable->std.handlers = &concurrent_deferred_awaitable_handlers;
+	zend_object_std_init(&awaitable->std, async_deferred_awaitable_ce);
+	awaitable->std.handlers = &async_deferred_awaitable_handlers;
 
 	awaitable->defer = defer;
 
@@ -52,11 +52,11 @@ static concurrent_deferred_awaitable *concurrent_deferred_awaitable_object_creat
 	return awaitable;
 }
 
-static void concurrent_deferred_awaitable_object_destroy(zend_object *object)
+static void async_deferred_awaitable_object_destroy(zend_object *object)
 {
-	concurrent_deferred_awaitable *awaitable;
+	async_deferred_awaitable *awaitable;
 
-	awaitable = (concurrent_deferred_awaitable *) object;
+	awaitable = (async_deferred_awaitable *) object;
 
 	OBJ_RELEASE(&awaitable->defer->std);
 
@@ -79,33 +79,33 @@ static const zend_function_entry deferred_awaitable_functions[] = {
 };
 
 
-static zend_object *concurrent_deferred_object_create(zend_class_entry *ce)
+static zend_object *async_deferred_object_create(zend_class_entry *ce)
 {
-	concurrent_deferred *defer;
+	async_deferred *defer;
 
-	defer = emalloc(sizeof(concurrent_deferred));
-	ZEND_SECURE_ZERO(defer, sizeof(concurrent_deferred));
+	defer = emalloc(sizeof(async_deferred));
+	ZEND_SECURE_ZERO(defer, sizeof(async_deferred));
 
-	defer->status = CONCURRENT_DEFERRED_STATUS_PENDING;
+	defer->status = ASYNC_DEFERRED_STATUS_PENDING;
 
 	ZVAL_NULL(&defer->result);
 
 	zend_object_std_init(&defer->std, ce);
-	defer->std.handlers = &concurrent_deferred_handlers;
+	defer->std.handlers = &async_deferred_handlers;
 
 	return &defer->std;
 }
 
-static void concurrent_deferred_object_destroy(zend_object *object)
+static void async_deferred_object_destroy(zend_object *object)
 {
-	concurrent_deferred *defer;
+	async_deferred *defer;
 
-	defer = (concurrent_deferred *) object;
+	defer = (async_deferred *) object;
 
-	defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
+	defer->status = ASYNC_DEFERRED_STATUS_FAILED;
 
 	if (defer->continuation != NULL) {
-		concurrent_awaitable_dispose_continuation(&defer->continuation);
+		async_awaitable_dispose_continuation(&defer->continuation);
 	}
 
 	zval_ptr_dtor(&defer->result);
@@ -115,22 +115,22 @@ static void concurrent_deferred_object_destroy(zend_object *object)
 
 ZEND_METHOD(Deferred, awaitable)
 {
-	concurrent_deferred *defer;
+	async_deferred *defer;
 
 	zval obj;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	defer = (concurrent_deferred *) Z_OBJ_P(getThis());
+	defer = (async_deferred *) Z_OBJ_P(getThis());
 
-	ZVAL_OBJ(&obj, &concurrent_deferred_awaitable_object_create(defer)->std);
+	ZVAL_OBJ(&obj, &async_deferred_awaitable_object_create(defer)->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
 ZEND_METHOD(Deferred, resolve)
 {
-	concurrent_deferred *defer;
+	async_deferred *defer;
 
 	zval *val;
 
@@ -141,16 +141,16 @@ ZEND_METHOD(Deferred, resolve)
 		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
 
-	defer = (concurrent_deferred *) Z_OBJ_P(getThis());
+	defer = (async_deferred *) Z_OBJ_P(getThis());
 
 	if (val != NULL && Z_TYPE_P(val) == IS_OBJECT) {
-		if (instanceof_function_ex(Z_OBJCE_P(val), concurrent_awaitable_ce, 1) != 0) {
+		if (instanceof_function_ex(Z_OBJCE_P(val), async_awaitable_ce, 1) != 0) {
 			zend_throw_error(NULL, "Deferred must not be resolved with an object implementing Awaitable");
 			return;
 		}
 	}
 
-	if (defer->status != CONCURRENT_DEFERRED_STATUS_PENDING) {
+	if (defer->status != ASYNC_DEFERRED_STATUS_PENDING) {
 		return;
 	}
 
@@ -158,14 +158,14 @@ ZEND_METHOD(Deferred, resolve)
 		ZVAL_COPY(&defer->result, val);
 	}
 
-	defer->status = CONCURRENT_DEFERRED_STATUS_RESOLVED;
+	defer->status = ASYNC_DEFERRED_STATUS_RESOLVED;
 
-	concurrent_awaitable_trigger_continuation(&defer->continuation, &defer->result, 1);
+	async_awaitable_trigger_continuation(&defer->continuation, &defer->result, 1);
 }
 
 ZEND_METHOD(Deferred, fail)
 {
-	concurrent_deferred *defer;
+	async_deferred *defer;
 
 	zval *error;
 
@@ -173,23 +173,23 @@ ZEND_METHOD(Deferred, fail)
 		Z_PARAM_ZVAL(error)
 	ZEND_PARSE_PARAMETERS_END();
 
-	defer = (concurrent_deferred *) Z_OBJ_P(getThis());
+	defer = (async_deferred *) Z_OBJ_P(getThis());
 
-	if (defer->status != CONCURRENT_DEFERRED_STATUS_PENDING) {
+	if (defer->status != ASYNC_DEFERRED_STATUS_PENDING) {
 		return;
 	}
 
 	ZVAL_COPY(&defer->result, error);
 
-	defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
+	defer->status = ASYNC_DEFERRED_STATUS_FAILED;
 
-	concurrent_awaitable_trigger_continuation(&defer->continuation, &defer->result, 0);
+	async_awaitable_trigger_continuation(&defer->continuation, &defer->result, 0);
 }
 
 ZEND_METHOD(Deferred, value)
 {
-	concurrent_deferred *defer;
-	concurrent_deferred_awaitable *awaitable;
+	async_deferred *defer;
+	async_deferred_awaitable *awaitable;
 
 	zval *val;
 	zval obj;
@@ -202,16 +202,16 @@ ZEND_METHOD(Deferred, value)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if (val != NULL && Z_TYPE_P(val) == IS_OBJECT) {
-		if (instanceof_function_ex(Z_OBJCE_P(val), concurrent_awaitable_ce, 1) != 0) {
+		if (instanceof_function_ex(Z_OBJCE_P(val), async_awaitable_ce, 1) != 0) {
 			zend_throw_error(NULL, "Deferred must not be resolved with an object implementing Awaitable");
 			return;
 		}
 	}
 
-	defer = emalloc(sizeof(concurrent_deferred));
-	ZEND_SECURE_ZERO(defer, sizeof(concurrent_deferred));
+	defer = emalloc(sizeof(async_deferred));
+	ZEND_SECURE_ZERO(defer, sizeof(async_deferred));
 
-	defer->status = CONCURRENT_DEFERRED_STATUS_RESOLVED;
+	defer->status = ASYNC_DEFERRED_STATUS_RESOLVED;
 
 	if (val == NULL) {
 		ZVAL_NULL(&defer->result);
@@ -219,10 +219,10 @@ ZEND_METHOD(Deferred, value)
 		ZVAL_COPY(&defer->result, val);
 	}
 
-	zend_object_std_init(&defer->std, concurrent_deferred_ce);
-	defer->std.handlers = &concurrent_deferred_handlers;
+	zend_object_std_init(&defer->std, async_deferred_ce);
+	defer->std.handlers = &async_deferred_handlers;
 
-	awaitable = concurrent_deferred_awaitable_object_create(defer);
+	awaitable = async_deferred_awaitable_object_create(defer);
 
 	ZVAL_OBJ(&obj, &awaitable->std);
 
@@ -233,8 +233,8 @@ ZEND_METHOD(Deferred, value)
 
 ZEND_METHOD(Deferred, error)
 {
-	concurrent_deferred *defer;
-	concurrent_deferred_awaitable *awaitable;
+	async_deferred *defer;
+	async_deferred_awaitable *awaitable;
 
 	zval *error;
 	zval obj;
@@ -243,17 +243,17 @@ ZEND_METHOD(Deferred, error)
 		Z_PARAM_ZVAL(error)
 	ZEND_PARSE_PARAMETERS_END();
 
-	defer = emalloc(sizeof(concurrent_deferred));
-	ZEND_SECURE_ZERO(defer, sizeof(concurrent_deferred));
+	defer = emalloc(sizeof(async_deferred));
+	ZEND_SECURE_ZERO(defer, sizeof(async_deferred));
 
-	defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
+	defer->status = ASYNC_DEFERRED_STATUS_FAILED;
 
 	ZVAL_COPY(&defer->result, error);
 
-	zend_object_std_init(&defer->std, concurrent_deferred_ce);
-	defer->std.handlers = &concurrent_deferred_handlers;
+	zend_object_std_init(&defer->std, async_deferred_ce);
+	defer->std.handlers = &async_deferred_handlers;
 
-	awaitable = concurrent_deferred_awaitable_object_create(defer);
+	awaitable = async_deferred_awaitable_object_create(defer);
 
 	ZVAL_OBJ(&obj, &awaitable->std);
 
@@ -262,24 +262,24 @@ ZEND_METHOD(Deferred, error)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-typedef struct _concurrent_defer_combine concurrent_defer_combine;
+typedef struct _async_deferred_combine async_deferred_combine;
 
-struct _concurrent_defer_combine {
-	concurrent_deferred *defer;
+struct _async_deferred_combine {
+	async_deferred *defer;
 	zend_long counter;
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
 };
 
-static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *result, zend_bool success)
+static void async_deferred_combine_continuation(void *obj, zval *data, zval *result, zend_bool success)
 {
-	concurrent_defer_combine *combined;
+	async_deferred_combine *combined;
 	uint32_t i;
 
 	zval args[5];
 	zval retval;
 
-	combined = (concurrent_defer_combine *) obj;
+	combined = (async_deferred_combine *) obj;
 	combined->counter--;
 
 	ZVAL_OBJ(&args[0], &combined->defer->std);
@@ -310,13 +310,13 @@ static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *r
 	zend_call_function(&combined->fci, &combined->fcc);
 
 	if (UNEXPECTED(EG(exception))) {
-		if (combined->defer->status == CONCURRENT_DEFERRED_STATUS_PENDING) {
-			combined->defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
+		if (combined->defer->status == ASYNC_DEFERRED_STATUS_PENDING) {
+			combined->defer->status = ASYNC_DEFERRED_STATUS_FAILED;
 
 			ZVAL_OBJ(&combined->defer->result, EG(exception));
 			EG(exception) = NULL;
 
-			concurrent_awaitable_trigger_continuation(&combined->defer->continuation, &combined->defer->result, 0);
+			async_awaitable_trigger_continuation(&combined->defer->continuation, &combined->defer->result, 0);
 		} else {
 			EG(exception) = NULL;
 		}
@@ -325,15 +325,15 @@ static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *r
 	if (combined->counter == 0) {
 		zval_ptr_dtor(&combined->fci.function_name);
 
-		if (combined->defer->status == CONCURRENT_DEFERRED_STATUS_PENDING) {
-			combined->defer->status = CONCURRENT_DEFERRED_STATUS_FAILED;
+		if (combined->defer->status == ASYNC_DEFERRED_STATUS_PENDING) {
+			combined->defer->status = ASYNC_DEFERRED_STATUS_FAILED;
 
 			zend_throw_error(NULL, "Awaitable has been disposed before it was resolved");
 
 			ZVAL_OBJ(&combined->defer->result, EG(exception));
 			EG(exception) = NULL;
 
-			concurrent_awaitable_trigger_continuation(&combined->defer->continuation, &combined->defer->result, 0);
+			async_awaitable_trigger_continuation(&combined->defer->continuation, &combined->defer->result, 0);
 		}
 
 		OBJ_RELEASE(&combined->defer->std);
@@ -350,11 +350,11 @@ static void concurrent_defer_combine_continuation(void *obj, zval *data, zval *r
 
 ZEND_METHOD(Deferred, combine)
 {
-	concurrent_deferred *defer;
-	concurrent_deferred_awaitable *awaitable;
-	concurrent_defer_combine *combined;
-	concurrent_task *task;
-	concurrent_deferred_awaitable *inner;
+	async_deferred *defer;
+	async_deferred_awaitable *awaitable;
+	async_deferred_combine *combined;
+	async_task *task;
+	async_deferred_awaitable *inner;
 
 	zend_class_entry *ce;
 	zend_fcall_info fci;
@@ -390,25 +390,25 @@ ZEND_METHOD(Deferred, combine)
 
 		ce = Z_OBJCE_P(entry);
 
-		if (ce != concurrent_task_ce && ce != concurrent_deferred_awaitable_ce) {
+		if (ce != async_task_ce && ce != async_deferred_awaitable_ce) {
 			zend_throw_error(zend_ce_type_error, "All input elements must be awaitable");
 			return;
 		}
 	} ZEND_HASH_FOREACH_END();
 
-	defer = emalloc(sizeof(concurrent_deferred));
-	ZEND_SECURE_ZERO(defer, sizeof(concurrent_deferred));
+	defer = emalloc(sizeof(async_deferred));
+	ZEND_SECURE_ZERO(defer, sizeof(async_deferred));
 
-	zend_object_std_init(&defer->std, concurrent_deferred_ce);
-	defer->std.handlers = &concurrent_deferred_handlers;
+	zend_object_std_init(&defer->std, async_deferred_ce);
+	defer->std.handlers = &async_deferred_handlers;
 
-	defer->status = CONCURRENT_DEFERRED_STATUS_PENDING;
+	defer->status = ASYNC_DEFERRED_STATUS_PENDING;
 
-	awaitable = concurrent_deferred_awaitable_object_create(defer);
+	awaitable = async_deferred_awaitable_object_create(defer);
 
 	ZVAL_OBJ(&obj, &awaitable->std);
 
-	combined = emalloc(sizeof(concurrent_defer_combine));
+	combined = emalloc(sizeof(async_deferred_combine));
 	combined->defer = defer;
 	combined->counter = count;
 	combined->fci = fci;
@@ -425,25 +425,25 @@ ZEND_METHOD(Deferred, combine)
 			ZVAL_STR(&key, k);
 		}
 
-		if (ce == concurrent_task_ce) {
-			task = (concurrent_task *) Z_OBJ_P(entry);
+		if (ce == async_task_ce) {
+			task = (async_task *) Z_OBJ_P(entry);
 
-			if (task->fiber.status == CONCURRENT_FIBER_STATUS_FINISHED) {
-				concurrent_defer_combine_continuation(combined, &key, &task->result, 1);
-			} else if (task->fiber.status == CONCURRENT_FIBER_STATUS_DEAD) {
-				concurrent_defer_combine_continuation(combined, &key, &task->result, 0);
+			if (task->fiber.status == ASYNC_FIBER_STATUS_FINISHED) {
+				async_deferred_combine_continuation(combined, &key, &task->result, 1);
+			} else if (task->fiber.status == ASYNC_FIBER_STATUS_DEAD) {
+				async_deferred_combine_continuation(combined, &key, &task->result, 0);
 			} else {
-				concurrent_awaitable_register_continuation(&task->continuation, combined, &key, concurrent_defer_combine_continuation);
+				async_awaitable_register_continuation(&task->continuation, combined, &key, async_deferred_combine_continuation);
 			}
 		} else {
-			inner = (concurrent_deferred_awaitable *) Z_OBJ_P(entry);
+			inner = (async_deferred_awaitable *) Z_OBJ_P(entry);
 
-			if (inner->defer->status == CONCURRENT_DEFERRED_STATUS_RESOLVED) {
-				concurrent_defer_combine_continuation(combined, &key, &inner->defer->result, 1);
-			} else if (inner->defer->status == CONCURRENT_DEFERRED_STATUS_FAILED) {
-				concurrent_defer_combine_continuation(combined, &key, &inner->defer->result, 0);
+			if (inner->defer->status == ASYNC_DEFERRED_STATUS_RESOLVED) {
+				async_deferred_combine_continuation(combined, &key, &inner->defer->result, 1);
+			} else if (inner->defer->status == ASYNC_DEFERRED_STATUS_FAILED) {
+				async_deferred_combine_continuation(combined, &key, &inner->defer->result, 0);
 			} else {
-				concurrent_awaitable_register_continuation(&inner->defer->continuation, combined, &key, concurrent_defer_combine_continuation);
+				async_awaitable_register_continuation(&inner->defer->continuation, combined, &key, async_deferred_combine_continuation);
 			}
 		}
 
@@ -488,32 +488,32 @@ static const zend_function_entry deferred_functions[] = {
 };
 
 
-void concurrent_deferred_ce_register()
+void async_deferred_ce_register()
 {
 	zend_class_entry ce;
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Deferred", deferred_functions);
-	concurrent_deferred_ce = zend_register_internal_class(&ce);
-	concurrent_deferred_ce->ce_flags |= ZEND_ACC_FINAL;
-	concurrent_deferred_ce->create_object = concurrent_deferred_object_create;
-	concurrent_deferred_ce->serialize = zend_class_serialize_deny;
-	concurrent_deferred_ce->unserialize = zend_class_unserialize_deny;
+	async_deferred_ce = zend_register_internal_class(&ce);
+	async_deferred_ce->ce_flags |= ZEND_ACC_FINAL;
+	async_deferred_ce->create_object = async_deferred_object_create;
+	async_deferred_ce->serialize = zend_class_serialize_deny;
+	async_deferred_ce->unserialize = zend_class_unserialize_deny;
 
-	memcpy(&concurrent_deferred_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	concurrent_deferred_handlers.free_obj = concurrent_deferred_object_destroy;
-	concurrent_deferred_handlers.clone_obj = NULL;
+	memcpy(&async_deferred_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_deferred_handlers.free_obj = async_deferred_object_destroy;
+	async_deferred_handlers.clone_obj = NULL;
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\DeferredAwaitable", deferred_awaitable_functions);
-	concurrent_deferred_awaitable_ce = zend_register_internal_class(&ce);
-	concurrent_deferred_awaitable_ce->ce_flags |= ZEND_ACC_FINAL;
-	concurrent_deferred_awaitable_ce->serialize = zend_class_serialize_deny;
-	concurrent_deferred_awaitable_ce->unserialize = zend_class_unserialize_deny;
+	async_deferred_awaitable_ce = zend_register_internal_class(&ce);
+	async_deferred_awaitable_ce->ce_flags |= ZEND_ACC_FINAL;
+	async_deferred_awaitable_ce->serialize = zend_class_serialize_deny;
+	async_deferred_awaitable_ce->unserialize = zend_class_unserialize_deny;
 
-	memcpy(&concurrent_deferred_awaitable_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	concurrent_deferred_awaitable_handlers.free_obj = concurrent_deferred_awaitable_object_destroy;
-	concurrent_deferred_awaitable_handlers.clone_obj = NULL;
+	memcpy(&async_deferred_awaitable_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_deferred_awaitable_handlers.free_obj = async_deferred_awaitable_object_destroy;
+	async_deferred_awaitable_handlers.clone_obj = NULL;
 
-	zend_class_implements(concurrent_deferred_awaitable_ce, 1, concurrent_awaitable_ce);
+	zend_class_implements(async_deferred_awaitable_ce, 1, async_awaitable_ce);
 }
 
 

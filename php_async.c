@@ -23,31 +23,31 @@
 #include "php.h"
 #include "ext/standard/info.h"
 
-#include "php_task.h"
+#include "php_async.h"
 
-ZEND_DECLARE_MODULE_GLOBALS(task)
+ZEND_DECLARE_MODULE_GLOBALS(async)
 
-static void task_execute_ex(zend_execute_data *exec);
+static void async_execute_ex(zend_execute_data *exec);
 static void (*orig_execute_ex)(zend_execute_data *exec);
 
 
 /* Custom executor being used to run the task scheduler before shutdown functions. */
-static void task_execute_ex(zend_execute_data *exec)
+static void async_execute_ex(zend_execute_data *exec)
 {
-	concurrent_fiber *fiber;
-	concurrent_task_scheduler *scheduler;
+	async_fiber *fiber;
+	async_task_scheduler *scheduler;
 
-	fiber = TASK_G(current_fiber);
+	fiber = ASYNC_G(current_fiber);
 
 	if (orig_execute_ex) {
 		orig_execute_ex(exec);
 	}
 
 	if (fiber == NULL && exec->prev_execute_data == NULL) {
-		scheduler = TASK_G(scheduler);
+		scheduler = ASYNC_G(scheduler);
 
 		if (scheduler != NULL) {
-			concurrent_task_scheduler_run_loop(scheduler);
+			async_task_scheduler_run_loop(scheduler);
 		}
 	}
 }
@@ -57,49 +57,49 @@ static PHP_INI_MH(OnUpdateFiberStackSize)
 {
 	OnUpdateLong(entry, new_value, mh_arg1, mh_arg2, mh_arg3, stage);
 
-	if (TASK_G(stack_size) < 0) {
-		TASK_G(stack_size) = 0;
+	if (ASYNC_G(stack_size) < 0) {
+		ASYNC_G(stack_size) = 0;
 	}
 
 	return SUCCESS;
 }
 
 PHP_INI_BEGIN()
-	STD_PHP_INI_ENTRY("task.stack_size", "0", PHP_INI_SYSTEM, OnUpdateFiberStackSize, stack_size, zend_task_globals, task_globals)
+	STD_PHP_INI_ENTRY("async.stack_size", "0", PHP_INI_SYSTEM, OnUpdateFiberStackSize, stack_size, zend_async_globals, async_globals)
 PHP_INI_END()
 
 
-static PHP_GINIT_FUNCTION(task)
+static PHP_GINIT_FUNCTION(async)
 {
-#if defined(ZTS) && defined(COMPILE_DL_TASK)
+#if defined(ZTS) && defined(COMPILE_DL_ASYNC)
 	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 
-	ZEND_SECURE_ZERO(task_globals, sizeof(zend_task_globals));
+	ZEND_SECURE_ZERO(async_globals, sizeof(zend_async_globals));
 }
 
-PHP_MINIT_FUNCTION(task)
+PHP_MINIT_FUNCTION(async)
 {
-	concurrent_awaitable_ce_register();
-	concurrent_context_ce_register();
-	concurrent_deferred_ce_register();
-	concurrent_fiber_ce_register();
-	concurrent_task_ce_register();
-	concurrent_task_scheduler_ce_register();
+	async_awaitable_ce_register();
+	async_context_ce_register();
+	async_deferred_ce_register();
+	async_fiber_ce_register();
+	async_task_ce_register();
+	async_task_scheduler_ce_register();
 
 	REGISTER_INI_ENTRIES();
 
 	orig_execute_ex = zend_execute_ex;
-	zend_execute_ex = task_execute_ex;
+	zend_execute_ex = async_execute_ex;
 
 	return SUCCESS;
 }
 
 
-PHP_MSHUTDOWN_FUNCTION(task)
+PHP_MSHUTDOWN_FUNCTION(async)
 {
-	concurrent_task_scheduler_ce_unregister();
-	concurrent_fiber_ce_unregister();
+	async_task_scheduler_ce_unregister();
+	async_fiber_ce_unregister();
 
 	UNREGISTER_INI_ENTRIES();
 
@@ -109,57 +109,57 @@ PHP_MSHUTDOWN_FUNCTION(task)
 }
 
 
-static PHP_MINFO_FUNCTION(task)
+static PHP_MINFO_FUNCTION(async)
 {
 	php_info_print_table_start();
-	php_info_print_table_row(2, "Fiber backend", concurrent_fiber_backend_info());
+	php_info_print_table_row(2, "Fiber backend", async_fiber_backend_info());
 	php_info_print_table_end();
 
 	DISPLAY_INI_ENTRIES();
 }
 
 
-static PHP_RINIT_FUNCTION(task)
+static PHP_RINIT_FUNCTION(async)
 {
-#if defined(ZTS) && defined(COMPILE_DL_TASK)
+#if defined(ZTS) && defined(COMPILE_DL_ASYNC)
 	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 
 	return SUCCESS;
 }
 
-static PHP_RSHUTDOWN_FUNCTION(task)
+static PHP_RSHUTDOWN_FUNCTION(async)
 {
-	concurrent_task_scheduler_shutdown();
-	concurrent_context_shutdown();
-	concurrent_fiber_shutdown();
+	async_task_scheduler_shutdown();
+	async_context_shutdown();
+	async_fiber_shutdown();
 
 	return SUCCESS;
 }
 
-zend_module_entry task_module_entry = {
+zend_module_entry async_module_entry = {
 	STANDARD_MODULE_HEADER,
-	"task",
+	"async",
 	NULL,
-	PHP_MINIT(task),
-	PHP_MSHUTDOWN(task),
-	PHP_RINIT(task),
-	PHP_RSHUTDOWN(task),
-	PHP_MINFO(task),
-	PHP_TASK_VERSION,
-	PHP_MODULE_GLOBALS(task),
-	PHP_GINIT(task),
+	PHP_MINIT(async),
+	PHP_MSHUTDOWN(async),
+	PHP_RINIT(async),
+	PHP_RSHUTDOWN(async),
+	PHP_MINFO(async),
+	PHP_ASYNC_VERSION,
+	PHP_MODULE_GLOBALS(async),
+	PHP_GINIT(async),
 	NULL,
 	NULL,
 	STANDARD_MODULE_PROPERTIES_EX
 };
 
 
-#ifdef COMPILE_DL_TASK
+#ifdef COMPILE_DL_ASYNC
 # ifdef ZTS
 ZEND_TSRMLS_CACHE_DEFINE()
 # endif
-ZEND_GET_MODULE(task)
+ZEND_GET_MODULE(async)
 #endif
 
 /*

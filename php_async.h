@@ -16,8 +16,8 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef PHP_TASK_H
-#define PHP_TASK_H
+#ifndef PHP_ASYNC_H
+#define PHP_ASYNC_H
 
 #include "awaitable.h"
 #include "context.h"
@@ -26,17 +26,17 @@
 #include "task.h"
 #include "task_scheduler.h"
 
-extern zend_module_entry task_module_entry;
-#define phpext_task_ptr &task_module_entry
+extern zend_module_entry async_module_entry;
+#define phpext_async_ptr &async_module_entry
 
-#define PHP_TASK_VERSION "0.1.0"
+#define PHP_ASYNC_VERSION "0.1.0"
 
 #ifdef PHP_WIN32
-# define TASK_API __declspec(dllexport)
+# define ASYNC_API __declspec(dllexport)
 #elif defined(__GNUC__) && __GNUC__ >= 4
-# define TASK_API __attribute__ ((visibility("default")))
+# define ASYNC_API __attribute__ ((visibility("default")))
 #else
-# define TASK_API
+# define ASYNC_API
 #endif
 
 #ifdef ZTS
@@ -44,24 +44,24 @@ extern zend_module_entry task_module_entry;
 #endif
 
 
-ZEND_BEGIN_MODULE_GLOBALS(task)
+ZEND_BEGIN_MODULE_GLOBALS(async)
 	/* Root fiber context (main thread). */
-	concurrent_fiber_context root;
+	async_fiber_context root;
 
 	/* Active fiber, NULL when in main thread. */
-	concurrent_fiber *current_fiber;
+	async_fiber *current_fiber;
 
 	/* Root context. */
-	concurrent_context *context;
+	async_context *context;
 
 	/* Active task context. */
-	concurrent_context *current_context;
+	async_context *current_context;
 
 	/* Default shared task scheduler. */
-	concurrent_task_scheduler *scheduler;
+	async_task_scheduler *scheduler;
 
 	/* Running task scheduler. */
-	concurrent_task_scheduler *current_scheduler;
+	async_task_scheduler *current_scheduler;
 
 	/* Default fiber C stack size. */
 	zend_long stack_size;
@@ -71,12 +71,12 @@ ZEND_BEGIN_MODULE_GLOBALS(task)
 
 	size_t counter;
 
-ZEND_END_MODULE_GLOBALS(task)
+ZEND_END_MODULE_GLOBALS(async)
 
-TASK_API ZEND_EXTERN_MODULE_GLOBALS(task)
-#define TASK_G(v) ZEND_MODULE_GLOBALS_ACCESSOR(task, v)
+ASYNC_API ZEND_EXTERN_MODULE_GLOBALS(async)
+#define ASYNC_G(v) ZEND_MODULE_GLOBALS_ACCESSOR(async, v)
 
-#if defined(ZTS) && defined(COMPILE_DL_TASK)
+#if defined(ZTS) && defined(COMPILE_DL_ASYNC)
 ZEND_TSRMLS_CACHE_EXTERN()
 #endif
 

@@ -22,57 +22,57 @@
 #include "zend_interfaces.h"
 #include "zend_exceptions.h"
 
-#include "php_task.h"
+#include "php_async.h"
 
-ZEND_DECLARE_MODULE_GLOBALS(task)
+ZEND_DECLARE_MODULE_GLOBALS(async)
 
-zend_class_entry *concurrent_context_ce;
+zend_class_entry *async_context_ce;
 
-static zend_object_handlers concurrent_context_handlers;
+static zend_object_handlers async_context_handlers;
 
 
-concurrent_context *concurrent_context_get()
+async_context *async_context_get()
 {
-	concurrent_context *context;
+	async_context *context;
 
-	context = TASK_G(current_context);
-
-	if (context != NULL) {
-		return context;
-	}
-
-	context = TASK_G(context);
+	context = ASYNC_G(current_context);
 
 	if (context != NULL) {
 		return context;
 	}
 
-	context = emalloc(sizeof(concurrent_context));
-	ZEND_SECURE_ZERO(context, sizeof(concurrent_context));
+	context = ASYNC_G(context);
 
-	zend_object_std_init(&context->std, concurrent_context_ce);
-	context->std.handlers = &concurrent_context_handlers;
+	if (context != NULL) {
+		return context;
+	}
 
-	TASK_G(context) = context;
+	context = emalloc(sizeof(async_context));
+	ZEND_SECURE_ZERO(context, sizeof(async_context));
+
+	zend_object_std_init(&context->std, async_context_ce);
+	context->std.handlers = &async_context_handlers;
+
+	ASYNC_G(context) = context;
 
 	return context;
 }
 
 
-concurrent_context *concurrent_context_object_create(HashTable *params)
+async_context *async_context_object_create(HashTable *params)
 {
-	concurrent_context *context;
+	async_context *context;
 	HashPosition pos;
 	zend_string *name;
 	zend_ulong index;
 
 	name = NULL;
 
-	context = emalloc(sizeof(concurrent_context));
-	ZEND_SECURE_ZERO(context, sizeof(concurrent_context));
+	context = emalloc(sizeof(async_context));
+	ZEND_SECURE_ZERO(context, sizeof(async_context));
 
-	zend_object_std_init(&context->std, concurrent_context_ce);
-	context->std.handlers = &concurrent_context_handlers;
+	zend_object_std_init(&context->std, async_context_ce);
+	context->std.handlers = &async_context_handlers;
 
 	if (params != NULL) {
 		context->param_count = zend_hash_num_elements(params);
@@ -91,15 +91,15 @@ concurrent_context *concurrent_context_object_create(HashTable *params)
 	return context;
 }
 
-static concurrent_context *concurrent_context_object_create_single_var(zend_string *name, zval *value)
+static async_context *async_context_object_create_single_var(zend_string *name, zval *value)
 {
-	concurrent_context *context;
+	async_context *context;
 
-	context = emalloc(sizeof(concurrent_context));
-	ZEND_SECURE_ZERO(context, sizeof(concurrent_context));
+	context = emalloc(sizeof(async_context));
+	ZEND_SECURE_ZERO(context, sizeof(async_context));
 
-	zend_object_std_init(&context->std, concurrent_context_ce);
-	context->std.handlers = &concurrent_context_handlers;
+	zend_object_std_init(&context->std, async_context_ce);
+	context->std.handlers = &async_context_handlers;
 
 	context->param_count = 1;
 
@@ -110,11 +110,11 @@ static concurrent_context *concurrent_context_object_create_single_var(zend_stri
 }
 
 
-static void concurrent_context_object_destroy(zend_object *object)
+static void async_context_object_destroy(zend_object *object)
 {
-	concurrent_context *context;
+	async_context *context;
 
-	context = (concurrent_context *) object;
+	context = (async_context *) object;
 
 	if (context->param_count == 1) {
 		zend_string_release(context->data.var.name);
@@ -140,7 +140,7 @@ ZEND_METHOD(Context, __construct)
 
 ZEND_METHOD(Context, get)
 {
-	concurrent_context *context;
+	async_context *context;
 	zend_string *key;
 
 	zval *val;
@@ -152,7 +152,7 @@ ZEND_METHOD(Context, get)
 	key = Z_STR_P(val);
 	ZSTR_HASH(key);
 
-	context = (concurrent_context *) Z_OBJ_P(getThis());
+	context = (async_context *) Z_OBJ_P(getThis());
 
 	do {
 		if (context->param_count == 1) {
@@ -171,8 +171,8 @@ ZEND_METHOD(Context, get)
 
 ZEND_METHOD(Context, with)
 {
-	concurrent_context *context;
-	concurrent_context *current;
+	async_context *context;
+	async_context *current;
 	zend_string *str;
 
 	zval *key;
@@ -184,16 +184,16 @@ ZEND_METHOD(Context, with)
 		Z_PARAM_ZVAL(value)
 	ZEND_PARSE_PARAMETERS_END();
 
-	current = (concurrent_context *) Z_OBJ_P(getThis());
+	current = (async_context *) Z_OBJ_P(getThis());
 	str = Z_STR_P(key);
 
 	if (current->param_count == 0) {
-		context = concurrent_context_object_create_single_var(str, value);
+		context = async_context_object_create_single_var(str, value);
 	} else if (current->param_count == 1 && zend_string_equals(str, current->data.var.name)) {
 		if (zend_string_equals(str, current->data.var.name)) {
-			context = concurrent_context_object_create_single_var(str, value);
+			context = async_context_object_create_single_var(str, value);
 		} else {
-			context = concurrent_context_object_create(NULL);
+			context = async_context_object_create(NULL);
 			context->param_count = 2;
 
 			ALLOC_HASHTABLE(context->data.params);
@@ -203,7 +203,7 @@ ZEND_METHOD(Context, with)
 			zend_hash_add(context->data.params, str, value);
 		}
 	} else {
-		context = concurrent_context_object_create(current->data.params);
+		context = async_context_object_create(current->data.params);
 
 		if (zend_hash_exists_ind(context->data.params, str)) {
 			zend_hash_update_ind(context->data.params, str, value);
@@ -226,8 +226,8 @@ ZEND_METHOD(Context, with)
 
 ZEND_METHOD(Context, without)
 {
-	concurrent_context *context;
-	concurrent_context *current;
+	async_context *context;
+	async_context *current;
 	HashPosition pos;
 	zend_string *str;
 	zend_ulong index;
@@ -239,18 +239,18 @@ ZEND_METHOD(Context, without)
 		Z_PARAM_ZVAL(key)
 	ZEND_PARSE_PARAMETERS_END();
 
-	current = (concurrent_context *) Z_OBJ_P(getThis());
+	current = (async_context *) Z_OBJ_P(getThis());
 
 	str = Z_STR_P(key);
 
 	if (current->param_count == 1) {
 		if (zend_string_equals(str, current->data.var.name)) {
-			context = concurrent_context_object_create(NULL);
+			context = async_context_object_create(NULL);
 		} else {
-			context = concurrent_context_object_create_single_var(current->data.var.name, &current->data.var.value);
+			context = async_context_object_create_single_var(current->data.var.name, &current->data.var.value);
 		}
 	} else {
-		context = concurrent_context_object_create(current->data.params);
+		context = async_context_object_create(current->data.params);
 
 		if (context->param_count > 1 && zend_hash_exists_ind(context->data.params, str)) {
 			context->param_count--;
@@ -280,8 +280,8 @@ ZEND_METHOD(Context, without)
 
 ZEND_METHOD(Context, run)
 {
-	concurrent_context *context;
-	concurrent_context *prev;
+	async_context *context;
+	async_context *prev;
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
 	uint32_t count;
@@ -295,7 +295,7 @@ ZEND_METHOD(Context, run)
 		Z_PARAM_VARIADIC('+', params, count)
 	ZEND_PARSE_PARAMETERS_END();
 
-	context = (concurrent_context *) Z_OBJ_P(getThis());
+	context = (async_context *) Z_OBJ_P(getThis());
 
 	if (count == 0) {
 		fci.param_count = 0;
@@ -306,19 +306,19 @@ ZEND_METHOD(Context, run)
 	fci.retval = &result;
 	fci.no_separation = 1;
 
-	prev = TASK_G(current_context);
-	TASK_G(current_context) = context;
+	prev = ASYNC_G(current_context);
+	ASYNC_G(current_context) = context;
 
 	zend_call_function(&fci, &fcc);
 
-	TASK_G(current_context) = prev;
+	ASYNC_G(current_context) = prev;
 
 	RETURN_ZVAL(&result, 1, 1);
 }
 
 ZEND_METHOD(Context, var)
 {
-	concurrent_context *context;
+	async_context *context;
 	zend_string *key;
 
 	zval *val;
@@ -330,7 +330,7 @@ ZEND_METHOD(Context, var)
 	key = Z_STR_P(val);
 	ZSTR_HASH(key);
 
-	context = concurrent_context_get();
+	context = async_context_get();
 
 	do {
 		if (context->param_count == 1) {
@@ -353,15 +353,15 @@ ZEND_METHOD(Context, current)
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	ZVAL_OBJ(&obj, &concurrent_context_get()->std);
+	ZVAL_OBJ(&obj, &async_context_get()->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
 ZEND_METHOD(Context, inherit)
 {
-	concurrent_context *context;
-	concurrent_context *current;
+	async_context *context;
+	async_context *current;
 
 	zval *params;
 	HashTable *table;
@@ -375,13 +375,13 @@ ZEND_METHOD(Context, inherit)
 		Z_PARAM_ZVAL(params)
 	ZEND_PARSE_PARAMETERS_END();
 
-	current = concurrent_context_get();
+	current = async_context_get();
 
 	if (params != NULL && Z_TYPE_P(params) == IS_ARRAY) {
 		table = Z_ARRVAL_P(params);
 	}
 
-	context = concurrent_context_object_create(table);
+	context = async_context_object_create(table);
 	context->parent = current;
 
 	GC_ADDREF(&context->parent->std);
@@ -393,8 +393,8 @@ ZEND_METHOD(Context, inherit)
 
 ZEND_METHOD(Context, background)
 {
-	concurrent_context *context;
-	concurrent_context *current;
+	async_context *context;
+	async_context *current;
 
 	zval *params;
 	HashTable *table;
@@ -408,7 +408,7 @@ ZEND_METHOD(Context, background)
 		Z_PARAM_ZVAL(params)
 	ZEND_PARSE_PARAMETERS_END();
 
-	current = concurrent_context_get();
+	current = async_context_get();
 
 	while (current->parent != NULL) {
 		current = current->parent;
@@ -418,7 +418,7 @@ ZEND_METHOD(Context, background)
 		table = Z_ARRVAL_P(params);
 	}
 
-	context = concurrent_context_object_create(table);
+	context = async_context_object_create(table);
 	context->parent = current;
 
 	GC_ADDREF(&current->std);
@@ -478,26 +478,26 @@ static const zend_function_entry task_context_functions[] = {
 };
 
 
-void concurrent_context_ce_register()
+void async_context_ce_register()
 {
 	zend_class_entry ce;
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Context", task_context_functions);
-	concurrent_context_ce = zend_register_internal_class(&ce);
-	concurrent_context_ce->ce_flags |= ZEND_ACC_FINAL;
-	concurrent_context_ce->serialize = zend_class_serialize_deny;
-	concurrent_context_ce->unserialize = zend_class_unserialize_deny;
+	async_context_ce = zend_register_internal_class(&ce);
+	async_context_ce->ce_flags |= ZEND_ACC_FINAL;
+	async_context_ce->serialize = zend_class_serialize_deny;
+	async_context_ce->unserialize = zend_class_unserialize_deny;
 
-	memcpy(&concurrent_context_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	concurrent_context_handlers.free_obj = concurrent_context_object_destroy;
-	concurrent_context_handlers.clone_obj = NULL;
+	memcpy(&async_context_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_context_handlers.free_obj = async_context_object_destroy;
+	async_context_handlers.clone_obj = NULL;
 }
 
-void concurrent_context_shutdown()
+void async_context_shutdown()
 {
-	concurrent_context *context;
+	async_context *context;
 
-	context = TASK_G(context);
+	context = ASYNC_G(context);
 
 	if (context != NULL) {
 		OBJ_RELEASE(&context->std);
