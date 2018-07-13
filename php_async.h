@@ -80,6 +80,13 @@ ASYNC_API ZEND_EXTERN_MODULE_GLOBALS(async)
 ZEND_TSRMLS_CACHE_EXTERN()
 #endif
 
+#define ASYNC_CHECK_ERROR(expr, message) do { \
+    if (UNEXPECTED(expr)) { \
+    	zend_throw_error(NULL, message); \
+    	return; \
+    } \
+} while (0)
+
 #endif
 
 /*

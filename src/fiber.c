@@ -247,15 +247,8 @@ ZEND_METHOD(Fiber, start)
 
 	fiber->context = async_fiber_create_context();
 
-	if (fiber->context == NULL) {
-		zend_throw_error(NULL, "Failed to create native fiber context");
-		return;
-	}
-
-	if (!async_fiber_create(fiber->context, async_fiber_run, fiber->stack_size)) {
-		zend_throw_error(NULL, "Failed to create native fiber");
-		return;
-	}
+	ASYNC_CHECK_ERROR(fiber->context == NULL, "Failed to create native fiber context");
+	ASYNC_CHECK_ERROR(!async_fiber_create(fiber->context, async_fiber_run, fiber->stack_size), "Failed to create native fiber");
 
 	fiber->stack = (zend_vm_stack) emalloc(ASYNC_FIBER_VM_STACK_SIZE);
 	fiber->stack->top = ZEND_VM_STACK_ELEMENTS(fiber->stack) + 1;
@@ -264,9 +257,7 @@ ZEND_METHOD(Fiber, start)
 
 	fiber->value = USED_RET() ? return_value : NULL;
 
-	if (!async_fiber_switch_to(fiber)) {
-		zend_throw_error(NULL, "Failed switching to fiber");
-	}
+	ASYNC_CHECK_ERROR(!async_fiber_switch_to(fiber), "Failed switching to fiber");
 }
 /* }}} */
 
@@ -300,9 +291,7 @@ ZEND_METHOD(Fiber, resume)
 	fiber->status = ASYNC_FIBER_STATUS_RUNNING;
 	fiber->value = USED_RET() ? return_value : NULL;
 
-	if (!async_fiber_switch_to(fiber)) {
-		zend_throw_error(NULL, "Failed switching to fiber");
-	}
+	ASYNC_CHECK_ERROR(!async_fiber_switch_to(fiber), "Failed switching to fiber");
 }
 /* }}} */
 
@@ -332,9 +321,7 @@ ZEND_METHOD(Fiber, throw)
 	fiber->status = ASYNC_FIBER_STATUS_RUNNING;
 	fiber->value = USED_RET() ? return_value : NULL;
 
-	if (!async_fiber_switch_to(fiber)) {
-		zend_throw_error(NULL, "Failed switching to fiber");
-	}
+	ASYNC_CHECK_ERROR(!async_fiber_switch_to(fiber), "Failed switching to fiber");
 }
 /* }}} */
 
