@@ -28,8 +28,8 @@ zend_class_entry *async_deferred_ce;
 zend_class_entry *async_deferred_awaitable_ce;
 
 const zend_uchar ASYNC_DEFERRED_STATUS_PENDING = 0;
-const zend_uchar ASYNC_DEFERRED_STATUS_RESOLVED = 1;
-const zend_uchar ASYNC_DEFERRED_STATUS_FAILED = 2;
+const zend_uchar ASYNC_DEFERRED_STATUS_RESOLVED = ASYNC_OP_RESOLVED;
+const zend_uchar ASYNC_DEFERRED_STATUS_FAILED = ASYNC_OP_FAILED;
 
 static zend_object_handlers async_deferred_handlers;
 static zend_object_handlers async_deferred_awaitable_handlers;

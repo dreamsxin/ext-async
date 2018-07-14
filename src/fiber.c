@@ -35,8 +35,8 @@ const zend_uchar ASYNC_FIBER_TYPE_DEFAULT = 0;
 const zend_uchar ASYNC_FIBER_STATUS_INIT = 0;
 const zend_uchar ASYNC_FIBER_STATUS_SUSPENDED = 1;
 const zend_uchar ASYNC_FIBER_STATUS_RUNNING = 2;
-const zend_uchar ASYNC_FIBER_STATUS_FINISHED = 3;
-const zend_uchar ASYNC_FIBER_STATUS_DEAD = 4;
+const zend_uchar ASYNC_FIBER_STATUS_FINISHED = ASYNC_OP_RESOLVED;
+const zend_uchar ASYNC_FIBER_STATUS_DEAD = ASYNC_OP_FAILED;
 
 static zend_object_handlers async_fiber_handlers;
 

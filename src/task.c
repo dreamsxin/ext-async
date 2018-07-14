@@ -113,6 +113,15 @@ static void async_task_continuation(void *obj, zval *data, zval *result, zend_bo
 	OBJ_RELEASE(&task->fiber.std);
 }
 
+static void top_level_continuation(void *obj, zval *data, zval *result, zend_bool success)
+{
+	async_task_scheduler *scheduler;
+
+	scheduler = (async_task_scheduler *) obj;
+
+	scheduler->stop_loop = 1;
+}
+
 static void async_task_execute_inline(async_task *task, async_task *inner)
 {
 	async_context *context;
@@ -311,15 +320,6 @@ ZEND_METHOD(Task, asyncWithContext)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-static void async_task_top_level_continuation(void *obj, zval *data, zval *result, zend_bool success)
-{
-	async_task_scheduler *scheduler;
-
-	scheduler = (async_task_scheduler *) obj;
-
-	scheduler->stop_loop = 1;
-}
-
 ZEND_METHOD(Task, await)
 {
 	zend_class_entry *ce;
@@ -341,6 +341,7 @@ ZEND_METHOD(Task, await)
 
 	fiber = ASYNC_G(current_fiber);
 
+	// Check for root level await.
 	if (fiber == NULL) {
 		ce = Z_OBJCE_P(val);
 
@@ -353,56 +354,22 @@ ZEND_METHOD(Task, await)
 
 			defer = ((async_deferred_awaitable *) Z_OBJ_P(val))->defer;
 
-			async_awaitable_register_continuation(&defer->continuation, scheduler, NULL, async_task_top_level_continuation);
-
+			async_awaitable_register_continuation(&defer->continuation, scheduler, NULL, top_level_continuation);
 			async_task_scheduler_run_loop(scheduler);
 
-			if (defer->status == ASYNC_DEFERRED_STATUS_RESOLVED) {
-				RETURN_ZVAL(&defer->result, 1, 0);
-			}
+			ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
+		} else {
+			inner = (async_task *) Z_OBJ_P(val);
 
-			if (defer->status == ASYNC_DEFERRED_STATUS_FAILED) {
-				Z_ADDREF_P(&defer->result);
+			ZEND_ASSERT(inner->scheduler != NULL);
 
-				execute_data->opline--;
-				zend_throw_exception_internal(&defer->result);
-				execute_data->opline++;
+			async_awaitable_register_continuation(&inner->continuation, inner->scheduler, NULL, top_level_continuation);
+			async_task_scheduler_run_loop(inner->scheduler);
 
-				return;
-			}
-
-			zend_throw_error(NULL, "Awaitable has not been resolved");
-			return;
-		}
-
-		inner = (async_task *) Z_OBJ_P(val);
-
-		ZEND_ASSERT(inner->scheduler != NULL);
-
-		async_awaitable_register_continuation(&inner->continuation, inner->scheduler, NULL, async_task_top_level_continuation);
-
-		async_task_scheduler_run_loop(inner->scheduler);
-
-		if (inner->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
-			OBJ_RELEASE(&inner->fiber.std);
-		}
-
-		if (inner->fiber.status == ASYNC_FIBER_STATUS_FINISHED) {
-			RETURN_ZVAL(&inner->result, 1, 0);
-		}
-
-		if (inner->fiber.status == ASYNC_FIBER_STATUS_DEAD) {
-			Z_ADDREF_P(&inner->result);
-
-			execute_data->opline--;
-			zend_throw_exception_internal(&inner->result);
-			execute_data->opline++;
-
-			return;
+			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 		}
 
 		zend_throw_error(NULL, "Awaitable has not been resolved");
-
 		return;
 	}
 
@@ -426,11 +393,6 @@ ZEND_METHOD(Task, await)
 
 	ce = Z_OBJCE_P(val);
 
-	// Immediately return non-awaitable objects.
-	if (instanceof_function_ex(ce, async_awaitable_ce, 1) != 1) {
-		RETURN_ZVAL(val, 1, 0);
-	}
-
 	if (ce == async_task_ce) {
 		inner = (async_task *) Z_OBJ_P(val);
 
@@ -439,43 +401,20 @@ ZEND_METHOD(Task, await)
 			return;
 		}
 
+		// Perform task-inlining optimization where applicable.
 		if (inner->fiber.status == ASYNC_FIBER_STATUS_INIT) {
 			if (inner->fiber.stack_size <= task->fiber.stack_size) {
 				async_task_execute_inline(task, inner);
 			}
 		}
 
-		if (inner->fiber.status == ASYNC_FIBER_STATUS_FINISHED) {
-			RETURN_ZVAL(&inner->result, 1, 0);
-		}
-
-		if (inner->fiber.status == ASYNC_FIBER_STATUS_DEAD) {
-			Z_ADDREF_P(&inner->result);
-
-			execute_data->opline--;
-			zend_throw_exception_internal(&inner->result);
-			execute_data->opline++;
-
-			return;
-		}
+		ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 
 		async_awaitable_register_continuation(&inner->continuation, task, NULL, async_task_continuation);
 	} else if (ce == async_deferred_awaitable_ce) {
 		defer = ((async_deferred_awaitable *) Z_OBJ_P(val))->defer;
 
-		if (defer->status == ASYNC_DEFERRED_STATUS_RESOLVED) {
-			RETURN_ZVAL(&defer->result, 1, 0);
-		}
-
-		if (defer->status == ASYNC_DEFERRED_STATUS_FAILED) {
-			Z_ADDREF_P(&defer->result);
-
-			execute_data->opline--;
-			zend_throw_exception_internal(&defer->result);
-			execute_data->opline++;
-
-			return;
-		}
+		ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
 
 		async_awaitable_register_continuation(&defer->continuation, task, NULL, async_task_continuation);
 	} else {
@@ -500,6 +439,7 @@ ZEND_METHOD(Task, await)
 
 	task->fiber.value = value;
 
+	// Re-throw error provided by task scheduler.
 	if (Z_TYPE_P(&task->error) != IS_UNDEF) {
 		error = task->error;
 		ZVAL_UNDEF(&task->error);

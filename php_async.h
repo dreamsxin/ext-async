@@ -43,6 +43,8 @@ extern zend_module_entry async_module_entry;
 #include "TSRM.h"
 #endif
 
+#define ASYNC_OP_RESOLVED 64
+#define ASYNC_OP_FAILED 65
 
 ZEND_BEGIN_MODULE_GLOBALS(async)
 	/* Root fiber context (main thread). */
