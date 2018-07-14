@@ -44,7 +44,9 @@ final class Deferred
 
 ### Task
 
-A task is a fiber-based object that executes a PHP function or method on a separate call stack. Tasks are created using `Task::async()` or `TaskScheduler->task()` and will not be run until `TaskScheduler->run()` is called. Calling `Task::await()` will suspend the current task if the given argument implements `Awaitable`. Passing anything else to this method will simply return the value as-is.
+A task is a fiber-based object that executes a PHP function or method on a separate call stack. Tasks are created using `Task::async()` or `TaskScheduler->run()` (and there contextual counterparts). All tasks are associated with a task scheduler as they are created, there is no way to migrate tasks between different schedulers.
+
+Calling `Task::await()` will suspend the current task and await resolution if the given argument implements `Awaitable`. Passing anything else to this method will simply return the value as-is. If the awaited object is another `Task` it has to be run on the same scheduler, otherwise `await()` will throw an error.
 
 ```php
 namespace Concurrent;
@@ -66,9 +68,9 @@ final class Task implements Awaitable
 
 ### TaskScheduler
 
-The task scheduler is based on a queue of scheduled tasks that are run whenever `dispatch()` is called. The scheduler will start (or resume) all tasks that are scheduled for execution and return when no more tasks are scheduled. Tasks may be re-scheduled (an hence run multiple times) during a single call to the dispatch method. The scheduler implements `Countable` and will return the current number of scheduled tasks.
+The task scheduler is based on a queue of scheduled tasks that are run whenever `dispatch()` is called (this is usually not called directly from PHP code). The scheduler will start (or resume) all tasks that are scheduled for execution and return when no more tasks are scheduled. Tasks may be re-scheduled (an hence run multiple times) during a single call to the dispatch method. The scheduler implements `Countable` and will return the current number of scheduled tasks.
 
-You can extend the `TaskScheduler` class to create a scheduler with support for an event loop. The scheduler provides integration by letting you override the `runLoop()` method that should start the event loop and keep it running until no more events can occur. The primary problem with event loop integration is that you need to call `dispatch()` whenever tasks are ready run. You can override the `activate()` method to schedule execution of the `dispatch()` with your event loop (future tick or defer watcher). The scheduler will call `activate` whenever a task is registered for execution and the scheduler is not in the process of dispatching tasks. When `Task::await()` is called at the root level (using the default scheduler) it will register `stopLoop()` as a continuation function. You should stop your (running) event loop after the current tick to allow the main PHP execution to continue.
+You can use `run()` or `runWithContext()` to have the scheduler execute all scheduled tasks (including the one you pass to the run method). The run methods will return the value returned from your task callback or throw an error if your task callback throws. The scheduler will allways run all scheduled tasks, even if the callback task you passed is completed before other tasks.
 
 There is an implicit default scheduler that will be used when `Task::async()` or `Task::asyncWithContext()` is used in PHP code that is not running in a `Task`. You can replace the default scheduler with your own scheduler as long as no async tasks have been created yet.
 
@@ -85,13 +87,22 @@ class TaskScheduler implements \Countable
     
     protected final function dispatch(): void { }
     
+    public static final function setDefaultScheduler(TaskScheduler $scheduler): void { }
+}
+```
+
+### TaskLoopScheduler
+
+You can extend the `TaskLoopScheduler` class to create a scheduler with support for an event loop. The scheduler provides integration by letting you override the `runLoop()` method that must start the event loop and keep it running until no more events can occur. The primary problem with event loop integration is that you need to call `dispatch()` whenever tasks are ready run. You can override the `activate()` method to schedule execution of the `dispatch()` with your event loop (future tick or defer watcher). The scheduler will call `activate` whenever a task is registered for execution and the scheduler is not in the process of dispatching tasks.
+
+```php
+namespace Concurrent;
+
+abstract class TaskLoopScheduler extends TaskScheduler
+{   
     protected function activate(): void { }
     
     protected function runLoop(): void { }
-    
-    protected function stopLoop(): void { }
-    
-    public static final function setDefaultScheduler(TaskScheduler $scheduler): void { }
 }
 ```
 
