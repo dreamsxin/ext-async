@@ -341,14 +341,10 @@ ZEND_METHOD(Task, await)
 
 	fiber = ASYNC_G(current_fiber);
 
+	ce = Z_OBJCE_P(val);
+
 	// Check for root level await.
 	if (fiber == NULL) {
-		ce = Z_OBJCE_P(val);
-
-		if (Z_TYPE_P(val) != IS_OBJECT) {
-			RETURN_ZVAL(val, 1, 0);
-		}
-
 		if (ce == async_deferred_awaitable_ce) {
 			scheduler = async_task_scheduler_get();
 
@@ -358,7 +354,7 @@ ZEND_METHOD(Task, await)
 			async_task_scheduler_run_loop(scheduler);
 
 			ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
-		} else {
+		} else if (ce == async_task_ce) {
 			inner = (async_task *) Z_OBJ_P(val);
 
 			ZEND_ASSERT(inner->scheduler != NULL);
@@ -367,39 +363,25 @@ ZEND_METHOD(Task, await)
 			async_task_scheduler_run_loop(inner->scheduler);
 
 			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
+		} else {
+			RETURN_ZVAL(val, 1, 0);
 		}
 
 		zend_throw_error(NULL, "Awaitable has not been resolved");
 		return;
 	}
 
-	if (fiber->type != ASYNC_FIBER_TYPE_TASK) {
-		zend_throw_error(NULL, "Await must be called from within a running task");
-		return;
-	}
-
-	if (UNEXPECTED(fiber->status != ASYNC_FIBER_STATUS_RUNNING)) {
-		zend_throw_error(NULL, "Cannot await in a task that is not running");
-		return;
-	}
+	ASYNC_CHECK_ERROR(fiber->type != ASYNC_FIBER_TYPE_TASK, "Await must be called from within a running task");
+	ASYNC_CHECK_ERROR(fiber->status != ASYNC_FIBER_STATUS_RUNNING, "Cannot await in a task that is not running");
 
 	task = (async_task *) fiber;
 
 	ZEND_ASSERT(task->scheduler != NULL);
 
-	if (Z_TYPE_P(val) != IS_OBJECT) {
-		RETURN_ZVAL(val, 1, 0);
-	}
-
-	ce = Z_OBJCE_P(val);
-
 	if (ce == async_task_ce) {
 		inner = (async_task *) Z_OBJ_P(val);
 
-		if (inner->scheduler != task->scheduler) {
-			zend_throw_error(NULL, "Cannot await a task that runs on a different task scheduler");
-			return;
-		}
+		ASYNC_CHECK_ERROR(inner->scheduler != task->scheduler, "Cannot await a task that runs on a different task scheduler");
 
 		// Perform task-inlining optimization where applicable.
 		if (inner->fiber.status == ASYNC_FIBER_STATUS_INIT) {
@@ -423,8 +405,8 @@ ZEND_METHOD(Task, await)
 
 	// Switch the value pointer to the return value of await() until the task is continued.
 	value = task->fiber.value;
-	task->fiber.value = USED_RET() ? return_value : NULL;
 
+	task->fiber.value = USED_RET() ? return_value : NULL;
 	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
 
 	GC_ADDREF(&task->fiber.std);
@@ -451,10 +433,7 @@ ZEND_METHOD(Task, await)
 		return;
 	}
 
-	if (task->fiber.status == ASYNC_FIBER_STATUS_DEAD) {
-		zend_throw_error(NULL, "Task has been destroyed");
-		return;
-	}
+	ASYNC_CHECK_ERROR(task->fiber.status == ASYNC_FIBER_STATUS_DEAD, "Task has been destroyed");
 }
 
 ZEND_METHOD(Task, __wakeup)

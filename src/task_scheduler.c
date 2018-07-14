@@ -439,10 +439,7 @@ ZEND_METHOD(TaskScheduler, setDefaultScheduler)
 
 	scheduler = ASYNC_G(scheduler);
 
-	if (scheduler != NULL) {
-		zend_throw_error(NULL, "The default task scheduler must not be changed after it has been used for the first time");
-		return;
-	}
+	ASYNC_CHECK_ERROR(scheduler != NULL, "The default task scheduler must not be changed after it has been used for the first time");
 
 	scheduler = (async_task_scheduler *) Z_OBJ_P(val);
 
@@ -537,10 +534,7 @@ ZEND_METHOD(TaskLoopScheduler, dispatch)
 
 	scheduler = (async_task_scheduler *) Z_OBJ_P(getThis());
 
-	if (scheduler->dispatching) {
-		zend_throw_error(NULL, "Cannot dispatch tasks because the dispatcher is already running");
-		return;
-	}
+	ASYNC_CHECK_ERROR(scheduler->dispatching, "Cannot dispatch tasks because the dispatcher is already running");
 
 	prev = ASYNC_G(current_scheduler);
 	ASYNC_G(current_scheduler) = scheduler;
