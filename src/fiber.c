@@ -102,10 +102,6 @@ void async_fiber_run()
 
 	execute_ex(fiber->exec);
 
-	fiber->value = NULL;
-
-	zval_ptr_dtor(&fiber->fci.function_name);
-
 	zend_vm_stack_destroy();
 	fiber->stack = NULL;
 	fiber->exec = NULL;
@@ -124,29 +120,38 @@ static int fiber_run_opcode_handler(zend_execute_data *exec)
 	ZEND_ASSERT(fiber != NULL);
 
 	fiber->status = ASYNC_FIBER_STATUS_RUNNING;
-	fiber->fci.retval = &retval;
 
-	if (zend_call_function(&fiber->fci, &fiber->fcc) == SUCCESS) {
-		if (fiber->value != NULL && !EG(exception)) {
-			ZVAL_ZVAL(fiber->value, &retval, 0, 1);
-		}
-	}
-
-	if (EG(exception)) {
-		if (fiber->status == ASYNC_FIBER_STATUS_DEAD) {
-			zend_clear_exception();
-		} else {
-			fiber->status = ASYNC_FIBER_STATUS_DEAD;
-		}
+	if (fiber->func != NULL) {
+		fiber->func(fiber);
 	} else {
-		fiber->status = ASYNC_FIBER_STATUS_FINISHED;
+		fiber->fci.retval = &retval;
+
+		if (zend_call_function(&fiber->fci, &fiber->fcc) == SUCCESS) {
+			if (fiber->value != NULL && !EG(exception)) {
+				ZVAL_ZVAL(fiber->value, &retval, 0, 1);
+			}
+		}
+
+		if (EG(exception)) {
+			if (fiber->status == ASYNC_FIBER_STATUS_DEAD) {
+				zend_clear_exception();
+			} else {
+				fiber->status = ASYNC_FIBER_STATUS_DEAD;
+			}
+		} else {
+			fiber->status = ASYNC_FIBER_STATUS_FINISHED;
+		}
+
+		fiber->value = NULL;
+
+		zval_ptr_dtor(&fiber->fci.function_name);
 	}
 
 	return ZEND_USER_OPCODE_RETURN;
 }
 
 
-static zend_object *async_fiber_object_create(zend_class_entry *ce)
+zend_object *async_fiber_object_create(zend_class_entry *ce)
 {
 	async_fiber *fiber;
 
@@ -172,7 +177,7 @@ static void async_fiber_object_destroy(zend_object *object)
 		async_fiber_switch_to(fiber);
 	}
 
-	if (fiber->status == ASYNC_FIBER_STATUS_INIT) {
+	if (fiber->status == ASYNC_FIBER_STATUS_INIT && fiber->func == NULL) {
 		zval_ptr_dtor(&fiber->fci.function_name);
 	}
 

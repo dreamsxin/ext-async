@@ -313,17 +313,11 @@ ZEND_METHOD(Task, asyncWithContext)
 
 static void async_task_top_level_continuation(void *obj, zval *data, zval *result, zend_bool success)
 {
-	async_task_stop_info *stop;
+	async_task_scheduler *scheduler;
 
-	stop = (async_task_stop_info *) obj;
+	scheduler = (async_task_scheduler *) obj;
 
-	if (stop->required) {
-		stop->required = 0;
-
-		async_task_scheduler_stop_loop(stop->scheduler);
-	} else {
-		efree(stop);
-	}
+	scheduler->stop_loop = 1;
 }
 
 ZEND_METHOD(Task, await)
@@ -336,8 +330,6 @@ ZEND_METHOD(Task, await)
 	async_deferred *defer;
 	async_context *context;
 	size_t stack_page_size;
-
-	async_task_stop_info *stop;
 
 	zval *val;
 	zval *value;
@@ -359,26 +351,11 @@ ZEND_METHOD(Task, await)
 		if (ce == async_deferred_awaitable_ce) {
 			scheduler = async_task_scheduler_get();
 
-			if (scheduler->running) {
-				zend_throw_error(NULL, "Cannot dispatch tasks because the scheduler is already running");
-				return;
-			}
-
 			defer = ((async_deferred_awaitable *) Z_OBJ_P(val))->defer;
 
-			stop = (async_task_stop_info *) emalloc(sizeof(async_task_stop_info));
-			stop->scheduler = scheduler;
-			stop->required = 1;
-
-			async_awaitable_register_continuation(&defer->continuation, stop, NULL, async_task_top_level_continuation);
+			async_awaitable_register_continuation(&defer->continuation, scheduler, NULL, async_task_top_level_continuation);
 
 			async_task_scheduler_run_loop(scheduler);
-
-			if (stop->required) {
-				stop->required = 0;
-			} else {
-				efree(stop);
-			}
 
 			if (defer->status == ASYNC_DEFERRED_STATUS_RESOLVED) {
 				RETURN_ZVAL(&defer->result, 1, 0);
@@ -402,24 +379,9 @@ ZEND_METHOD(Task, await)
 
 		ZEND_ASSERT(inner->scheduler != NULL);
 
-		if (inner->scheduler->running) {
-			zend_throw_error(NULL, "Cannot dispatch tasks because the scheduler is already running");
-			return;
-		}
-
-		stop = (async_task_stop_info *) emalloc(sizeof(async_task_stop_info));
-		stop->scheduler = inner->scheduler;
-		stop->required = 1;
-
-		async_awaitable_register_continuation(&inner->continuation, stop, NULL, async_task_top_level_continuation);
+		async_awaitable_register_continuation(&inner->continuation, inner->scheduler, NULL, async_task_top_level_continuation);
 
 		async_task_scheduler_run_loop(inner->scheduler);
-
-		if (stop->required) {
-			stop->required = 0;
-		} else {
-			efree(stop);
-		}
 
 		if (inner->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
 			OBJ_RELEASE(&inner->fiber.std);

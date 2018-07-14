@@ -33,6 +33,9 @@ void async_fiber_shutdown();
 typedef void* async_fiber_context;
 typedef struct _async_fiber async_fiber;
 
+typedef void (* async_fiber_func)();
+typedef void (* async_fiber_run_func)(async_fiber *fiber);
+
 struct _async_fiber {
 	/* Fiber PHP object handle. */
 	zend_object std;
@@ -49,6 +52,8 @@ struct _async_fiber {
 
 	/* Native fiber context of this fiber, will be created during call to start(). */
 	async_fiber_context context;
+
+	async_fiber_run_func func;
 
 	/* Destination for a PHP value being passed into or returned from the fiber. */
 	zval *value;
@@ -71,8 +76,6 @@ extern const zend_uchar ASYNC_FIBER_STATUS_RUNNING;
 extern const zend_uchar ASYNC_FIBER_STATUS_FINISHED;
 extern const zend_uchar ASYNC_FIBER_STATUS_DEAD;
 
-typedef void (* async_fiber_func)();
-
 void async_fiber_run();
 zend_bool async_fiber_switch_to(async_fiber *fiber);
 
@@ -83,6 +86,8 @@ async_fiber_context async_fiber_create_context();
 
 zend_bool async_fiber_create(async_fiber_context context, async_fiber_func func, size_t stack_size);
 void async_fiber_destroy(async_fiber_context context);
+
+zend_object *async_fiber_object_create(zend_class_entry *ce);
 
 zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next);
 zend_bool async_fiber_yield(async_fiber_context current);

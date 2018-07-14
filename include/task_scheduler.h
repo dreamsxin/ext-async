@@ -12,7 +12,7 @@
   | obtain it through the world-wide-web, please send a note to          |
   | license@php.net so we can mail you a copy immediately.               |
   +----------------------------------------------------------------------+
-  | Authors: Martin Schröder <m.schroeder2007@gmail.com>                 |
+  | Authors: Martin SchrÃ¶der <m.schroeder2007@gmail.com>                 |
   +----------------------------------------------------------------------+
 */
 
@@ -20,13 +20,15 @@
 #define ASYNC_TASK_SCHEDULER_H
 
 #include "php.h"
+#include "context.h"
+#include "fiber.h"
 
 typedef struct _async_task async_task;
-typedef struct _async_context async_context;
 
 BEGIN_EXTERN_C()
 
 extern zend_class_entry *async_task_scheduler_ce;
+extern zend_class_entry *async_task_loop_scheduler_ce;
 
 typedef struct _async_task_scheduler async_task_scheduler;
 
@@ -43,6 +45,10 @@ struct _async_task_scheduler {
 	/* Points to the last task to be run (needed to insert tasks into the run queue. */
 	async_task *last;
 
+	zend_bool loop;
+	zend_bool stop_loop;
+	async_fiber *fiber;
+
 	zend_bool running;
 	zend_bool dispatching;
 	zend_bool activate;
@@ -53,7 +59,6 @@ async_task_scheduler *async_task_scheduler_get();
 zend_bool async_task_scheduler_enqueue(async_task *task);
 
 void async_task_scheduler_run_loop(async_task_scheduler *scheduler);
-void async_task_scheduler_stop_loop(async_task_scheduler *scheduler);
 
 void async_task_scheduler_ce_register();
 void async_task_scheduler_ce_unregister();

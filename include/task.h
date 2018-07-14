@@ -21,9 +21,9 @@
 
 #include "php.h"
 #include "awaitable.h"
+#include "context.h"
+#include "fiber.h"
 
-typedef void* async_fiber_context;
-typedef struct _async_context async_context;
 typedef struct _async_task_scheduler async_task_scheduler;
 
 BEGIN_EXTERN_C()
