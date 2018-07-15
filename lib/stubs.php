@@ -80,7 +80,7 @@ class TaskScheduler implements \Countable
     public static final function setDefaultScheduler(TaskScheduler $scheduler): void { }
 }
 
-abstract class TaskLoopScheduler extends TaskScheduler
+abstract class LoopTaskScheduler extends TaskScheduler
 {   
     protected function activate(): void { }
     
