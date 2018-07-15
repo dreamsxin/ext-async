@@ -57,8 +57,8 @@ void async_task_start(async_task *task)
 	task->operation = ASYNC_TASK_OPERATION_NONE;
 	task->fiber.context = async_fiber_create_context();
 
-	ZEND_ASSERT(task->fiber.context != NULL);
-	ZEND_ASSERT(async_fiber_create(task->fiber.context, async_fiber_run, task->fiber.stack_size));
+	ASYNC_CHECK_FATAL(task->fiber.context == NULL, "Failed to create native fiber context");
+	ASYNC_CHECK_FATAL(!async_fiber_create(task->fiber.context, async_fiber_run, task->fiber.stack_size), "Failed to create native fiber");
 
 	task->fiber.stack = (zend_vm_stack) emalloc(ASYNC_FIBER_VM_STACK_SIZE);
 	task->fiber.stack->top = ZEND_VM_STACK_ELEMENTS(task->fiber.stack) + 1;
@@ -70,7 +70,7 @@ void async_task_start(async_task *task)
 	context = ASYNC_G(current_context);
 	ASYNC_G(current_context) = task->context;
 
-	ZEND_ASSERT(async_fiber_switch_to(&task->fiber));
+	ASYNC_CHECK_FATAL(!async_fiber_switch_to(&task->fiber), "Failed to switch to fiber");
 
 	ASYNC_G(current_context) = context;
 
@@ -82,7 +82,7 @@ void async_task_continue(async_task *task)
 	task->operation = ASYNC_TASK_OPERATION_NONE;
 	task->fiber.status = ASYNC_FIBER_STATUS_RUNNING;
 
-	ZEND_ASSERT(async_fiber_switch_to(&task->fiber));
+	ASYNC_CHECK_FATAL(!async_fiber_switch_to(&task->fiber), "Failed to switch to fiber");
 }
 
 static void async_task_continuation(void *obj, zval *data, zval *result, zend_bool success)
@@ -199,7 +199,7 @@ static void async_task_object_destroy(zend_object *object)
 	if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->fiber.status = ASYNC_FIBER_STATUS_DEAD;
 
-		ZEND_ASSERT(async_fiber_switch_to(&task->fiber));
+		ASYNC_CHECK_FATAL(!async_fiber_switch_to(&task->fiber), "Failed to switch to fiber");
 	}
 
 	if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {
@@ -408,7 +408,7 @@ ZEND_METHOD(Task, await)
 	context = ASYNC_G(current_context);
 
 	ASYNC_FIBER_BACKUP_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
-	ZEND_ASSERT(async_fiber_yield(task->fiber.context));
+	ASYNC_CHECK_FATAL(!async_fiber_yield(task->fiber.context), "Failed to yield from fiber");
 	ASYNC_FIBER_RESTORE_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
 
 	ASYNC_G(current_context) = context;

@@ -106,7 +106,7 @@ void async_fiber_run()
 	fiber->stack = NULL;
 	fiber->exec = NULL;
 
-	ZEND_ASSERT(async_fiber_yield(fiber->context));
+	ASYNC_CHECK_FATAL(!async_fiber_yield(fiber->context), "Failed to yield from fiber");
 }
 
 
@@ -174,7 +174,7 @@ static void async_fiber_object_destroy(zend_object *object)
 	if (fiber->status == ASYNC_FIBER_STATUS_SUSPENDED) {
 		fiber->status = ASYNC_FIBER_STATUS_DEAD;
 
-		ZEND_ASSERT(async_fiber_switch_to(fiber));
+		ASYNC_CHECK_FATAL(!async_fiber_switch_to(fiber), "Failed to switch to fiber");
 	}
 
 	if (fiber->status == ASYNC_FIBER_STATUS_INIT && fiber->func == NULL) {

@@ -202,7 +202,7 @@ static void async_task_scheduler_run(async_task_scheduler *scheduler)
 			fiber->status = ASYNC_FIBER_STATUS_SUSPENDED;
 
 			ASYNC_FIBER_BACKUP_EG(fiber->stack, stack_page_size, fiber->exec);
-			ZEND_ASSERT(async_fiber_yield(fiber->context));
+			ASYNC_CHECK_FATAL(!async_fiber_yield(fiber->context), "Failed to yield from fiber");
 			ASYNC_FIBER_RESTORE_EG(fiber->stack, stack_page_size, fiber->exec);
 		}
 	}
@@ -234,8 +234,8 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 
 			fiber->context = async_fiber_create_context();
 
-			ZEND_ASSERT(fiber->context != NULL);
-			ZEND_ASSERT(async_fiber_create(fiber->context, async_fiber_run, fiber->stack_size));
+			ASYNC_CHECK_FATAL(fiber->context == NULL, "Failed to create native fiber context");
+			ASYNC_CHECK_FATAL(!async_fiber_create(fiber->context, async_fiber_run, fiber->stack_size), "Failed to create native fiber");
 
 			fiber->stack = (zend_vm_stack) emalloc(ASYNC_FIBER_VM_STACK_SIZE);
 			fiber->stack->top = ZEND_VM_STACK_ELEMENTS(fiber->stack) + 1;
@@ -245,7 +245,7 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 			scheduler->fiber = fiber;
 		}
 
-		ZEND_ASSERT(async_fiber_switch_to(scheduler->fiber));
+		ASYNC_CHECK_FATAL(!async_fiber_switch_to(scheduler->fiber), "Failed to switch to fiber");
 	} else {
 		async_task_scheduler_run(scheduler);
 
