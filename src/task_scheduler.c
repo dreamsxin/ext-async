@@ -246,6 +246,11 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 		}
 
 		ASYNC_CHECK_FATAL(!async_fiber_switch_to(scheduler->fiber), "Failed to switch to fiber");
+
+		if (scheduler->running == 0) {
+			OBJ_RELEASE(&scheduler->fiber->std);
+			scheduler->fiber = NULL;
+		}
 	} else {
 		async_task_scheduler_run(scheduler);
 
