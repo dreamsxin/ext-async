@@ -73,8 +73,6 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 
 	scheduler = task->scheduler;
 
-	ZEND_ASSERT(scheduler != NULL);
-
 	if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {
 		task->operation = ASYNC_TASK_OPERATION_START;
 	} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
@@ -204,7 +202,7 @@ static void async_task_scheduler_run(async_task_scheduler *scheduler)
 			fiber->status = ASYNC_FIBER_STATUS_SUSPENDED;
 
 			ASYNC_FIBER_BACKUP_EG(fiber->stack, stack_page_size, fiber->exec);
-			async_fiber_yield(fiber->context);
+			ZEND_ASSERT(async_fiber_yield(fiber->context));
 			ASYNC_FIBER_RESTORE_EG(fiber->stack, stack_page_size, fiber->exec);
 		}
 	}
@@ -235,8 +233,8 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 			fiber->stack_size = 1024 * 1024 * 64;
 
 			fiber->context = async_fiber_create_context();
-			ZEND_ASSERT(fiber->context != NULL);
 
+			ZEND_ASSERT(fiber->context != NULL);
 			ZEND_ASSERT(async_fiber_create(fiber->context, async_fiber_run, fiber->stack_size));
 
 			fiber->stack = (zend_vm_stack) emalloc(ASYNC_FIBER_VM_STACK_SIZE);

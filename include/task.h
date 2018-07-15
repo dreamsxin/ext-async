@@ -76,18 +76,6 @@ void async_task_ce_register();
 
 END_EXTERN_C()
 
-#define ASYNC_TASK_DELEGATE_RESULT(status, result) do { \
-	if (status == ASYNC_OP_RESOLVED) { \
-		RETURN_ZVAL(result, 1, 0); \
-	} else if (status == ASYNC_OP_FAILED) { \
-		Z_ADDREF_P(result); \
-		execute_data->opline--; \
-		zend_throw_exception_internal(result); \
-		execute_data->opline++; \
-		return; \
-	} \
-} while (0)
-
 #endif
 
 /*

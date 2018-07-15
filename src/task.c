@@ -37,6 +37,18 @@ const zend_uchar ASYNC_TASK_OPERATION_RESUME = 2;
 
 static zend_object_handlers async_task_handlers;
 
+#define ASYNC_TASK_DELEGATE_RESULT(status, result) do { \
+	if (status == ASYNC_OP_RESOLVED) { \
+		RETURN_ZVAL(result, 1, 0); \
+	} else if (status == ASYNC_OP_FAILED) { \
+		Z_ADDREF_P(result); \
+		execute_data->opline--; \
+		zend_throw_exception_internal(result); \
+		execute_data->opline++; \
+		return; \
+	} \
+} while (0)
+
 
 void async_task_start(async_task *task)
 {
@@ -45,15 +57,8 @@ void async_task_start(async_task *task)
 	task->operation = ASYNC_TASK_OPERATION_NONE;
 	task->fiber.context = async_fiber_create_context();
 
-	if (task->fiber.context == NULL) {
-		zend_throw_error(NULL, "Failed to create native fiber context");
-		return;
-	}
-
-	if (!async_fiber_create(task->fiber.context, async_fiber_run, task->fiber.stack_size)) {
-		zend_throw_error(NULL, "Failed to create native fiber");
-		return;
-	}
+	ZEND_ASSERT(task->fiber.context != NULL);
+	ZEND_ASSERT(async_fiber_create(task->fiber.context, async_fiber_run, task->fiber.stack_size));
 
 	task->fiber.stack = (zend_vm_stack) emalloc(ASYNC_FIBER_VM_STACK_SIZE);
 	task->fiber.stack->top = ZEND_VM_STACK_ELEMENTS(task->fiber.stack) + 1;
@@ -65,9 +70,7 @@ void async_task_start(async_task *task)
 	context = ASYNC_G(current_context);
 	ASYNC_G(current_context) = task->context;
 
-	if (!async_fiber_switch_to(&task->fiber)) {
-		zend_throw_error(NULL, "Failed switching to fiber");
-	}
+	ZEND_ASSERT(async_fiber_switch_to(&task->fiber));
 
 	ASYNC_G(current_context) = context;
 
@@ -79,9 +82,7 @@ void async_task_continue(async_task *task)
 	task->operation = ASYNC_TASK_OPERATION_NONE;
 	task->fiber.status = ASYNC_FIBER_STATUS_RUNNING;
 
-	if (!async_fiber_switch_to(&task->fiber)) {
-		zend_throw_error(NULL, "Failed switching to fiber");
-	}
+	ZEND_ASSERT(async_fiber_switch_to(&task->fiber));
 }
 
 static void async_task_continuation(void *obj, zval *data, zval *result, zend_bool success)
@@ -198,12 +199,11 @@ static void async_task_object_destroy(zend_object *object)
 	if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->fiber.status = ASYNC_FIBER_STATUS_DEAD;
 
-		async_fiber_switch_to(&task->fiber);
+		ZEND_ASSERT(async_fiber_switch_to(&task->fiber));
 	}
 
 	if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {
 		zend_fcall_info_args_clear(&task->fiber.fci, 1);
-
 		zval_ptr_dtor(&task->fiber.fci.function_name);
 	}
 
@@ -250,8 +250,6 @@ ZEND_METHOD(Task, async)
 	task = async_task_object_create();
 	task->scheduler = async_task_scheduler_get();
 	task->context = async_context_get();
-
-	ZEND_ASSERT(task->scheduler != NULL);
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
 		Z_PARAM_FUNC_EX(task->fiber.fci, task->fiber.fcc, 1, 0)
@@ -309,8 +307,6 @@ ZEND_METHOD(Task, asyncWithContext)
 	task->scheduler = async_task_scheduler_get();
 	task->context = (async_context *) Z_OBJ_P(ctx);
 
-	ZEND_ASSERT(task->scheduler != NULL);
-
 	GC_ADDREF(&task->context->std);
 
 	async_task_scheduler_enqueue(task);
@@ -341,14 +337,16 @@ ZEND_METHOD(Task, await)
 
 	fiber = ASYNC_G(current_fiber);
 
-	ce = Z_OBJCE_P(val);
+	ce = (Z_TYPE_P(val) == IS_OBJECT) ? Z_OBJCE_P(val) : NULL;
 
 	// Check for root level await.
 	if (fiber == NULL) {
 		if (ce == async_deferred_awaitable_ce) {
-			scheduler = async_task_scheduler_get();
-
 			defer = ((async_deferred_awaitable *) Z_OBJ_P(val))->defer;
+
+			ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
+
+			scheduler = async_task_scheduler_get();
 
 			async_awaitable_register_continuation(&defer->continuation, scheduler, NULL, top_level_continuation);
 			async_task_scheduler_run_loop(scheduler);
@@ -357,7 +355,7 @@ ZEND_METHOD(Task, await)
 		} else if (ce == async_task_ce) {
 			inner = (async_task *) Z_OBJ_P(val);
 
-			ZEND_ASSERT(inner->scheduler != NULL);
+			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 
 			async_awaitable_register_continuation(&inner->continuation, inner->scheduler, NULL, top_level_continuation);
 			async_task_scheduler_run_loop(inner->scheduler);
@@ -376,18 +374,14 @@ ZEND_METHOD(Task, await)
 
 	task = (async_task *) fiber;
 
-	ZEND_ASSERT(task->scheduler != NULL);
-
 	if (ce == async_task_ce) {
 		inner = (async_task *) Z_OBJ_P(val);
 
 		ASYNC_CHECK_ERROR(inner->scheduler != task->scheduler, "Cannot await a task that runs on a different task scheduler");
 
 		// Perform task-inlining optimization where applicable.
-		if (inner->fiber.status == ASYNC_FIBER_STATUS_INIT) {
-			if (inner->fiber.stack_size <= task->fiber.stack_size) {
-				async_task_execute_inline(task, inner);
-			}
+		if (inner->fiber.status == ASYNC_FIBER_STATUS_INIT && inner->fiber.stack_size <= task->fiber.stack_size) {
+			async_task_execute_inline(task, inner);
 		}
 
 		ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
@@ -414,7 +408,7 @@ ZEND_METHOD(Task, await)
 	context = ASYNC_G(current_context);
 
 	ASYNC_FIBER_BACKUP_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
-	async_fiber_yield(task->fiber.context);
+	ZEND_ASSERT(async_fiber_yield(task->fiber.context));
 	ASYNC_FIBER_RESTORE_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
 
 	ASYNC_G(current_context) = context;

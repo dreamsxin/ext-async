@@ -106,7 +106,7 @@ void async_fiber_run()
 	fiber->stack = NULL;
 	fiber->exec = NULL;
 
-	async_fiber_yield(fiber->context);
+	ZEND_ASSERT(async_fiber_yield(fiber->context));
 }
 
 
@@ -174,7 +174,7 @@ static void async_fiber_object_destroy(zend_object *object)
 	if (fiber->status == ASYNC_FIBER_STATUS_SUSPENDED) {
 		fiber->status = ASYNC_FIBER_STATUS_DEAD;
 
-		async_fiber_switch_to(fiber);
+		ZEND_ASSERT(async_fiber_switch_to(fiber));
 	}
 
 	if (fiber->status == ASYNC_FIBER_STATUS_INIT && fiber->func == NULL) {
@@ -241,10 +241,7 @@ ZEND_METHOD(Fiber, start)
 
 	fiber = (async_fiber *) Z_OBJ_P(getThis());
 
-	if (fiber->status != ASYNC_FIBER_STATUS_INIT) {
-		zend_throw_error(NULL, "Cannot start Fiber that has already been started");
-		return;
-	}
+	ASYNC_CHECK_ERROR(fiber->status != ASYNC_FIBER_STATUS_INIT, "Cannot start Fiber that has already been started");
 
 	fiber->fci.params = params;
 	fiber->fci.param_count = param_count;
@@ -283,10 +280,7 @@ ZEND_METHOD(Fiber, resume)
 
 	fiber = (async_fiber *) Z_OBJ_P(getThis());
 
-	if (fiber->status != ASYNC_FIBER_STATUS_SUSPENDED) {
-		zend_throw_error(NULL, "Non-suspended Fiber cannot be resumed");
-		return;
-	}
+	ASYNC_CHECK_ERROR(fiber->status != ASYNC_FIBER_STATUS_SUSPENDED, "Non-suspended Fiber cannot be resumed");
 
 	if (val != NULL && fiber->value != NULL) {
 		ZVAL_COPY(fiber->value, val);
@@ -365,20 +359,9 @@ ZEND_METHOD(Fiber, yield)
 
 	fiber = ASYNC_G(current_fiber);
 
-	if (UNEXPECTED(fiber == NULL)) {
-		zend_throw_error(NULL, "Cannot yield from outside a fiber");
-		return;
-	}
-
-	if (fiber->type != ASYNC_FIBER_TYPE_DEFAULT) {
-		zend_throw_error(NULL, "Cannot yield from an async task");
-		return;
-	}
-
-	if (fiber->status != ASYNC_FIBER_STATUS_RUNNING) {
-		zend_throw_error(NULL, "Cannot yield from a fiber that is not running");
-		return;
-	}
+	ASYNC_CHECK_ERROR(fiber == NULL, "Cannot yield from outside a fiber");
+	ASYNC_CHECK_ERROR(fiber->type != ASYNC_FIBER_TYPE_DEFAULT, "Cannot yield from an async task");
+	ASYNC_CHECK_ERROR(fiber->status != ASYNC_FIBER_STATUS_RUNNING, "Cannot yield from a fiber that is not running");
 
 	val = NULL;
 
@@ -399,10 +382,7 @@ ZEND_METHOD(Fiber, yield)
 	async_fiber_yield(fiber->context);
 	ASYNC_FIBER_RESTORE_EG(fiber->stack, stack_page_size, fiber->exec);
 
-	if (fiber->status == ASYNC_FIBER_STATUS_DEAD) {
-		zend_throw_error(NULL, "Fiber has been destroyed");
-		return;
-	}
+	ASYNC_CHECK_ERROR(fiber->status == ASYNC_FIBER_STATUS_DEAD, "Fiber has been destroyed");
 
 	error = ASYNC_G(error);
 

@@ -383,12 +383,7 @@ ZEND_METHOD(Deferred, combine)
 	fci.no_separation = 1;
 
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(args), entry) {
-		if (Z_TYPE_P(entry) != IS_OBJECT) {
-			zend_throw_error(zend_ce_type_error, "All input elements must be awaitable");
-			return;
-		}
-
-		ce = Z_OBJCE_P(entry);
+		ce = (Z_TYPE_P(entry) == IS_OBJECT) ? Z_OBJCE_P(entry) : NULL;
 
 		if (ce != async_task_ce && ce != async_deferred_awaitable_ce) {
 			zend_throw_error(zend_ce_type_error, "All input elements must be awaitable");
