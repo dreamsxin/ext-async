@@ -158,7 +158,9 @@ static void top_level_continuation(void *obj, zval *data, zval *result, zend_boo
 
 	scheduler = (async_task_scheduler *) obj;
 
-	scheduler->stop_loop = 1;
+	ZEND_ASSERT(scheduler != NULL);
+
+	concurrent_task_scheduler_stop_loop(scheduler);
 }
 
 static void async_task_execute_inline(async_task *task, async_task *inner)
@@ -366,6 +368,7 @@ ZEND_METHOD(Task, await)
 	async_fiber *fiber;
 	async_task *task;
 	async_task *inner;
+	async_awaitable_cb *cont;
 	async_task_scheduler *scheduler;
 	async_deferred *defer;
 	async_context *context;
@@ -392,7 +395,7 @@ ZEND_METHOD(Task, await)
 
 			scheduler = async_task_scheduler_get();
 
-			async_awaitable_register_continuation(&defer->continuation, scheduler, NULL, top_level_continuation);
+			cont = async_awaitable_register_continuation(&defer->continuation, scheduler, NULL, top_level_continuation);
 			async_task_scheduler_run_loop(scheduler);
 
 			ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
@@ -401,13 +404,15 @@ ZEND_METHOD(Task, await)
 
 			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 
-			async_awaitable_register_continuation(&inner->continuation, inner->scheduler, NULL, top_level_continuation);
+			cont = async_awaitable_register_continuation(&inner->continuation, inner->scheduler, NULL, top_level_continuation);
 			async_task_scheduler_run_loop(inner->scheduler);
 
 			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 		} else {
 			RETURN_ZVAL(val, 1, 0);
 		}
+
+		cont->disposed = 1;
 
 		zend_throw_error(NULL, "Awaitable has not been resolved");
 		return;

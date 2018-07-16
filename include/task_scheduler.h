@@ -21,7 +21,6 @@
 
 #include "php.h"
 #include "context.h"
-#include "fiber.h"
 
 typedef struct _async_task async_task;
 
@@ -46,8 +45,6 @@ struct _async_task_scheduler {
 	async_task *last;
 
 	zend_bool loop;
-	zend_bool stop_loop;
-	async_fiber *fiber;
 
 	zend_bool running;
 	zend_bool dispatching;
@@ -60,6 +57,7 @@ async_task_scheduler *async_task_scheduler_get();
 
 zend_bool async_task_scheduler_enqueue(async_task *task);
 void async_task_scheduler_run_loop(async_task_scheduler *scheduler);
+void concurrent_task_scheduler_stop_loop(async_task_scheduler *scheduler);
 
 void async_task_scheduler_ce_register();
 void async_task_scheduler_ce_unregister();

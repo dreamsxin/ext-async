@@ -93,7 +93,7 @@ class TaskScheduler implements \Countable
 
 ### LoopTaskScheduler
 
-You can extend the `LoopTaskScheduler` class to create a scheduler with support for an event loop. The scheduler provides integration by letting you override the `runLoop()` method that must start the event loop and keep it running until no more events can occur. The primary problem with event loop integration is that you need to call `dispatch()` whenever tasks are ready run. You can override the `activate()` method to schedule execution of the `dispatch()` with your event loop (future tick or defer watcher). The scheduler will call `activate` whenever a task is registered for execution and the scheduler is not in the process of dispatching tasks.
+You can extend the `LoopTaskScheduler` class to create a scheduler with support for an event loop. The scheduler provides integration by letting you implement the `runLoop()` method that must start the event loop and keep it running until no more events can occur. The primary problem with event loop integration is that you need to call `dispatch()` whenever tasks are ready run. You have to implement the `activate()` method to schedule execution of `dispatch()` with your event loop (future tick or defer watcher). The scheduler will call `activate()` whenever a task is registered for execution and the scheduler is not in the process of dispatching tasks. It is also necessary to implement `stopLoop()` that is needed if `await()` is used from the main execution (the event loop always runs in the context of the main execution). A call to `stopLoop()` should stop the event loop after current tick has completed (you can keep executing for a few ticks as well, but this decreases responsiveness of the main execution).
 
 ```php
 namespace Concurrent;
@@ -103,6 +103,8 @@ abstract class LoopTaskScheduler extends TaskScheduler
     protected function activate(): void { }
     
     protected function runLoop(): void { }
+    
+    protected function stopLoop(): void { }
 }
 ```
 

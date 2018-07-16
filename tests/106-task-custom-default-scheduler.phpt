@@ -18,9 +18,16 @@ TaskScheduler::setDefaultScheduler(new class() extends LoopTaskScheduler
     
     protected function runLoop()
     {
+        var_dump('LOOP');
         while ($this->count()) {
             $this->dispatch();
         }
+        var_dump('DONE');
+    }
+    
+    protected function stopLoop()
+    {
+        var_dump('STOP!');
     }
 });
 
@@ -57,12 +64,25 @@ var_dump('MAIN');
 string(4) "MAIN"
 string(9) "ACTIVATE!"
 string(4) "MAIN"
+string(4) "LOOP"
 string(1) "A"
+string(5) "STOP!"
+string(4) "DONE"
 string(4) "MAIN"
+string(9) "ACTIVATE!"
+string(4) "LOOP"
 string(1) "B"
-string(4) "MAIN"
+string(5) "STOP!"
 string(1) "C"
-string(1) "D"
+string(4) "DONE"
 string(4) "MAIN"
+string(9) "ACTIVATE!"
+string(4) "LOOP"
+string(1) "D"
+string(5) "STOP!"
 string(1) "E"
 string(1) "F"
+string(4) "DONE"
+string(4) "MAIN"
+string(4) "LOOP"
+string(4) "DONE"

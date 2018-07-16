@@ -26,6 +26,8 @@ class TimerLoop
     
     protected $timers;
     
+    protected $running = false;
+    
     public function __construct()
     {
         $this->timers = new \SplPriorityQueue();
@@ -48,7 +50,9 @@ class TimerLoop
     
     public function run()
     {
-        while ($this->ticks || !$this->timers->isEmpty()) {
+        $this->running = true;
+        
+        while ($this->running && ($this->ticks || !$this->timers->isEmpty())) {
             $ticks = $this->ticks;
             $this->ticks = [];
             
@@ -82,6 +86,11 @@ class TimerLoop
             }
         }
     }
+    
+    public function stop()
+    {
+        $this->running = false;
+    }
 }
 
 class TimerLoopScheduler extends LoopTaskScheduler
@@ -104,5 +113,10 @@ class TimerLoopScheduler extends LoopTaskScheduler
     protected function runLoop()
     {
         $this->loop->run();
+    }
+    
+    protected function stopLoop()
+    {
+        $this->loop->stop();
     }
 }

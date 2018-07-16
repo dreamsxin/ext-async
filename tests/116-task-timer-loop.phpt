@@ -47,7 +47,11 @@ $result = $scheduler->run(function () use ($loop) {
         $defer->resolve('D');
     });
     
-    return Task::await($defer->awaitable());
+    $t = Task::async(function () use ($defer) {
+        return Task::await($defer->awaitable());
+    });
+    
+    return Task::await($t);
 });
 
 var_dump($result);

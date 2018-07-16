@@ -32,6 +32,10 @@ TaskScheduler::setDefaultScheduler(new class() extends LoopTaskScheduler {
         }
         var_dump('END');
     }
+    
+    protected function stopLoop() {
+        var_dump('STOP');
+    }
 });
 
 $defer = new Deferred();

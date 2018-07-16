@@ -39,7 +39,11 @@ $loop->timer(100, function () use ($defer) {
     $defer->resolve('D');
 });
 
-var_dump(Task::await($defer->awaitable()));
+$t = Task::async(function () use ($defer) {
+    return Task::await($defer->awaitable());
+});
+
+var_dump(Task::await($t));
 
 ?>
 --EXPECT--

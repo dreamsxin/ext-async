@@ -37,6 +37,12 @@ TaskScheduler::setDefaultScheduler(new class($loop) extends LoopTaskScheduler {
         $this->loop->run();
         var_dump('END LOOP');
     }
+    
+    protected function stopLoop()
+    {
+        var_dump('STOP LOOP');
+        $this->loop->stop();
+    }
 });
 
 function adapt(\React\Promise\PromiseInterface $promise): Awaitable

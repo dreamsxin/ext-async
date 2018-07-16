@@ -26,6 +26,11 @@ $scheduler = new class() extends LoopTaskScheduler
         
         var_dump('END LOOP!');
     }
+    
+    protected function stopLoop()
+    {
+        var_dump('STOP LOOP!');
+    }
 };
 
 $work = function (string $v): void {
