@@ -52,12 +52,13 @@ struct _async_task_scheduler {
 	zend_bool running;
 	zend_bool dispatching;
 	zend_bool activate;
+
+	HashTable *tasks;
 };
 
 async_task_scheduler *async_task_scheduler_get();
 
 zend_bool async_task_scheduler_enqueue(async_task *task);
-
 void async_task_scheduler_run_loop(async_task_scheduler *scheduler);
 
 void async_task_scheduler_ce_register();

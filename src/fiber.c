@@ -161,6 +161,8 @@ zend_object *async_fiber_object_create(zend_class_entry *ce)
 	zend_object_std_init(&fiber->std, ce);
 	fiber->std.handlers = &async_fiber_handlers;
 
+	fiber->id = strpprintf(16, "%016zx", (intptr_t) &fiber->std);
+
 	return &fiber->std;
 }
 
@@ -182,6 +184,8 @@ static void async_fiber_object_destroy(zend_object *object)
 	}
 
 	async_fiber_destroy(fiber->context);
+
+	zend_string_release(fiber->id);
 
 	zend_object_std_dtor(&fiber->std);
 }

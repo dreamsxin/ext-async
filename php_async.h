@@ -71,8 +71,6 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 	/* Error to be thrown into a fiber (will be populated by throw()). */
 	zval *error;
 
-	size_t counter;
-
 ZEND_END_MODULE_GLOBALS(async)
 
 ASYNC_API ZEND_EXTERN_MODULE_GLOBALS(async)

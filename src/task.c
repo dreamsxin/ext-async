@@ -136,6 +136,8 @@ static void async_task_continuation(void *obj, zval *data, zval *result, zend_bo
 
 	task = (async_task *) obj;
 
+	task->suspended = NULL;
+
 	if (result == NULL ||task->fiber.status != ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->fiber.status = ASYNC_FIBER_STATUS_DEAD;
 	} else if (success) {
@@ -149,8 +151,6 @@ static void async_task_continuation(void *obj, zval *data, zval *result, zend_bo
 	task->fiber.value = NULL;
 
 	async_task_scheduler_enqueue(task);
-
-	OBJ_RELEASE(&task->fiber.std);
 }
 
 static void top_level_continuation(void *obj, zval *data, zval *result, zend_bool success)
@@ -193,6 +193,8 @@ static void async_task_execute_inline(async_task *task, async_task *inner)
 	}
 
 	async_awaitable_trigger_continuation(&inner->continuation, &inner->result, success);
+
+	zend_hash_del_ind(inner->scheduler->tasks, inner->fiber.id);
 }
 
 async_task *async_task_object_create()
@@ -205,9 +207,6 @@ async_task *async_task_object_create()
 
 	task->fiber.type = ASYNC_FIBER_TYPE_TASK;
 	task->fiber.status = ASYNC_FIBER_STATUS_INIT;
-
-	task->id = ASYNC_G(counter) + 1;
-	ASYNC_G(counter) = task->id;
 
 	stack_size = ASYNC_G(stack_size);
 
@@ -226,15 +225,13 @@ async_task *async_task_object_create()
 	zend_object_std_init(&task->fiber.std, async_task_ce);
 	task->fiber.std.handlers = &async_task_handlers;
 
+	task->fiber.id = strpprintf(16, "%016zx", (intptr_t) &task->fiber.std);
+
 	return task;
 }
 
-static void async_task_object_destroy(zend_object *object)
+void async_task_dispose(async_task *task)
 {
-	async_task *task;
-
-	task = (async_task *) object;
-
 	if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->fiber.status = ASYNC_FIBER_STATUS_DEAD;
 
@@ -249,6 +246,13 @@ static void async_task_object_destroy(zend_object *object)
 			async_awaitable_trigger_continuation(&task->continuation, NULL, 0);
 		}
 	}
+}
+
+static void async_task_object_destroy(zend_object *object)
+{
+	async_task *task;
+
+	task = (async_task *) object;
 
 	zval_ptr_dtor(&task->result);
 	zval_ptr_dtor(&task->error);
@@ -256,6 +260,8 @@ static void async_task_object_destroy(zend_object *object)
 	OBJ_RELEASE(&task->context->std);
 
 	async_fiber_destroy(task->fiber.context);
+
+	zend_string_release(task->fiber.id);
 
 	zend_object_std_dtor(&task->fiber.std);
 }
@@ -425,13 +431,13 @@ ZEND_METHOD(Task, await)
 
 		ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 
-		async_awaitable_register_continuation(&inner->continuation, task, NULL, async_task_continuation);
+		task->suspended = async_awaitable_register_continuation(&inner->continuation, task, NULL, async_task_continuation);
 	} else if (ce == async_deferred_awaitable_ce) {
 		defer = ((async_deferred_awaitable *) Z_OBJ_P(val))->defer;
 
 		ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
 
-		async_awaitable_register_continuation(&defer->continuation, task, NULL, async_task_continuation);
+		task->suspended = async_awaitable_register_continuation(&defer->continuation, task, NULL, async_task_continuation);
 	} else {
 		RETURN_ZVAL(val, 1, 0);
 	}
@@ -442,8 +448,6 @@ ZEND_METHOD(Task, await)
 	task->fiber.value = USED_RET() ? return_value : NULL;
 	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
 
-	GC_ADDREF(&task->fiber.std);
-
 	context = ASYNC_G(current_context);
 
 	ASYNC_FIBER_BACKUP_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
@@ -453,6 +457,12 @@ ZEND_METHOD(Task, await)
 	ASYNC_G(current_context) = context;
 
 	task->fiber.value = value;
+
+	// Mark continuation as disposed if task continues before continuation fired.
+	if (task->suspended != NULL) {
+		task->suspended->disposed = 1;
+		task->suspended = NULL;
+	}
 
 	// Re-throw error provided by task scheduler.
 	if (Z_TYPE_P(&task->error) != IS_UNDEF) {

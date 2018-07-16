@@ -37,6 +37,52 @@ static zend_string *str_activate;
 static zend_string *str_runloop;
 
 
+static void dispose_tasks(async_task_scheduler *scheduler)
+{
+	async_task_scheduler *prev;
+
+	HashTable *tasks;
+	zval *task;
+
+	prev = ASYNC_G(current_scheduler);
+	ASYNC_G(current_scheduler) = scheduler;
+
+	while (zend_hash_num_elements(scheduler->tasks) > 0) {
+		tasks = scheduler->tasks;
+
+		ALLOC_HASHTABLE(scheduler->tasks);
+		zend_hash_init(scheduler->tasks, 0, NULL, ZVAL_PTR_DTOR, 0);
+
+		ZEND_HASH_FOREACH_VAL(tasks, task) {
+			async_task_dispose((async_task *) Z_OBJ_P(task));
+		} ZEND_HASH_FOREACH_END();
+
+		zend_hash_destroy(tasks);
+		FREE_HASHTABLE(tasks);
+
+		if (scheduler->running || scheduler->first != NULL) {
+			async_task_scheduler_run_loop(scheduler);
+		}
+	}
+
+	ASYNC_G(current_scheduler) = prev;
+}
+
+static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
+{
+	if (scheduler->running || scheduler->first != NULL) {
+		async_task_scheduler_run_loop(scheduler);
+	}
+
+	dispose_tasks(scheduler);
+
+	if (scheduler->fiber != NULL) {
+		OBJ_RELEASE(&scheduler->fiber->std);
+		scheduler->fiber = NULL;
+	}
+}
+
+
 async_task_scheduler *async_task_scheduler_get()
 {
 	async_task_scheduler *scheduler;
@@ -59,6 +105,9 @@ async_task_scheduler *async_task_scheduler_get()
 	zend_object_std_init(&scheduler->std, async_task_scheduler_ce);
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 
+	ALLOC_HASHTABLE(scheduler->tasks);
+	zend_hash_init(scheduler->tasks, 0, NULL, ZVAL_PTR_DTOR, 0);
+
 	ASYNC_G(scheduler) = scheduler;
 
 	return scheduler;
@@ -73,8 +122,18 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 
 	scheduler = task->scheduler;
 
+	ZEND_ASSERT(scheduler != NULL);
+
 	if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {
 		task->operation = ASYNC_TASK_OPERATION_START;
+
+		ZVAL_OBJ(&obj, &task->fiber.std);
+		GC_ADDREF(&task->fiber.std);
+
+		ZEND_ASSERT(scheduler->tasks != NULL);
+		ZEND_ASSERT(task->fiber.id != NULL);
+
+		zend_hash_add(scheduler->tasks, task->fiber.id, &obj);
 	} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->operation = ASYNC_TASK_OPERATION_RESUME;
 	} else {
@@ -88,8 +147,6 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 		scheduler->last->next = task;
 		scheduler->last = task;
 	}
-
-	GC_ADDREF(&task->fiber.std);
 
 	scheduler->scheduled++;
 
@@ -173,9 +230,13 @@ static void async_task_scheduler_run(async_task_scheduler *scheduler)
 
 				task->fiber.status = ASYNC_FIBER_STATUS_DEAD;
 			}
-		}
 
-		OBJ_RELEASE(&task->fiber.std);
+			if (task->fiber.status == ASYNC_OP_RESOLVED || task->fiber.status == ASYNC_OP_FAILED) {
+				async_task_dispose(task);
+
+				zend_hash_del_ind(scheduler->tasks, task->fiber.id);
+			}
+		}
 
 		// Loop has to return to main execution context due to resolved awaitable.
 		if (scheduler->loop && scheduler->stop_loop) {
@@ -257,6 +318,9 @@ static zend_object *async_task_scheduler_object_create(zend_class_entry *ce)
 	zend_object_std_init(&scheduler->std, ce);
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 
+	ALLOC_HASHTABLE(scheduler->tasks);
+	zend_hash_init(scheduler->tasks, 0, NULL, ZVAL_PTR_DTOR, 0);
+
 	return &scheduler->std;
 }
 
@@ -265,6 +329,11 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 	async_task_scheduler *scheduler;
 
 	scheduler = (async_task_scheduler *) object;
+
+	async_task_scheduler_dispose(scheduler);
+
+	zend_hash_destroy(scheduler->tasks);
+	FREE_HASHTABLE(scheduler->tasks);
 
 	zend_object_std_dtor(&scheduler->std);
 }
@@ -316,7 +385,7 @@ ZEND_METHOD(TaskScheduler, run)
 	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
 
 	async_task_scheduler_enqueue(task);
-	async_task_scheduler_run_loop(scheduler);
+	async_task_scheduler_dispose(scheduler);
 
 	if (scheduler->fiber != NULL) {
 		OBJ_RELEASE(&scheduler->fiber->std);
@@ -384,7 +453,7 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
 
 	async_task_scheduler_enqueue(task);
-	async_task_scheduler_run_loop(scheduler);
+	async_task_scheduler_dispose(scheduler);
 
 	if (scheduler->fiber != NULL) {
 		OBJ_RELEASE(&scheduler->fiber->std);
@@ -486,6 +555,9 @@ static zend_object *async_task_loop_scheduler_object_create(zend_class_entry *ce
 	zend_object_std_init(&scheduler->std, ce);
 	scheduler->std.handlers = &async_task_loop_scheduler_handlers;
 
+	ALLOC_HASHTABLE(scheduler->tasks);
+	zend_hash_init(scheduler->tasks, 0, NULL, ZVAL_PTR_DTOR, 0);
+
 	return &scheduler->std;
 }
 
@@ -495,14 +567,10 @@ static void async_task_loop_scheduler_object_destroy(zend_object *object)
 
 	scheduler = (async_task_scheduler *) object;
 
-	if (scheduler->running || scheduler->first != NULL) {
-		async_task_scheduler_run_loop(scheduler);
-	}
+	async_task_scheduler_dispose(scheduler);
 
-	if (scheduler->fiber != NULL) {
-		OBJ_RELEASE(&scheduler->fiber->std);
-		scheduler->fiber = NULL;
-	}
+	zend_hash_destroy(scheduler->tasks);
+	FREE_HASHTABLE(scheduler->tasks);
 
 	zend_object_std_dtor(&scheduler->std);
 }
@@ -594,6 +662,8 @@ void async_task_scheduler_shutdown()
 	scheduler = ASYNC_G(scheduler);
 
 	if (scheduler != NULL) {
+		async_task_scheduler_dispose(scheduler);
+
 		OBJ_RELEASE(&scheduler->std);
 	}
 }

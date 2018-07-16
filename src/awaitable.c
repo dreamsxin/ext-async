@@ -21,13 +21,14 @@
 zend_class_entry *async_awaitable_ce;
 
 
-void async_awaitable_register_continuation(async_awaitable_cb **cont, void *obj, zval *data, async_awaitable_func func)
+async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_cb **cont, void *obj, zval *data, async_awaitable_func func)
 {
 	async_awaitable_cb *current;
 
 	current = emalloc(sizeof(async_awaitable_cb));
 
 	current->object = obj;
+	current->disposed = 0;
 	current->func = func;
 	current->next = NULL;
 
@@ -42,6 +43,8 @@ void async_awaitable_register_continuation(async_awaitable_cb **cont, void *obj,
 	} else {
 		(*cont)->next = current;
 	}
+
+	return current;
 }
 
 void async_awaitable_trigger_continuation(async_awaitable_cb **cont, zval *result, zend_bool success)
@@ -57,9 +60,11 @@ void async_awaitable_trigger_continuation(async_awaitable_cb **cont, zval *resul
 			next = current->next;
 			*cont = next;
 
-			current->func(current->object, &current->data, result, success);
+			if (!current->disposed) {
+				current->func(current->object, &current->data, result, success);
 
-			zval_ptr_dtor(&current->data);
+				zval_ptr_dtor(&current->data);
+			}
 
 			efree(current);
 
