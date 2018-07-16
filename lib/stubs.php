@@ -77,13 +77,16 @@ class TaskScheduler implements \Countable
     
     protected final function dispatch(): void { }
     
+    public static final function setDefaultScheduler(TaskScheduler $scheduler): void { }
+}
+
+abstract class LoopTaskScheduler extends TaskScheduler
+{   
     protected function activate(): void { }
     
     protected function runLoop(): void { }
     
     protected function stopLoop(): void { }
-    
-    public static final function setDefaultScheduler(TaskScheduler $scheduler): void { }
 }
 
 final class Fiber

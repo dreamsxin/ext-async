@@ -10,11 +10,31 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 namespace Concurrent;
 
 try {
-    return Task::await((new Deferred())->awaitable());
+    Task::await((new Deferred())->awaitable());
+} catch (\Throwable $e) {
+    var_dump($e->getMessage());
+}
+
+try {
+    Task::await(Task::async(function () {
+        return Task::await((new Deferred())->awaitable());
+    }));
+} catch (\Throwable $e) {
+    var_dump($e->getMessage());
+}
+
+try {
+    Task::await(Task::async(function () {
+        return Task::await(Task::async(function () {
+            return Task::await((new Deferred())->awaitable());
+        }));
+    }));
 } catch (\Throwable $e) {
     var_dump($e->getMessage());
 }
 
 ?>
 --EXPECT--
+string(31) "Awaitable has not been resolved"
+string(31) "Awaitable has not been resolved"
 string(31) "Awaitable has not been resolved"

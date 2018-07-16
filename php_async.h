@@ -43,6 +43,8 @@ extern zend_module_entry async_module_entry;
 #include "TSRM.h"
 #endif
 
+#define ASYNC_OP_RESOLVED 64
+#define ASYNC_OP_FAILED 65
 
 ZEND_BEGIN_MODULE_GLOBALS(async)
 	/* Root fiber context (main thread). */
@@ -69,8 +71,6 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 	/* Error to be thrown into a fiber (will be populated by throw()). */
 	zval *error;
 
-	size_t counter;
-
 ZEND_END_MODULE_GLOBALS(async)
 
 ASYNC_API ZEND_EXTERN_MODULE_GLOBALS(async)
@@ -79,6 +79,12 @@ ASYNC_API ZEND_EXTERN_MODULE_GLOBALS(async)
 #if defined(ZTS) && defined(COMPILE_DL_ASYNC)
 ZEND_TSRMLS_CACHE_EXTERN()
 #endif
+
+#define ASYNC_CHECK_FATAL(expr, message) do { \
+	if (UNEXPECTED(expr)) { \
+		zend_error_noreturn(E_CORE_ERROR, message); \
+	} \
+} while (0)
 
 #define ASYNC_CHECK_ERROR(expr, message) do { \
     if (UNEXPECTED(expr)) { \

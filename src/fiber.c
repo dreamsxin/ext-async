@@ -35,8 +35,8 @@ const zend_uchar ASYNC_FIBER_TYPE_DEFAULT = 0;
 const zend_uchar ASYNC_FIBER_STATUS_INIT = 0;
 const zend_uchar ASYNC_FIBER_STATUS_SUSPENDED = 1;
 const zend_uchar ASYNC_FIBER_STATUS_RUNNING = 2;
-const zend_uchar ASYNC_FIBER_STATUS_FINISHED = 3;
-const zend_uchar ASYNC_FIBER_STATUS_DEAD = 4;
+const zend_uchar ASYNC_FIBER_STATUS_FINISHED = ASYNC_OP_RESOLVED;
+const zend_uchar ASYNC_FIBER_STATUS_DEAD = ASYNC_OP_FAILED;
 
 static zend_object_handlers async_fiber_handlers;
 
@@ -102,15 +102,11 @@ void async_fiber_run()
 
 	execute_ex(fiber->exec);
 
-	fiber->value = NULL;
-
-	zval_ptr_dtor(&fiber->fci.function_name);
-
 	zend_vm_stack_destroy();
 	fiber->stack = NULL;
 	fiber->exec = NULL;
 
-	async_fiber_yield(fiber->context);
+	ASYNC_CHECK_FATAL(!async_fiber_yield(fiber->context), "Failed to yield from fiber");
 }
 
 
@@ -124,29 +120,38 @@ static int fiber_run_opcode_handler(zend_execute_data *exec)
 	ZEND_ASSERT(fiber != NULL);
 
 	fiber->status = ASYNC_FIBER_STATUS_RUNNING;
-	fiber->fci.retval = &retval;
 
-	if (zend_call_function(&fiber->fci, &fiber->fcc) == SUCCESS) {
-		if (fiber->value != NULL && !EG(exception)) {
-			ZVAL_ZVAL(fiber->value, &retval, 0, 1);
-		}
-	}
-
-	if (EG(exception)) {
-		if (fiber->status == ASYNC_FIBER_STATUS_DEAD) {
-			zend_clear_exception();
-		} else {
-			fiber->status = ASYNC_FIBER_STATUS_DEAD;
-		}
+	if (fiber->func != NULL) {
+		fiber->func(fiber);
 	} else {
-		fiber->status = ASYNC_FIBER_STATUS_FINISHED;
+		fiber->fci.retval = &retval;
+
+		if (zend_call_function(&fiber->fci, &fiber->fcc) == SUCCESS) {
+			if (fiber->value != NULL && !EG(exception)) {
+				ZVAL_ZVAL(fiber->value, &retval, 0, 1);
+			}
+		}
+
+		if (EG(exception)) {
+			if (fiber->disposed) {
+				zend_clear_exception();
+			}
+
+			fiber->status = ASYNC_FIBER_STATUS_DEAD;
+		} else {
+			fiber->status = ASYNC_FIBER_STATUS_FINISHED;
+		}
+
+		fiber->value = NULL;
+
+		zval_ptr_dtor(&fiber->fci.function_name);
 	}
 
 	return ZEND_USER_OPCODE_RETURN;
 }
 
 
-static zend_object *async_fiber_object_create(zend_class_entry *ce)
+zend_object *async_fiber_object_create(zend_class_entry *ce)
 {
 	async_fiber *fiber;
 
@@ -155,6 +160,8 @@ static zend_object *async_fiber_object_create(zend_class_entry *ce)
 
 	zend_object_std_init(&fiber->std, ce);
 	fiber->std.handlers = &async_fiber_handlers;
+
+	fiber->id = strpprintf(16, "%016zx", (intptr_t) &fiber->std);
 
 	return &fiber->std;
 }
@@ -167,16 +174,19 @@ static void async_fiber_object_destroy(zend_object *object)
 	fiber = (async_fiber *) object;
 
 	if (fiber->status == ASYNC_FIBER_STATUS_SUSPENDED) {
-		fiber->status = ASYNC_FIBER_STATUS_DEAD;
+		fiber->disposed = 1;
+		fiber->status = ASYNC_FIBER_STATUS_RUNNING;
 
-		async_fiber_switch_to(fiber);
+		ASYNC_CHECK_FATAL(!async_fiber_switch_to(fiber), "Failed to switch to fiber");
 	}
 
-	if (fiber->status == ASYNC_FIBER_STATUS_INIT) {
+	if (fiber->status == ASYNC_FIBER_STATUS_INIT && fiber->func == NULL) {
 		zval_ptr_dtor(&fiber->fci.function_name);
 	}
 
 	async_fiber_destroy(fiber->context);
+
+	zend_string_release(fiber->id);
 
 	zend_object_std_dtor(&fiber->std);
 }
@@ -236,10 +246,7 @@ ZEND_METHOD(Fiber, start)
 
 	fiber = (async_fiber *) Z_OBJ_P(getThis());
 
-	if (fiber->status != ASYNC_FIBER_STATUS_INIT) {
-		zend_throw_error(NULL, "Cannot start Fiber that has already been started");
-		return;
-	}
+	ASYNC_CHECK_ERROR(fiber->status != ASYNC_FIBER_STATUS_INIT, "Cannot start Fiber that has already been started");
 
 	fiber->fci.params = params;
 	fiber->fci.param_count = param_count;
@@ -278,10 +285,7 @@ ZEND_METHOD(Fiber, resume)
 
 	fiber = (async_fiber *) Z_OBJ_P(getThis());
 
-	if (fiber->status != ASYNC_FIBER_STATUS_SUSPENDED) {
-		zend_throw_error(NULL, "Non-suspended Fiber cannot be resumed");
-		return;
-	}
+	ASYNC_CHECK_ERROR(fiber->status != ASYNC_FIBER_STATUS_SUSPENDED, "Non-suspended Fiber cannot be resumed");
 
 	if (val != NULL && fiber->value != NULL) {
 		ZVAL_COPY(fiber->value, val);
@@ -360,20 +364,10 @@ ZEND_METHOD(Fiber, yield)
 
 	fiber = ASYNC_G(current_fiber);
 
-	if (UNEXPECTED(fiber == NULL)) {
-		zend_throw_error(NULL, "Cannot yield from outside a fiber");
-		return;
-	}
-
-	if (fiber->type != ASYNC_FIBER_TYPE_DEFAULT) {
-		zend_throw_error(NULL, "Cannot yield from an async task");
-		return;
-	}
-
-	if (fiber->status != ASYNC_FIBER_STATUS_RUNNING) {
-		zend_throw_error(NULL, "Cannot yield from a fiber that is not running");
-		return;
-	}
+	ASYNC_CHECK_ERROR(fiber == NULL, "Cannot yield from outside a fiber");
+	ASYNC_CHECK_ERROR(fiber->type != ASYNC_FIBER_TYPE_DEFAULT, "Cannot yield from an async task");
+	ASYNC_CHECK_ERROR(fiber->status != ASYNC_FIBER_STATUS_RUNNING, "Cannot yield from a fiber that is not running");
+	ASYNC_CHECK_ERROR(fiber->disposed, "Fiber has been destroyed");
 
 	val = NULL;
 
@@ -394,10 +388,7 @@ ZEND_METHOD(Fiber, yield)
 	async_fiber_yield(fiber->context);
 	ASYNC_FIBER_RESTORE_EG(fiber->stack, stack_page_size, fiber->exec);
 
-	if (fiber->status == ASYNC_FIBER_STATUS_DEAD) {
-		zend_throw_error(NULL, "Fiber has been destroyed");
-		return;
-	}
+	ASYNC_CHECK_ERROR(fiber->disposed, "Fiber has been destroyed");
 
 	error = ASYNC_G(error);
 
@@ -408,6 +399,8 @@ ZEND_METHOD(Fiber, yield)
 		exec->opline--;
 		zend_throw_exception_internal(error);
 		exec->opline++;
+
+		return;
 	}
 }
 /* }}} */

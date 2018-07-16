@@ -12,7 +12,7 @@ register_shutdown_function(function () {
     echo "===> Shutdown function(s) execute here.\n";
 });
 
-TaskScheduler::setDefaultScheduler(new class($loop) extends TaskScheduler {
+TaskScheduler::setDefaultScheduler(new class($loop) extends LoopTaskScheduler {
 
     protected $loop;
 
@@ -37,7 +37,7 @@ TaskScheduler::setDefaultScheduler(new class($loop) extends TaskScheduler {
         $this->loop->run();
         var_dump('END LOOP');
     }
-
+    
     protected function stopLoop()
     {
         var_dump('STOP LOOP');
@@ -73,7 +73,7 @@ Task::await(Task::async(function () use ($loop, $work) {
     Task::async(function () use ($loop) {
         $defer = new Deferred();
         
-        $loop->addTimer(.8, function () use ($defer) {
+        $loop->addTimer(1, function () use ($defer) {
             $defer->resolve('H :)');
         });
         
@@ -84,7 +84,7 @@ Task::await(Task::async(function () use ($loop, $work) {
         var_dump(Task::await(adapt($defer->promise())));
     });
     
-    $loop->addTimer(.05, function () use ($work, $defer) {
+    $loop->addTimer(.5, function () use ($work, $defer) {
         $defer->resolve('F');
         
         Task::async($work, 'G');

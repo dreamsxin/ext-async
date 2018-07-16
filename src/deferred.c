@@ -28,8 +28,8 @@ zend_class_entry *async_deferred_ce;
 zend_class_entry *async_deferred_awaitable_ce;
 
 const zend_uchar ASYNC_DEFERRED_STATUS_PENDING = 0;
-const zend_uchar ASYNC_DEFERRED_STATUS_RESOLVED = 1;
-const zend_uchar ASYNC_DEFERRED_STATUS_FAILED = 2;
+const zend_uchar ASYNC_DEFERRED_STATUS_RESOLVED = ASYNC_OP_RESOLVED;
+const zend_uchar ASYNC_DEFERRED_STATUS_FAILED = ASYNC_OP_FAILED;
 
 static zend_object_handlers async_deferred_handlers;
 static zend_object_handlers async_deferred_awaitable_handlers;
@@ -105,7 +105,7 @@ static void async_deferred_object_destroy(zend_object *object)
 	defer->status = ASYNC_DEFERRED_STATUS_FAILED;
 
 	if (defer->continuation != NULL) {
-		async_awaitable_dispose_continuation(&defer->continuation);
+		async_awaitable_trigger_continuation(&defer->continuation, NULL, 0);
 	}
 
 	zval_ptr_dtor(&defer->result);
@@ -383,12 +383,7 @@ ZEND_METHOD(Deferred, combine)
 	fci.no_separation = 1;
 
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(args), entry) {
-		if (Z_TYPE_P(entry) != IS_OBJECT) {
-			zend_throw_error(zend_ce_type_error, "All input elements must be awaitable");
-			return;
-		}
-
-		ce = Z_OBJCE_P(entry);
+		ce = (Z_TYPE_P(entry) == IS_OBJECT) ? Z_OBJCE_P(entry) : NULL;
 
 		if (ce != async_task_ce && ce != async_deferred_awaitable_ce) {
 			zend_throw_error(zend_ce_type_error, "All input elements must be awaitable");

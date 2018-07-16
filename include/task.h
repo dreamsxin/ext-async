@@ -21,9 +21,9 @@
 
 #include "php.h"
 #include "awaitable.h"
+#include "context.h"
+#include "fiber.h"
 
-typedef void* async_fiber_context;
-typedef struct _async_context async_context;
 typedef struct _async_task_scheduler async_task_scheduler;
 
 BEGIN_EXTERN_C()
@@ -38,9 +38,6 @@ struct _async_task {
 
 	/* Task scheduler being used to execute the task. */
 	async_task_scheduler *scheduler;
-
-	/* Unique identifier of this task. */
-	size_t id;
 
 	/* Async execution context provided to the task. */
 	async_context *context;
@@ -57,6 +54,9 @@ struct _async_task {
 	/* Return value of the task, may also be an error object, check status for outcome. */
 	zval result;
 
+	/* Current suspension point of the task. */
+	async_awaitable_cb *suspended;
+
 	/* Linked list of registered continuation callbacks. */
 	async_awaitable_cb *continuation;
 };
@@ -67,6 +67,7 @@ extern const zend_uchar ASYNC_TASK_OPERATION_NONE;
 extern const zend_uchar ASYNC_TASK_OPERATION_START;
 extern const zend_uchar ASYNC_TASK_OPERATION_RESUME;
 
+void async_task_dispose(async_task *task);
 async_task *async_task_object_create();
 
 void async_task_start(async_task *task);
@@ -75,11 +76,6 @@ void async_task_continue(async_task *task);
 void async_task_ce_register();
 
 END_EXTERN_C()
-
-typedef struct _async_task_stop_info {
-	async_task_scheduler *scheduler;
-	zend_bool required;
-} async_task_stop_info;
 
 #endif
 
