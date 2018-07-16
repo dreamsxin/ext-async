@@ -38,7 +38,6 @@ struct _async_awaitable_cb {
 
 void async_awaitable_register_continuation(async_awaitable_cb **cont, void *obj, zval *data, async_awaitable_func func);
 void async_awaitable_trigger_continuation(async_awaitable_cb **cont, zval *result, zend_bool success);
-void async_awaitable_dispose_continuation(async_awaitable_cb **cont);
 
 void async_awaitable_ce_register();
 

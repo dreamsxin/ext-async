@@ -173,22 +173,6 @@ static void async_task_scheduler_run(async_task_scheduler *scheduler)
 
 				task->fiber.status = ASYNC_FIBER_STATUS_DEAD;
 			}
-
-			if (task->fiber.status == ASYNC_FIBER_STATUS_FINISHED) {
-				if (Z_TYPE_P(&task->result) == IS_OBJECT && instanceof_function_ex(Z_OBJCE_P(&task->result), async_awaitable_ce, 1) != 0) {
-					zend_throw_error(NULL, "Task must not return an object implementing Awaitable");
-
-					zval_ptr_dtor(&task->result);
-					ZVAL_OBJ(&task->result, EG(exception));
-					EG(exception) = NULL;
-
-					task->fiber.status = ASYNC_FIBER_STATUS_DEAD;
-				}
-
-				async_awaitable_trigger_continuation(&task->continuation, &task->result, 1);
-			} else if (task->fiber.status == ASYNC_FIBER_STATUS_DEAD) {
-				async_awaitable_trigger_continuation(&task->continuation, &task->result, 0);
-			}
 		}
 
 		OBJ_RELEASE(&task->fiber.std);

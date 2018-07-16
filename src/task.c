@@ -50,6 +50,50 @@ static zend_object_handlers async_task_handlers;
 } while (0)
 
 
+static void async_task_fiber_func(async_fiber *fiber)
+{
+	async_task *task;
+
+	zval retval;
+
+	ZEND_ASSERT(fiber->type == ASYNC_FIBER_TYPE_TASK);
+
+	task = (async_task *) fiber;
+
+	fiber->fci.retval = &retval;
+
+	zend_call_function(&fiber->fci, &fiber->fcc);
+
+	fiber->value = NULL;
+
+	zval_ptr_dtor(&fiber->fci.function_name);
+
+	// TODO: Call await instead...
+
+	if (Z_TYPE_P(&retval) == IS_OBJECT && instanceof_function_ex(Z_OBJCE_P(&retval), async_awaitable_ce, 1) != 0) {
+		zend_throw_error(NULL, "Task must not return an object implementing Awaitable");
+	}
+
+	if (EG(exception)) {
+		fiber->status = ASYNC_FIBER_STATUS_DEAD;
+
+		ZVAL_OBJ(&task->result, EG(exception));
+		EG(exception) = NULL;
+
+		async_awaitable_trigger_continuation(&task->continuation, &task->result, 0);
+	} else {
+		fiber->status = ASYNC_FIBER_STATUS_FINISHED;
+
+		ZVAL_COPY(&task->result, &retval);
+
+		async_awaitable_trigger_continuation(&task->continuation, &task->result, 1);
+	}
+
+	zval_ptr_dtor(&retval);
+
+	zend_clear_exception();
+}
+
 void async_task_start(async_task *task)
 {
 	async_context *context;
@@ -66,6 +110,7 @@ void async_task_start(async_task *task)
 	task->fiber.stack->prev = NULL;
 
 	task->fiber.status = ASYNC_FIBER_STATUS_RUNNING;
+	task->fiber.func = async_task_fiber_func;
 
 	context = ASYNC_G(current_context);
 	ASYNC_G(current_context) = task->context;
@@ -91,20 +136,14 @@ static void async_task_continuation(void *obj, zval *data, zval *result, zend_bo
 
 	task = (async_task *) obj;
 
-	if (task->fiber.status != ASYNC_FIBER_STATUS_SUSPENDED) {
-		task->fiber.value = NULL;
-
-		return;
-	}
-
-	if (result != NULL) {
-		if (success) {
-			if (task->fiber.value != NULL) {
-				ZVAL_COPY(task->fiber.value, result);
-			}
-		} else {
-			ZVAL_COPY(&task->error, result);
+	if (result == NULL ||task->fiber.status != ASYNC_FIBER_STATUS_SUSPENDED) {
+		task->fiber.status = ASYNC_FIBER_STATUS_DEAD;
+	} else if (success) {
+		if (task->fiber.value != NULL) {
+			ZVAL_COPY(task->fiber.value, result);
 		}
+	} else {
+		ZVAL_COPY(&task->error, result);
 	}
 
 	task->fiber.value = NULL;
@@ -205,10 +244,10 @@ static void async_task_object_destroy(zend_object *object)
 	if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {
 		zend_fcall_info_args_clear(&task->fiber.fci, 1);
 		zval_ptr_dtor(&task->fiber.fci.function_name);
-	}
 
-	if (task->continuation != NULL) {
-		async_awaitable_dispose_continuation(&task->continuation);
+		if (task->continuation != NULL) {
+			async_awaitable_trigger_continuation(&task->continuation, NULL, 0);
+		}
 	}
 
 	zval_ptr_dtor(&task->result);

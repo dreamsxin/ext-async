@@ -50,6 +50,7 @@ void async_awaitable_trigger_continuation(async_awaitable_cb **cont, zval *resul
 	async_awaitable_cb *next;
 
 	current = *cont;
+	*cont = NULL;
 
 	if (current != NULL) {
 		do {
@@ -65,33 +66,6 @@ void async_awaitable_trigger_continuation(async_awaitable_cb **cont, zval *resul
 			current = next;
 		} while (current != NULL);
 	}
-
-	*cont = NULL;
-}
-
-void async_awaitable_dispose_continuation(async_awaitable_cb **cont)
-{
-	async_awaitable_cb *current;
-	async_awaitable_cb *next;
-
-	current = *cont;
-
-	if (current != NULL) {
-		do {
-			next = current->next;
-			*cont = next;
-
-			current->func(current->object, &current->data, NULL, 0);
-
-			zval_ptr_dtor(&current->data);
-
-			efree(current);
-
-			current = next;
-		} while (current != NULL);
-	}
-
-	*cont = NULL;
 }
 
 static int async_awaitable_implement_interface(zend_class_entry *interface, zend_class_entry *implementor)
