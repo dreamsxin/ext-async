@@ -31,13 +31,16 @@ typedef struct _async_deferred async_deferred;
 typedef struct _async_deferred_awaitable async_deferred_awaitable;
 
 struct _async_deferred {
+	/* PHP object handle. */
 	zend_object std;
 
+	/* Status of the deferred, one of the ASYNC_DEFERRED_STATUS_* constants. */
 	zend_uchar status;
 
+	/* Result (or error) value in case of resolved deferred. */
 	zval result;
 
-	/* Linked list of registered continuation callbacks. */
+	/* Linked list of registered continuation callbacks (can be NULL). */
 	async_awaitable_cb *continuation;
 };
 
@@ -46,8 +49,10 @@ extern const zend_uchar ASYNC_DEFERRED_STATUS_RESOLVED;
 extern const zend_uchar ASYNC_DEFERRED_STATUS_FAILED;
 
 struct _async_deferred_awaitable {
+	/* PHP object handle. */
 	zend_object std;
 
+	/* Refers to the deferred object that created the awaitable. */
 	async_deferred *defer;
 };
 

@@ -40,6 +40,7 @@ struct _async_fiber {
 	/* Fiber PHP object handle. */
 	zend_object std;
 
+	/* Unique identifier of the fiber (only unique as long as the object exists!). */
 	zend_string *id;
 
 	/* Implementation-specific fiber type. */
@@ -48,6 +49,7 @@ struct _async_fiber {
 	/* Status of the fiber, one of the ASYNC_FIBER_STATUS_* constants. */
 	zend_uchar status;
 
+	/* Flag indicating if the fiber has been disposed yet. */
 	zend_bool disposed;
 
 	/* Callback and info / cache to be used when fiber is started. */
@@ -57,6 +59,7 @@ struct _async_fiber {
 	/* Native fiber context of this fiber, will be created during call to start(). */
 	async_fiber_context context;
 
+	/* Custom fiber execution function (NULL for default handler). */
 	async_fiber_run_func func;
 
 	/* Destination for a PHP value being passed into or returned from the fiber. */
@@ -90,8 +93,6 @@ async_fiber_context async_fiber_create_context();
 
 zend_bool async_fiber_create(async_fiber_context context, async_fiber_func func, size_t stack_size);
 void async_fiber_destroy(async_fiber_context context);
-
-zend_object *async_fiber_object_create(zend_class_entry *ce);
 
 zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next);
 zend_bool async_fiber_yield(async_fiber_context current);

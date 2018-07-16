@@ -44,12 +44,19 @@ struct _async_task_scheduler {
 	/* Points to the last task to be run (needed to insert tasks into the run queue. */
 	async_task *last;
 
+	/* Flag indidcating if the scheduler is integrated with an event loop. */
 	zend_bool loop;
 
+	/* Is set while an event loop is running. */
 	zend_bool running;
+
+	/* Is set while the scheduler is in the process of dispatching tasks. */
 	zend_bool dispatching;
+
+	/* Is set when the next task scheduling operation needs to trigger the activate() method. */
 	zend_bool activate;
 
+	/* Keeps track of all unfinished tasks that have been registered with the scheduler. */
 	HashTable *tasks;
 };
 

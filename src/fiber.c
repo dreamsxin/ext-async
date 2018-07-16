@@ -151,7 +151,7 @@ static int fiber_run_opcode_handler(zend_execute_data *exec)
 }
 
 
-zend_object *async_fiber_object_create(zend_class_entry *ce)
+static zend_object *async_fiber_object_create(zend_class_entry *ce)
 {
 	async_fiber *fiber;
 
@@ -399,8 +399,6 @@ ZEND_METHOD(Fiber, yield)
 		exec->opline--;
 		zend_throw_exception_internal(error);
 		exec->opline++;
-
-		return;
 	}
 }
 /* }}} */

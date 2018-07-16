@@ -62,9 +62,9 @@ void async_awaitable_trigger_continuation(async_awaitable_cb **cont, zval *resul
 
 			if (!current->disposed) {
 				current->func(current->object, &current->data, result, success);
-
-				zval_ptr_dtor(&current->data);
 			}
+
+			zval_ptr_dtor(&current->data);
 
 			efree(current);
 

@@ -65,8 +65,6 @@ static void async_task_fiber_func(async_fiber *fiber)
 	zend_call_function(&fiber->fci, &fiber->fcc);
 	zval_ptr_dtor(&fiber->fci.function_name);
 
-	fiber->value = NULL;
-
 	// TODO: Call await instead...
 
 	if (Z_TYPE_P(&retval) == IS_OBJECT && instanceof_function_ex(Z_OBJCE_P(&retval), async_awaitable_ce, 1) != 0) {
@@ -220,9 +218,6 @@ async_task *async_task_object_create()
 	ZVAL_NULL(&task->result);
 	ZVAL_UNDEF(&task->error);
 
-	// The final send value is the task result, pointer will be overwritten and restored during await.
-	task->fiber.value = &task->result;
-
 	zend_object_std_init(&task->fiber.std, async_task_ce);
 	task->fiber.std.handlers = &async_task_handlers;
 
@@ -375,7 +370,6 @@ ZEND_METHOD(Task, await)
 	size_t stack_page_size;
 
 	zval *val;
-	zval *value;
 	zval error;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
@@ -447,9 +441,6 @@ ZEND_METHOD(Task, await)
 		RETURN_ZVAL(val, 1, 0);
 	}
 
-	// Switch the value pointer to the return value of await() until the task is continued.
-	value = task->fiber.value;
-
 	task->fiber.value = USED_RET() ? return_value : NULL;
 	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
 
@@ -460,8 +451,6 @@ ZEND_METHOD(Task, await)
 	ASYNC_FIBER_RESTORE_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
 
 	ASYNC_G(current_context) = context;
-
-	task->fiber.value = value;
 
 	// Mark continuation as disposed if task continues before continuation fired.
 	if (task->suspended != NULL) {

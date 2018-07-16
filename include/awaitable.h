@@ -27,13 +27,22 @@ extern zend_class_entry *async_awaitable_ce;
 
 typedef struct _async_awaitable_cb async_awaitable_cb;
 
-typedef void (*async_awaitable_func)(void *obj, zval *data, zval *result, zend_bool success);
+typedef void (* async_awaitable_func)(void *obj, zval *data, zval *result, zend_bool success);
 
 struct _async_awaitable_cb {
+	/* Object that registered the continuation. */
 	void *object;
+
+	/* Arbitrary zval being passed to the continuation. */
 	zval data;
+
+	/* Will be set if the continuation is no longer applicable. */
 	zend_bool disposed;
+
+	/* Continuation function to be called. */
 	async_awaitable_func func;
+
+	/* Link to the next registered continuation (or NULL if no more continuations are available). */
 	async_awaitable_cb *next;
 };
 
