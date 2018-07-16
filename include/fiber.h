@@ -48,6 +48,8 @@ struct _async_fiber {
 	/* Status of the fiber, one of the ASYNC_FIBER_STATUS_* constants. */
 	zend_uchar status;
 
+	zend_bool disposed;
+
 	/* Callback and info / cache to be used when fiber is started. */
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;

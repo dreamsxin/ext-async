@@ -42,6 +42,6 @@ var_dump('SCRIPT END');
 string(5) "START"
 string(7) "DISPOSE"
 string(24) "Fiber has been destroyed"
-string(45) "Cannot yield from a fiber that is not running"
+string(24) "Fiber has been destroyed"
 string(4) "DONE"
 string(10) "SCRIPT END"

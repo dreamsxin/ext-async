@@ -63,10 +63,9 @@ static void async_task_fiber_func(async_fiber *fiber)
 	fiber->fci.retval = &retval;
 
 	zend_call_function(&fiber->fci, &fiber->fcc);
+	zval_ptr_dtor(&fiber->fci.function_name);
 
 	fiber->value = NULL;
-
-	zval_ptr_dtor(&fiber->fci.function_name);
 
 	// TODO: Call await instead...
 
@@ -233,9 +232,9 @@ async_task *async_task_object_create()
 void async_task_dispose(async_task *task)
 {
 	if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
-		task->fiber.status = ASYNC_FIBER_STATUS_DEAD;
+		task->fiber.disposed = 1;
 
-		ASYNC_CHECK_FATAL(!async_fiber_switch_to(&task->fiber), "Failed to switch to fiber");
+		async_task_continue(task);
 	}
 
 	if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {
@@ -416,6 +415,7 @@ ZEND_METHOD(Task, await)
 
 	ASYNC_CHECK_ERROR(fiber->type != ASYNC_FIBER_TYPE_TASK, "Await must be called from within a running task");
 	ASYNC_CHECK_ERROR(fiber->status != ASYNC_FIBER_STATUS_RUNNING, "Cannot await in a task that is not running");
+	ASYNC_CHECK_ERROR(fiber->disposed, "Task has been destroyed");
 
 	task = (async_task *) fiber;
 
@@ -476,7 +476,7 @@ ZEND_METHOD(Task, await)
 		return;
 	}
 
-	ASYNC_CHECK_ERROR(task->fiber.status == ASYNC_FIBER_STATUS_DEAD, "Task has been destroyed");
+	ASYNC_CHECK_ERROR(task->fiber.disposed, "Task has been destroyed");
 }
 
 ZEND_METHOD(Task, __wakeup)
