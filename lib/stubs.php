@@ -64,6 +64,9 @@ final class Task implements Awaitable
     
     public static function asyncWithContext(Context $context, callable $callback, ...$args): Task { }
     
+    /**
+     * @throws \Throwable Depends on the awaited operation.
+     */
     public static function await($a) { }
 }
 
