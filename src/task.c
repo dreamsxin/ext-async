@@ -386,12 +386,14 @@ ZEND_METHOD(Task, await)
 
 	// Check for root level await.
 	if (fiber == NULL) {
+		scheduler = async_task_scheduler_get();
+
+		ASYNC_CHECK_ERROR(scheduler->running, "Cannot await in the fiber that is running the task scheduler loop");
+
 		if (ce == async_deferred_awaitable_ce) {
 			defer = ((async_deferred_awaitable *) Z_OBJ_P(val))->defer;
 
 			ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
-
-			scheduler = async_task_scheduler_get();
 
 			cont = async_awaitable_register_continuation(&defer->continuation, scheduler, NULL, top_level_continuation);
 			async_task_scheduler_run_loop(scheduler);
@@ -399,6 +401,8 @@ ZEND_METHOD(Task, await)
 			ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
 		} else if (ce == async_task_ce) {
 			inner = (async_task *) Z_OBJ_P(val);
+
+			ASYNC_CHECK_ERROR(inner->scheduler != scheduler, "Cannot await a task that runs on a different task scheduler");
 
 			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 
@@ -424,6 +428,8 @@ ZEND_METHOD(Task, await)
 	ASYNC_CHECK_ERROR(fiber->disposed, "Task has been destroyed");
 
 	task = (async_task *) fiber;
+
+	ASYNC_CHECK_ERROR(!ASYNC_G(current_scheduler)->dispatching, "Cannot await while the task scheduler is not dispatching tasks");
 
 	if (ce == async_task_ce) {
 		inner = (async_task *) Z_OBJ_P(val);

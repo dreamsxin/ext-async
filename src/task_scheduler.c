@@ -282,6 +282,7 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 	ASYNC_G(current_scheduler) = scheduler;
 
 	ASYNC_CHECK_FATAL(scheduler->running, "Duplicate scheduler loop run detected");
+	ASYNC_CHECK_FATAL(scheduler->dispatching, "Cannot run loop while dispatching");
 
 	scheduler->running = 1;
 

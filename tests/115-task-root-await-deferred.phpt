@@ -9,16 +9,6 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-var_dump(Task::await(123));
-
-var_dump(Task::await(Deferred::value(321)));
-
-try {
-    Task::await(Deferred::error(new \Error('Fail!')));
-} catch (\Throwable $e) {
-    var_dump($e->getMessage());
-}
-
 TaskScheduler::setDefaultScheduler(new class() extends LoopTaskScheduler {
     protected function activate() {
         var_dump('ACTIVATE');
@@ -34,6 +24,16 @@ TaskScheduler::setDefaultScheduler(new class() extends LoopTaskScheduler {
         var_dump('STOP');
     }
 });
+
+var_dump(Task::await(123));
+
+var_dump(Task::await(Deferred::value(321)));
+
+try {
+    Task::await(Deferred::error(new \Error('Fail!')));
+} catch (\Throwable $e) {
+    var_dump($e->getMessage());
+}
 
 $defer = new Deferred();
 
