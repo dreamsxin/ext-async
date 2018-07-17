@@ -39,6 +39,8 @@ final class Deferred
     public static function error(\Throwable $e): Awaitable { }
     
     public static function combine(array $awaitables, callable $continuation): Awaitable { }
+    
+    public static function transform(Awaitable $awaitable, callable $transform): Awaitable { }
 }
 ```
 
