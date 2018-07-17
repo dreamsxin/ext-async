@@ -60,6 +60,23 @@ void async_deferred_ce_register();
 
 END_EXTERN_C()
 
+typedef struct _async_deferred_combine async_deferred_combine;
+
+struct _async_deferred_combine {
+	async_deferred *defer;
+	zend_long counter;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+};
+
+typedef struct _async_deferred_transform async_deferred_transform;
+
+struct _async_deferred_transform {
+	async_deferred *defer;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+};
+
 #endif
 
 /*
