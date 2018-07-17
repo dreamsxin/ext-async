@@ -22,14 +22,11 @@ try {
 TaskScheduler::setDefaultScheduler(new class() extends LoopTaskScheduler {
     protected function activate() {
         var_dump('ACTIVATE');
-        $this->dispatch();
     }
     
     protected function runLoop() {
         var_dump('START');
-        while ($this->count()) {
-            $this->dispatch();
-        }
+        $this->dispatch();
         var_dump('END');
     }
     
@@ -52,6 +49,9 @@ int(123)
 int(321)
 string(5) "Fail!"
 string(8) "ACTIVATE"
+string(5) "START"
+string(4) "STOP"
+string(3) "END"
 int(777)
 string(5) "START"
 string(3) "END"

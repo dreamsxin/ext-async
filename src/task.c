@@ -228,6 +228,8 @@ async_task *async_task_object_create()
 
 void async_task_dispose(async_task *task)
 {
+	task->operation = ASYNC_TASK_OPERATION_NONE;
+
 	if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->fiber.disposed = 1;
 
@@ -238,9 +240,7 @@ void async_task_dispose(async_task *task)
 		zend_fcall_info_args_clear(&task->fiber.fci, 1);
 		zval_ptr_dtor(&task->fiber.fci.function_name);
 
-		if (task->continuation != NULL) {
-			async_awaitable_trigger_continuation(&task->continuation, NULL, 0);
-		}
+		async_awaitable_trigger_continuation(&task->continuation, NULL, 0);
 	}
 }
 
@@ -408,7 +408,10 @@ ZEND_METHOD(Task, await)
 
 		cont->disposed = 1;
 
-		zend_throw_error(NULL, "Awaitable has not been resolved");
+		if (EXPECTED(EG(exception) == NULL)) {
+			zend_throw_error(NULL, "Awaitable has not been resolved");
+		}
+
 		return;
 	}
 

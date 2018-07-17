@@ -56,6 +56,9 @@ struct _async_task_scheduler {
 	/* Is set when the next task scheduling operation needs to trigger the activate() method. */
 	zend_bool activate;
 
+	/* Is set during the call to activate(), needed to prevent early dispatching. */
+	zend_bool activating;
+
 	/* Keeps track of all unfinished tasks that have been registered with the scheduler. */
 	HashTable *tasks;
 };

@@ -148,6 +148,7 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 
 	if (scheduler->loop && scheduler->activate && !scheduler->dispatching) {
 		scheduler->activate = 0;
+		scheduler->activating = 1;
 
 		ZVAL_OBJ(&obj, &scheduler->std);
 		GC_ADDREF(&scheduler->std);
@@ -158,6 +159,32 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 		zend_call_method_with_0_params(&obj, Z_OBJCE_P(&obj), &func, "activate", &retval);
 		zval_ptr_dtor(&obj);
 		zval_ptr_dtor(&retval);
+
+		scheduler->activating = 0;
+
+		if (UNEXPECTED(EG(exception))) {
+			scheduler->activate = 1;
+
+			if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {
+				ZVAL_OBJ(&task->result, EG(exception));
+				EG(exception) = NULL;
+
+				zend_clear_exception();
+
+				zend_fcall_info_args_clear(&task->fiber.fci, 1);
+				zval_ptr_dtor(&task->fiber.fci.function_name);
+
+				task->operation = ASYNC_TASK_OPERATION_NONE;
+				task->fiber.status = ASYNC_FIBER_STATUS_FAILED;
+
+				async_awaitable_trigger_continuation(&task->continuation, &task->result, 0);
+			} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
+				ZVAL_OBJ(&task->error, EG(exception));
+				EG(exception) = NULL;
+
+				zend_clear_exception();
+			}
+		}
 	}
 
 	return 1;
@@ -220,6 +247,8 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 	prev = ASYNC_G(current_scheduler);
 	ASYNC_G(current_scheduler) = scheduler;
 
+	ASYNC_CHECK_FATAL(scheduler->running, "Duplicate scheduler loop run detected");
+
 	scheduler->running = 1;
 
 	if (scheduler->loop) {
@@ -249,6 +278,8 @@ void concurrent_task_scheduler_stop_loop(async_task_scheduler *scheduler)
 	zval retval;
 
 	if (scheduler->loop) {
+		ASYNC_CHECK_FATAL(scheduler->running == 0, "Cannot stop scheduler loop that is not running");
+
 		ZVAL_OBJ(&obj, &scheduler->std);
 		GC_ADDREF(&scheduler->std);
 
@@ -315,6 +346,8 @@ ZEND_METHOD(TaskScheduler, run)
 
 	scheduler = (async_task_scheduler *) Z_OBJ_P(getThis());
 
+	ASYNC_CHECK_ERROR(scheduler->running, "Scheduler is already running");
+
 	task = async_task_object_create();
 	task->scheduler = scheduler;
 	task->context = async_context_get();
@@ -362,7 +395,9 @@ ZEND_METHOD(TaskScheduler, run)
 
 	OBJ_RELEASE(&task->fiber.std);
 
-	zend_throw_error(NULL, "Awaitable has not been resolved");
+	if (EXPECTED(EG(exception) == NULL)) {
+		zend_throw_error(NULL, "Awaitable has not been resolved");
+	}
 }
 
 ZEND_METHOD(TaskScheduler, runWithContext)
@@ -376,6 +411,8 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 	zval retval;
 
 	scheduler = (async_task_scheduler *) Z_OBJ_P(getThis());
+
+	ASYNC_CHECK_ERROR(scheduler->running, "Scheduler is already running");
 
 	task = async_task_object_create();
 	task->scheduler = scheduler;
@@ -425,7 +462,9 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 
 	OBJ_RELEASE(&task->fiber.std);
 
-	zend_throw_error(NULL, "Awaitable has not been resolved");
+	if (EXPECTED(EG(exception) == NULL)) {
+		zend_throw_error(NULL, "Awaitable has not been resolved");
+	}
 }
 
 ZEND_METHOD(TaskScheduler, setDefaultScheduler)
@@ -537,6 +576,8 @@ ZEND_METHOD(LoopTaskScheduler, dispatch)
 	scheduler = (async_task_scheduler *) Z_OBJ_P(getThis());
 
 	ASYNC_CHECK_ERROR(scheduler->dispatching, "Cannot dispatch tasks because the dispatcher is already running");
+	ASYNC_CHECK_ERROR(scheduler->running == 0, "Cannot dispatch tasks while the task scheduler is not running");
+	ASYNC_CHECK_ERROR(scheduler->activating, "Cannot dispatch in activator, use your event loop instead");
 
 	prev = ASYNC_G(current_scheduler);
 	ASYNC_G(current_scheduler) = scheduler;

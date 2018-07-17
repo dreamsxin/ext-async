@@ -19,11 +19,7 @@ $scheduler = new class() extends LoopTaskScheduler
     protected function runLoop()
     {
         var_dump('RUN LOOP!');
-        
-        while ($this->count()) {
-            $this->dispatch();
-        }
-        
+        $this->dispatch();
         var_dump('END LOOP!');
     }
     

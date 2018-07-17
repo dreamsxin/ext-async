@@ -19,9 +19,7 @@ TaskScheduler::setDefaultScheduler(new class() extends LoopTaskScheduler
     protected function runLoop()
     {
         var_dump('LOOP');
-        while ($this->count()) {
-            $this->dispatch();
-        }
+        $this->dispatch();
         var_dump('DONE');
     }
     
