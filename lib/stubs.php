@@ -78,18 +78,18 @@ class TaskScheduler implements \Countable
     
     public final function runWithContext(Context $context, callable $callback, ...$args) { }
     
-    protected final function dispatch(): void { }
-    
     public static final function setDefaultScheduler(TaskScheduler $scheduler): void { }
 }
 
 abstract class LoopTaskScheduler extends TaskScheduler
 {   
-    protected function activate(): void { }
+    protected abstract function activate(): void;
     
-    protected function runLoop(): void { }
+    protected abstract function runLoop(): void;
     
-    protected function stopLoop(): void { }
+    protected abstract function stopLoop(): void;
+    
+    protected final function dispatch(): void { }
 }
 
 final class Fiber
