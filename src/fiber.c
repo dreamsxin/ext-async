@@ -36,7 +36,7 @@ const zend_uchar ASYNC_FIBER_STATUS_INIT = 0;
 const zend_uchar ASYNC_FIBER_STATUS_SUSPENDED = 1;
 const zend_uchar ASYNC_FIBER_STATUS_RUNNING = 2;
 const zend_uchar ASYNC_FIBER_STATUS_FINISHED = ASYNC_OP_RESOLVED;
-const zend_uchar ASYNC_FIBER_STATUS_DEAD = ASYNC_OP_FAILED;
+const zend_uchar ASYNC_FIBER_STATUS_FAILED = ASYNC_OP_FAILED;
 
 static zend_object_handlers async_fiber_handlers;
 
@@ -137,7 +137,7 @@ static int fiber_run_opcode_handler(zend_execute_data *exec)
 				zend_clear_exception();
 			}
 
-			fiber->status = ASYNC_FIBER_STATUS_DEAD;
+			fiber->status = ASYNC_FIBER_STATUS_FAILED;
 		} else {
 			fiber->status = ASYNC_FIBER_STATUS_FINISHED;
 		}
@@ -507,7 +507,7 @@ void async_fiber_ce_register()
 	REGISTER_FIBER_CLASS_CONST_LONG("STATUS_SUSPENDED", ASYNC_FIBER_STATUS_SUSPENDED);
 	REGISTER_FIBER_CLASS_CONST_LONG("STATUS_RUNNING", ASYNC_FIBER_STATUS_RUNNING);
 	REGISTER_FIBER_CLASS_CONST_LONG("STATUS_FINISHED", ASYNC_FIBER_STATUS_FINISHED);
-	REGISTER_FIBER_CLASS_CONST_LONG("STATUS_DEAD", ASYNC_FIBER_STATUS_DEAD);
+	REGISTER_FIBER_CLASS_CONST_LONG("STATUS_FAILED", ASYNC_FIBER_STATUS_FAILED);
 }
 
 void async_fiber_ce_unregister()

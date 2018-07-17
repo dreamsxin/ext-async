@@ -81,7 +81,7 @@ extern const zend_uchar ASYNC_FIBER_STATUS_INIT;
 extern const zend_uchar ASYNC_FIBER_STATUS_SUSPENDED;
 extern const zend_uchar ASYNC_FIBER_STATUS_RUNNING;
 extern const zend_uchar ASYNC_FIBER_STATUS_FINISHED;
-extern const zend_uchar ASYNC_FIBER_STATUS_DEAD;
+extern const zend_uchar ASYNC_FIBER_STATUS_FAILED;
 
 void async_fiber_run();
 zend_bool async_fiber_switch_to(async_fiber *fiber);

@@ -72,7 +72,7 @@ static void async_task_fiber_func(async_fiber *fiber)
 	}
 
 	if (EG(exception)) {
-		fiber->status = ASYNC_FIBER_STATUS_DEAD;
+		fiber->status = ASYNC_FIBER_STATUS_FAILED;
 
 		ZVAL_OBJ(&task->result, EG(exception));
 		EG(exception) = NULL;
@@ -136,7 +136,7 @@ static void async_task_continuation(void *obj, zval *data, zval *result, zend_bo
 	task->suspended = NULL;
 
 	if (result == NULL ||task->fiber.status != ASYNC_FIBER_STATUS_SUSPENDED) {
-		task->fiber.status = ASYNC_FIBER_STATUS_DEAD;
+		task->fiber.status = ASYNC_FIBER_STATUS_FAILED;
 	} else if (success) {
 		if (task->fiber.value != NULL) {
 			ZVAL_COPY(task->fiber.value, result);
@@ -181,7 +181,7 @@ static void async_task_execute_inline(async_task *task, async_task *inner)
 	ASYNC_G(current_context) = context;
 
 	if (UNEXPECTED(EG(exception))) {
-		inner->fiber.status = ASYNC_FIBER_STATUS_DEAD;
+		inner->fiber.status = ASYNC_FIBER_STATUS_FAILED;
 
 		ZVAL_OBJ(&inner->result, EG(exception));
 		EG(exception) = NULL;

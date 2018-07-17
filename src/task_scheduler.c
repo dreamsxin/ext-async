@@ -193,7 +193,7 @@ static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
 				ZVAL_OBJ(&task->result, EG(exception));
 				EG(exception) = NULL;
 
-				task->fiber.status = ASYNC_FIBER_STATUS_DEAD;
+				task->fiber.status = ASYNC_FIBER_STATUS_FAILED;
 			}
 
 			if (task->fiber.status == ASYNC_OP_RESOLVED || task->fiber.status == ASYNC_OP_FAILED) {
@@ -349,7 +349,7 @@ ZEND_METHOD(TaskScheduler, run)
 		RETURN_ZVAL(&retval, 1, 1);
 	}
 
-	if (task->fiber.status == ASYNC_FIBER_STATUS_DEAD) {
+	if (task->fiber.status == ASYNC_FIBER_STATUS_FAILED) {
 		ZVAL_COPY(&retval, &task->result);
 		OBJ_RELEASE(&task->fiber.std);
 
@@ -412,7 +412,7 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 		RETURN_ZVAL(&retval, 1, 1);
 	}
 
-	if (task->fiber.status == ASYNC_FIBER_STATUS_DEAD) {
+	if (task->fiber.status == ASYNC_FIBER_STATUS_FAILED) {
 		ZVAL_COPY(&retval, &task->result);
 		OBJ_RELEASE(&task->fiber.std);
 

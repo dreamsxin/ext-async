@@ -94,6 +94,16 @@ abstract class LoopTaskScheduler extends TaskScheduler
 
 final class Fiber
 {
+    public const STATUS_INIT = 0;
+    
+    public const STATUS_SUSPENDED = 1;
+    
+    public const STATUS_RUNNING = 2;
+    
+    public const STATUS_FINISHED = 64;
+    
+    public const STATUS_FAILED = 65;
+    
     public function __construct(callable $callback, ?int $stack_size = null) { }
     
     public function status(): int { }

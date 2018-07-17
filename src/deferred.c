@@ -425,7 +425,7 @@ ZEND_METHOD(Deferred, combine)
 
 			if (task->fiber.status == ASYNC_FIBER_STATUS_FINISHED) {
 				async_deferred_combine_continuation(combined, &key, &task->result, 1);
-			} else if (task->fiber.status == ASYNC_FIBER_STATUS_DEAD) {
+			} else if (task->fiber.status == ASYNC_FIBER_STATUS_FAILED) {
 				async_deferred_combine_continuation(combined, &key, &task->result, 0);
 			} else {
 				async_awaitable_register_continuation(&task->continuation, combined, &key, async_deferred_combine_continuation);

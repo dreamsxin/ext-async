@@ -35,7 +35,7 @@ try {
 } catch (Throwable $e) {
     echo $e->getMessage(), PHP_EOL;
 }
-var_dump($f->status() == Fiber::STATUS_DEAD);
+var_dump($f->status() == Fiber::STATUS_FAILED);
 
 ?>
 --EXPECT--
