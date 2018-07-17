@@ -1,5 +1,5 @@
 --TEST--
-Context is created by scheduler and used as root context.
+Context provides access to variables.
 --SKIPIF--
 <?php
 if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
@@ -10,42 +10,48 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 namespace Concurrent;
 
 $scheduler = new TaskScheduler();
+$var = new ContextVar();
 
-var_dump(Context::var('foo'));
+var_dump($var->get());
 
-$scheduler->run(function () {
-    var_dump(Context::var('foo'));
+$scheduler->run(function () use ($var) {
+    var_dump($var->get());
     
-    Task::asyncWithContext(Context::inherit([
-        'foo' => 321
-    ]), function () {
-        var_dump(Context::var('foo'));
+    Task::await(Task::asyncWithContext(Context::current()->with($var, 321), function () use ($var) {
+        var_dump($var->get());
+    }));
+    
+    $context = Context::current()->with($var, 'baz');
+    
+    $context->run(function () use ($var) {
+        var_dump($var->get());
     });
     
-    $context = Context::inherit()->with('foo', 'baz');
-    
-    $context->run(function () {
-        var_dump(Context::var('foo'));
-    });
-    
-    $context = Context::inherit()->without('foo')->without('bar');
-    
-    $context->run(function () {
-        var_dump(Context::var('foo'));
-    });
+    var_dump($var->get());
+    var_dump($var->get($context));
+    var_dump($var->get());
 });
 
-$scheduler->runWithContext(Context::inherit([
-    'foo' => 'bar'
-]), function () {
-    var_dump(Context::var('foo'));
+var_dump($var->get());
+
+$context = Context::current();
+$context = $context->with($var, 'foo');
+
+$scheduler->runWithContext($context, function () use ($var) {
+    var_dump($var->get());
 });
+
+var_dump($var->get());
 
 ?>
 --EXPECT--
 NULL
 NULL
+int(321)
 string(3) "baz"
 NULL
-int(321)
-string(3) "bar"
+string(3) "baz"
+NULL
+NULL
+string(3) "foo"
+NULL

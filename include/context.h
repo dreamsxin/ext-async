@@ -24,26 +24,29 @@
 BEGIN_EXTERN_C()
 
 extern zend_class_entry *async_context_ce;
+extern zend_class_entry *async_context_var_ce;
 
 typedef struct _async_context async_context;
+typedef struct _async_context_var async_context_var;
 
 struct _async_context {
+	/* PHP object handle. */
 	zend_object std;
 
+	/* Refers to the parent context. */
 	async_context *parent;
 
-	uint32_t param_count;
+	/* Context var or NULL. */
+	async_context_var *var;
 
-	union {
-		struct {
-			zend_string *name;
-			zval value;
-		} var;
-		HashTable *params;
-	} data;
+	/* Value of the context var, defaults to zval NULL. */
+	zval value;
 };
 
-async_context *async_context_object_create(HashTable *params);
+struct _async_context_var {
+	/* PHP object handle. */
+	zend_object std;
+};
 
 async_context *async_context_get();
 

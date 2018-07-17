@@ -26,25 +26,45 @@ namespace Concurrent;
 interface Awaitable { }
 
 /**
- * EXPERIMENTAL: Do not use this yet, the context API will be re-designed shortly!
+ * Provides access to the logical execution context.
  */
 final class Context
 {
-    public function get(string $name) { }
+    /**
+     * Derives a new context with a value bound to the given context var.
+     */
+    public function with(ContextVar $var, $value): Context { }
     
-    public function with(string $var, $value): Context { }
-    
-    public function without(string $var): Context { }
-    
+    /**
+     * Enables the context for the duration of the callback invocation.
+     * 
+     * Note: It is safe to use await in the callback.
+     */
     public function run(callable $callback, ...$args) { }
     
-    public static function var(string $name) { }
-    
+    /**
+     * Lookup the current logical execution context.
+     */
     public static function current(): Context { }
     
-    public static function inherit(?array $variables = null): Context { }
-    
-    public static function background(?array $variables = null): Context { }
+    /**
+     * Lookup the background (= root) context.
+     */
+    public static function background(): Context { }
+}
+
+/**
+ * Contextual variable being used to bind and access variables in a context.
+ */
+final class ContextVar
+{
+    /**
+     * Retrieve the value bound to the variable from the given context, will
+     * return NULL if no value is set for the variable.
+     * 
+     * Note: Uses the current context (Context::current()) if no context is given.
+     */
+    public function get(?Context $context = null) { }
 }
 
 /**

@@ -19,7 +19,7 @@ $scheduler->run(function () {
 	    var_dump($context === Context::current());
 	}));
 	
-	$ctx = Context::inherit();
+	$ctx = Context::current()->with(new ContextVar(), true);
 	
 	var_dump($context === $ctx);
 	

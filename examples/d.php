@@ -7,22 +7,24 @@ namespace Concurrent;
 
 $scheduler = new TaskScheduler();
 
-function job(Deferred $defer)
+function job(Deferred $defer, ContextVar $var)
 {
     var_dump('INNER DONE!');
     
-    $defer->resolve(Context::var('number'));
-    return 123;
+    $defer->resolve($num = $var->get());
+    
+    return $num;
 }
 
 $scheduler->run(function () {
-    $context = Context::inherit([
-        'number' => 777
-    ]);
+    $var = new ContextVar();
+    
+    $context = Context::current();
+    $context = $context->with($var, 777);
     
     $defer = new Deferred();
 
-    $t = Task::asyncWithContext($context, __NAMESPACE__ . '\\job', $defer);
+    $t = Task::asyncWithContext($context, __NAMESPACE__ . '\\job', $defer, $var);
     
     var_dump('GO WAIT');
     var_dump(Task::await($defer->awaitable()));

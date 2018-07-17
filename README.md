@@ -112,30 +112,33 @@ abstract class LoopTaskScheduler extends TaskScheduler
 
 ### Context
 
-Each task runs in a `Context` that provides access to task-local variables. These variables are are also available to every `Task` re-using the same context or an inherited context. An implicit root context is always available, therefore it is always possible to access the current context or inherit from it. You can access a contextual value by calling `Context::var()` which will lookup the value in the current active context. The lookup call will return `null` when the value is not set in the active context or no context is active during the method call.
-
-You need to inherit a new context whenever you want to set task-local variables. In order for your new context to be used you need have to pass it to a task using `Task::asyncWithContext()` or you can enable it for the duration of a function / method call by calling `run()`. The later is preferred if your code is executing in a single task and you just want to add some variables.
+Each async operation is associated with a `Context` object that provides a logical execution context. The context can be used to carry execution-specific variables and (in a later revision) cancellation signals across API boundaries. The context is immutable, a new context must be derived whenever anything needs to be changed for the current execution. You can pass a `Context` to `Task::asyncWithContext()` or `TaskScheduler::runWithContext()` that will become the current context for the new task. It is also possible to enable a context for the duration of a callback execution using the `run()` method. Every call to `Task::await()` will backup the current context and restore it when the task is resumed.
 
 ```php
 namespace Concurrent;
 
 final class Context
 {
-    public function get(string $name): mixed { }
+    public function with(ContextVar $var, $value): Context { }
     
-    public function with(string $var, $value): Context { }
-    
-    public function without(string $var): Context { }
-
-    public function run(callable $callback, ...$args): mixed { }
-    
-    public static function var(string $name): mixed { }
+    public function run(callable $callback, ...$args) { }
     
     public static function current(): Context { }
     
-    public static function inherit(?array $variables = null): Context { }
-    
-    public static function background(?array $variables = null): Context { }
+    public static function background(): Context { }
+}
+```
+
+### ContextVar
+
+You can access contextual data using a `ContextVar` object. Calling `get()` will lookup the variable's value from the context (passed as argument, current context by default). You have to use `Context::with()` to derive a new `Context` that has a value bound to the variable.
+
+```php
+namespace Concurrent;
+
+final class ContextVar
+{
+    public function get(?Context $context = null) { }
 }
 ```
 

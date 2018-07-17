@@ -41,7 +41,6 @@ static zend_object_handlers async_task_handlers;
 	if (status == ASYNC_OP_RESOLVED) { \
 		RETURN_ZVAL(result, 1, 0); \
 	} else if (status == ASYNC_OP_FAILED) { \
-		Z_ADDREF_P(result); \
 		execute_data->opline--; \
 		zend_throw_exception_internal(result); \
 		execute_data->opline++; \

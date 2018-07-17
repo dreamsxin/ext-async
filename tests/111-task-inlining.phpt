@@ -9,36 +9,37 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new TaskScheduler(null, [
-    'num' => 123
-]);
+$scheduler = new TaskScheduler();
 
-$scheduler->run(function () {
-    Task::asyncWithContext(Context::inherit([
-        'num' => 123
-    ]), function () {
-	    $callback = function () {
-	        return Context::var('num');
-	    };
-	
-	    var_dump($callback());
-	    
-	    var_dump(Task::await(Task::async($callback)));
-	
-	    var_dump($callback());
-	    
-	    var_dump(Task::await(Task::asyncWithContext(Context::inherit(['num' => 777]), $callback)));
-	
-	    var_dump($callback());
-	    
-	    try {
-	        Task::await(Task::async(function () {
-	            throw new \Error('FAIL!');
-	        }));
-	    } catch (\Throwable $e) {
-	        var_dump($e->getMessage());
-	    }
-    });
+$var = new ContextVar();
+
+$context = Context::current();
+$context = $context->with($var, 123);
+
+$scheduler->runWithContext($context, function () use ($var) {
+    $callback = function () use ($var) {
+        return $var->get();
+    };
+
+    var_dump($var->get());
+    
+    var_dump(Task::await(Task::async($callback)));
+
+    var_dump($var->get());
+    
+    var_dump(Task::await(Task::asyncWithContext(Context::current()->with($var, 777), $callback)));
+
+    var_dump($var->get());
+    
+    /*
+    try {
+        Task::await(Task::async(function () {
+            throw new \Error('FAIL!');
+        }));
+    } catch (\Throwable $e) {
+        var_dump($e->getMessage());
+    }
+    */
 });
 
 ?>
@@ -48,4 +49,3 @@ int(123)
 int(123)
 int(777)
 int(123)
-string(5) "FAIL!"
