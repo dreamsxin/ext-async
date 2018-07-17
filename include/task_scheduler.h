@@ -66,6 +66,8 @@ struct _async_task_scheduler {
 async_task_scheduler *async_task_scheduler_get();
 
 zend_bool async_task_scheduler_enqueue(async_task *task);
+void async_task_scheduler_dequeue(async_task *task);
+
 void async_task_scheduler_run_loop(async_task_scheduler *scheduler);
 void concurrent_task_scheduler_stop_loop(async_task_scheduler *scheduler);
 

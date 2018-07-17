@@ -136,16 +136,6 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 		return 0;
 	}
 
-	if (scheduler->last == NULL) {
-		scheduler->first = task;
-		scheduler->last = task;
-	} else {
-		scheduler->last->next = task;
-		scheduler->last = task;
-	}
-
-	scheduler->scheduled++;
-
 	if (scheduler->loop && scheduler->activate && !scheduler->dispatching) {
 		scheduler->activate = 0;
 		scheduler->activating = 1;
@@ -184,10 +174,50 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 
 				zend_clear_exception();
 			}
+
+			return 0;
 		}
 	}
 
+	if (scheduler->last == NULL) {
+		scheduler->first = task;
+		scheduler->last = task;
+	} else {
+		task->prev = scheduler->last;
+
+		scheduler->last->next = task;
+		scheduler->last = task;
+	}
+
+	scheduler->scheduled++;
+
 	return 1;
+}
+
+void async_task_scheduler_dequeue(async_task *task)
+{
+	async_task_scheduler *scheduler;
+
+	scheduler = task->scheduler;
+
+	ZEND_ASSERT(scheduler != NULL);
+
+	if (scheduler->first == task) {
+		scheduler->first = task->next;
+
+		if (scheduler->first != NULL) {
+			scheduler->first->prev = NULL;
+		}
+	} else if (task->prev != NULL) {
+		task->prev->next = task->next;
+	}
+
+	if (scheduler->last == task) {
+		scheduler->last = task->prev;
+	}
+
+	task->prev = NULL;
+	task->next = NULL;
 }
 
 static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
@@ -202,32 +232,36 @@ static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
 		scheduler->scheduled--;
 		scheduler->first = task->next;
 
+		if (scheduler->first != NULL) {
+			scheduler->first->prev = NULL;
+		}
+
 		if (scheduler->last == task) {
 			scheduler->last = NULL;
 		}
 
+		task->prev = NULL;
 		task->next = NULL;
 
-		// A task scheduled for start might have been inlined, do not take action in this case.
-		if (task->operation != ASYNC_TASK_OPERATION_NONE) {
-			if (task->operation == ASYNC_TASK_OPERATION_START) {
-				async_task_start(task);
-			} else {
-				async_task_continue(task);
-			}
+		ZEND_ASSERT(task->operation != ASYNC_TASK_OPERATION_NONE);
 
-			if (UNEXPECTED(EG(exception))) {
-				ZVAL_OBJ(&task->result, EG(exception));
-				EG(exception) = NULL;
+		if (task->operation == ASYNC_TASK_OPERATION_START) {
+			async_task_start(task);
+		} else {
+			async_task_continue(task);
+		}
 
-				task->fiber.status = ASYNC_FIBER_STATUS_FAILED;
-			}
+		if (UNEXPECTED(EG(exception))) {
+			ZVAL_OBJ(&task->result, EG(exception));
+			EG(exception) = NULL;
 
-			if (task->fiber.status == ASYNC_OP_RESOLVED || task->fiber.status == ASYNC_OP_FAILED) {
-				async_task_dispose(task);
+			task->fiber.status = ASYNC_FIBER_STATUS_FAILED;
+		}
 
-				zend_hash_del_ind(scheduler->tasks, task->fiber.id);
-			}
+		if (task->fiber.status == ASYNC_OP_RESOLVED || task->fiber.status == ASYNC_OP_FAILED) {
+			async_task_dispose(task);
+
+			zend_hash_del_ind(scheduler->tasks, task->fiber.id);
 		}
 	}
 

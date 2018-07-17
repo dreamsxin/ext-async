@@ -45,6 +45,9 @@ struct _async_task {
 	/* Next task scheduled for execution. */
 	async_task *next;
 
+	/* Previous task scheduled for execution. */
+	async_task *prev;
+
 	/* Next operation to be performed by the scheduler, one of the ASYNC_TASK_OPERATION_* constants. */
 	zend_uchar operation;
 

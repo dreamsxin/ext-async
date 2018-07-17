@@ -168,6 +168,8 @@ static void async_task_execute_inline(async_task *task, async_task *inner)
 
 	inner->operation = ASYNC_TASK_OPERATION_NONE;
 
+	async_task_scheduler_dequeue(inner);
+
 	context = ASYNC_G(current_context);
 	ASYNC_G(current_context) = inner->context;
 
@@ -229,6 +231,8 @@ async_task *async_task_object_create()
 void async_task_dispose(async_task *task)
 {
 	task->operation = ASYNC_TASK_OPERATION_NONE;
+
+	async_task_scheduler_dequeue(task);
 
 	if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->fiber.disposed = 1;
