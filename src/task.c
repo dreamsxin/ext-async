@@ -169,6 +169,8 @@ static void async_task_execute_inline(async_task *task, async_task *inner)
 
 	async_task_scheduler_dequeue(inner);
 
+	OBJ_RELEASE(&inner->fiber.std);
+
 	context = ASYNC_G(current_context);
 	ASYNC_G(current_context) = inner->context;
 
@@ -195,14 +197,15 @@ static void async_task_execute_inline(async_task *task, async_task *inner)
 	}
 
 	async_awaitable_trigger_continuation(&inner->continuation, &inner->result, success);
-
-	zend_hash_del_ind(inner->scheduler->tasks, inner->fiber.id);
 }
 
-async_task *async_task_object_create()
+async_task *async_task_object_create(async_task_scheduler *scheduler, async_context *context)
 {
 	async_task *task;
 	zend_long stack_size;
+
+	ZEND_ASSERT(scheduler != NULL);
+	ZEND_ASSERT(context != NULL);
 
 	task = emalloc(sizeof(async_task));
 	ZEND_SECURE_ZERO(task, sizeof(async_task));
@@ -221,6 +224,12 @@ async_task *async_task_object_create()
 	ZVAL_NULL(&task->result);
 	ZVAL_UNDEF(&task->error);
 
+	task->scheduler = scheduler;
+	task->context = context;
+
+	GC_ADDREF(&scheduler->std);
+	GC_ADDREF(&context->std);
+
 	zend_object_std_init(&task->fiber.std, async_task_ce);
 	task->fiber.std.handlers = &async_task_handlers;
 
@@ -232,8 +241,6 @@ async_task *async_task_object_create()
 void async_task_dispose(async_task *task)
 {
 	task->operation = ASYNC_TASK_OPERATION_NONE;
-
-	async_task_scheduler_dequeue(task);
 
 	if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->fiber.disposed = 1;
@@ -255,14 +262,14 @@ static void async_task_object_destroy(zend_object *object)
 
 	task = (async_task *) object;
 
-	zval_ptr_dtor(&task->result);
-	zval_ptr_dtor(&task->error);
+	async_fiber_destroy(task->fiber.context);
+	zend_string_release(task->fiber.id);
 
 	OBJ_RELEASE(&task->context->std);
+	OBJ_RELEASE(&task->scheduler->std);
 
-	async_fiber_destroy(task->fiber.context);
-
-	zend_string_release(task->fiber.id);
+	zval_ptr_dtor(&task->result);
+	zval_ptr_dtor(&task->error);
 
 	zend_object_std_dtor(&task->fiber.std);
 }
@@ -287,33 +294,34 @@ ZEND_METHOD(Task, isRunning)
 
 ZEND_METHOD(Task, async)
 {
-	async_task * task;
+	async_task *task;
+
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
 	uint32_t count;
 
 	zval *params;
 	zval obj;
 
-	task = async_task_object_create();
-	task->scheduler = async_task_scheduler_get();
-	task->context = async_context_get();
-
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
-		Z_PARAM_FUNC_EX(task->fiber.fci, task->fiber.fcc, 1, 0)
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_VARIADIC('+', params, count)
 	ZEND_PARSE_PARAMETERS_END();
 
-	task->fiber.fci.no_separation = 1;
+	fci.no_separation = 1;
 
 	if (count == 0) {
-		task->fiber.fci.param_count = 0;
+		fci.param_count = 0;
 	} else {
-		zend_fcall_info_argp(&task->fiber.fci, count, params);
+		zend_fcall_info_argp(&fci, count, params);
 	}
 
-	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
+	Z_TRY_ADDREF_P(&fci.function_name);
 
-	GC_ADDREF(&task->context->std);
+	task = async_task_object_create(async_task_scheduler_get(), async_context_get());
+	task->fiber.fci = fci;
+	task->fiber.fcc = fcc;
 
 	async_task_scheduler_enqueue(task);
 
@@ -324,36 +332,36 @@ ZEND_METHOD(Task, async)
 
 ZEND_METHOD(Task, asyncWithContext)
 {
-	async_task * task;
+	async_task *task;
+
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
 	uint32_t count;
 
 	zval *ctx;
 	zval *params;
 	zval obj;
 
-	task = async_task_object_create();
-
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, -1)
 		Z_PARAM_ZVAL(ctx)
-		Z_PARAM_FUNC_EX(task->fiber.fci, task->fiber.fcc, 1, 0)
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_VARIADIC('+', params, count)
 	ZEND_PARSE_PARAMETERS_END();
 
-	task->fiber.fci.no_separation = 1;
+	fci.no_separation = 1;
 
 	if (count == 0) {
-		task->fiber.fci.param_count = 0;
+		fci.param_count = 0;
 	} else {
-		zend_fcall_info_argp(&task->fiber.fci, count, params);
+		zend_fcall_info_argp(&fci, count, params);
 	}
 
-	Z_TRY_ADDREF_P(&task->fiber.fci.function_name);
+	Z_TRY_ADDREF_P(&fci.function_name);
 
-	task->scheduler = async_task_scheduler_get();
-	task->context = (async_context *) Z_OBJ_P(ctx);
-
-	GC_ADDREF(&task->context->std);
+	task = async_task_object_create(async_task_scheduler_get(), (async_context *) Z_OBJ_P(ctx));
+	task->fiber.fci = fci;
+	task->fiber.fcc = fcc;
 
 	async_task_scheduler_enqueue(task);
 

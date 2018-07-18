@@ -27,17 +27,15 @@ typedef struct _async_task async_task;
 BEGIN_EXTERN_C()
 
 typedef struct _async_task_scheduler async_task_scheduler;
+typedef struct _async_task_queue async_task_queue;
+
+struct _async_task_queue {
+	size_t size;
+	async_task *first;
+	async_task *last;
+};
 
 struct _async_task_scheduler {
-	/* Number of tasks scheduled to run. */
-	size_t scheduled;
-
-	/* Points to the next task to be run. */
-	async_task *first;
-
-	/* Points to the last task to be run (needed to insert tasks into the run queue. */
-	async_task *last;
-
 	/* Flag indidcating if the scheduler is integrated with an event loop. */
 	zend_bool loop;
 
@@ -53,8 +51,11 @@ struct _async_task_scheduler {
 	/* Is set during the call to activate(), needed to prevent early dispatching. */
 	zend_bool activating;
 
-	/* Keeps track of all unfinished tasks that have been registered with the scheduler. */
-	HashTable *tasks;
+	/* Tasks ready to be started or resumed. */
+	async_task_queue ready;
+
+	/* Tasks that are suspended. */
+	async_task_queue suspended;
 
 	/* Task PHP object handle. */
 	zend_object std;

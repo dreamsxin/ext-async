@@ -31,7 +31,6 @@ $scheduler->runWithContext($context, function () use ($var) {
 
     var_dump($var->get());
     
-    /*
     try {
         Task::await(Task::async(function () {
             throw new \Error('FAIL!');
@@ -39,7 +38,6 @@ $scheduler->runWithContext($context, function () use ($var) {
     } catch (\Throwable $e) {
         var_dump($e->getMessage());
     }
-    */
 });
 
 ?>
@@ -49,3 +47,4 @@ int(123)
 int(123)
 int(777)
 int(123)
+string(5) "FAIL!"

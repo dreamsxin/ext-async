@@ -184,7 +184,7 @@ ZEND_METHOD(Context, current)
 
 	ZVAL_OBJ(&obj, &async_context_get()->std);
 
-	RETURN_ZVAL(&obj, 1, 1);
+	RETURN_ZVAL(&obj, 1, 0);
 }
 
 ZEND_METHOD(Context, background)
