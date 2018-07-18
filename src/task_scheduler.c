@@ -111,7 +111,7 @@ static inline void detach(async_task_queue *q, async_task *task)
 
 static async_task_scheduler *async_task_scheduler_obj(zend_object *obj)
 {
-	return (async_task_scheduler *)((char *)(obj) - XtOffsetOf(async_task_scheduler, std));
+	return (async_task_scheduler *)((char *)obj - obj->handlers->offset);
 }
 
 static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
@@ -368,9 +368,12 @@ void async_task_scheduler_stop_loop(async_task_scheduler *scheduler)
 static zend_object *async_task_scheduler_object_create(zend_class_entry *ce)
 {
 	async_task_scheduler *scheduler;
+	zend_ulong size;
 
-	scheduler = emalloc(sizeof(async_task_scheduler));
-	ZEND_SECURE_ZERO(scheduler, sizeof(async_task_scheduler));
+	size = sizeof(async_task_scheduler) + zend_object_properties_size(ce);
+
+	scheduler = emalloc(size);
+	ZEND_SECURE_ZERO(scheduler, size);
 
 	scheduler->activate = 1;
 
@@ -390,7 +393,8 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 
 	async_task_scheduler_dispose(scheduler);
 
-	zend_object_std_dtor(&scheduler->std);
+	zend_objects_destroy_object(object);
+	zend_object_std_dtor(object);
 }
 
 ZEND_METHOD(TaskScheduler, count)
@@ -598,9 +602,12 @@ static const zend_function_entry task_scheduler_functions[] = {
 static zend_object *async_loop_task_scheduler_object_create(zend_class_entry *ce)
 {
 	async_task_scheduler *scheduler;
+	zend_ulong size;
 
-	scheduler = emalloc(sizeof(async_task_scheduler));
-	ZEND_SECURE_ZERO(scheduler, sizeof(async_task_scheduler));
+	size = sizeof(async_task_scheduler) + zend_object_properties_size(ce);
+
+	scheduler = emalloc(size);
+	ZEND_SECURE_ZERO(scheduler, size);
 
 	scheduler->loop = 1;
 	scheduler->activate = 1;
@@ -643,26 +650,25 @@ ZEND_METHOD(LoopTaskScheduler, dispatch)
 	scheduler->activate = 1;
 }
 
-ZEND_BEGIN_ARG_INFO(arginfo_task_loop_scheduler_activate, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_loop_task_scheduler_activate, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_task_loop_scheduler_run_loop, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_loop_task_scheduler_run_loop, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_task_loop_scheduler_stop_loop, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_loop_task_scheduler_stop_loop, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_task_loop_scheduler_dispatch, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_loop_task_scheduler_dispatch, 0)
 ZEND_END_ARG_INFO()
 
-static const zend_function_entry task_loop_scheduler_functions[] = {
-	ZEND_ME(LoopTaskScheduler, activate, arginfo_task_loop_scheduler_activate, ZEND_ACC_PROTECTED | ZEND_ACC_ABSTRACT)
-	ZEND_ME(LoopTaskScheduler, runLoop, arginfo_task_loop_scheduler_run_loop, ZEND_ACC_PROTECTED | ZEND_ACC_ABSTRACT)
-	ZEND_ME(LoopTaskScheduler, stopLoop, arginfo_task_loop_scheduler_stop_loop, ZEND_ACC_PROTECTED | ZEND_ACC_ABSTRACT)
-	ZEND_ME(LoopTaskScheduler, dispatch, arginfo_task_loop_scheduler_dispatch, ZEND_ACC_PROTECTED | ZEND_ACC_FINAL)
+static const zend_function_entry loop_task_scheduler_functions[] = {
+	ZEND_ME(LoopTaskScheduler, activate, arginfo_loop_task_scheduler_activate, ZEND_ACC_PROTECTED | ZEND_ACC_ABSTRACT)
+	ZEND_ME(LoopTaskScheduler, runLoop, arginfo_loop_task_scheduler_run_loop, ZEND_ACC_PROTECTED | ZEND_ACC_ABSTRACT)
+	ZEND_ME(LoopTaskScheduler, stopLoop, arginfo_loop_task_scheduler_stop_loop, ZEND_ACC_PROTECTED | ZEND_ACC_ABSTRACT)
+	ZEND_ME(LoopTaskScheduler, dispatch, arginfo_loop_task_scheduler_dispatch, ZEND_ACC_PROTECTED | ZEND_ACC_FINAL)
 	ZEND_FE_END
 };
-
 
 void async_task_scheduler_ce_register()
 {
@@ -678,10 +684,11 @@ void async_task_scheduler_ce_register()
 
 	memcpy(&async_task_scheduler_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_task_scheduler_handlers.offset = XtOffsetOf(async_task_scheduler, std);
+	async_task_scheduler_handlers.dtor_obj = async_task_scheduler_object_destroy;
 	async_task_scheduler_handlers.free_obj = async_task_scheduler_object_destroy;
 	async_task_scheduler_handlers.clone_obj = NULL;
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\LoopTaskScheduler", task_loop_scheduler_functions);
+	INIT_CLASS_ENTRY(ce, "Concurrent\\LoopTaskScheduler", loop_task_scheduler_functions);
 	async_loop_task_scheduler_ce = zend_register_internal_class_ex(&ce, async_task_scheduler_ce);
 	async_loop_task_scheduler_ce->ce_flags |= ZEND_ACC_ABSTRACT;
 	async_loop_task_scheduler_ce->create_object = async_loop_task_scheduler_object_create;
@@ -690,6 +697,7 @@ void async_task_scheduler_ce_register()
 
 	memcpy(&async_loop_task_scheduler_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_loop_task_scheduler_handlers.offset = XtOffsetOf(async_task_scheduler, std);
+	async_loop_task_scheduler_handlers.dtor_obj = async_task_scheduler_object_destroy;
 	async_loop_task_scheduler_handlers.free_obj = async_task_scheduler_object_destroy;
 	async_loop_task_scheduler_handlers.clone_obj = NULL;
 
