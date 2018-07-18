@@ -204,16 +204,18 @@ void async_task_scheduler_dequeue(async_task *task)
 
 	if (scheduler->first == task) {
 		scheduler->first = task->next;
-
-		if (scheduler->first != NULL) {
-			scheduler->first->prev = NULL;
-		}
-	} else if (task->prev != NULL) {
-		task->prev->next = task->next;
 	}
 
 	if (scheduler->last == task) {
 		scheduler->last = task->prev;
+	}
+
+	if (task->prev != NULL) {
+		task->prev->next = task->next;
+	}
+
+	if (task->next != NULL) {
+		task->next->prev = task->prev;
 	}
 
 	task->prev = NULL;
@@ -223,6 +225,8 @@ void async_task_scheduler_dequeue(async_task *task)
 static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
 {
 	async_task *task;
+
+	ZEND_ASSERT(scheduler != NULL);
 
 	scheduler->dispatching = 1;
 
