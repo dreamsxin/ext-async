@@ -185,6 +185,8 @@ static void async_task_execute_inline(async_task *task, async_task *inner)
 		inner->fiber.status = ASYNC_FIBER_STATUS_FAILED;
 
 		ZVAL_OBJ(&inner->result, EG(exception));
+		Z_ADDREF_P(&inner->result);
+
 		EG(exception) = NULL;
 	} else {
 		inner->fiber.status = ASYNC_FIBER_STATUS_FINISHED;
