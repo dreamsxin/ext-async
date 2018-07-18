@@ -157,7 +157,7 @@ static void top_level_continuation(void *obj, zval *data, zval *result, zend_boo
 
 	ZEND_ASSERT(scheduler != NULL);
 
-	concurrent_task_scheduler_stop_loop(scheduler);
+	async_task_scheduler_stop_loop(scheduler);
 }
 
 static void async_task_execute_inline(async_task *task, async_task *inner)

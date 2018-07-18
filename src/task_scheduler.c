@@ -28,15 +28,19 @@
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
 zend_class_entry *async_task_scheduler_ce;
-zend_class_entry *async_task_loop_scheduler_ce;
+zend_class_entry *async_loop_task_scheduler_ce;
 
 static zend_object_handlers async_task_scheduler_handlers;
-static zend_object_handlers async_task_loop_scheduler_handlers;
+static zend_object_handlers async_loop_task_scheduler_handlers;
 
 static zend_string *str_activate;
 static zend_string *str_runloop;
 static zend_string *str_stoploop;
 
+static async_task_scheduler *async_task_scheduler_obj(zend_object *obj)
+{
+	return (async_task_scheduler *)((char *)(obj) - XtOffsetOf(async_task_scheduler, std));
+}
 
 static void dispose_tasks(async_task_scheduler *scheduler)
 {
@@ -99,6 +103,8 @@ async_task_scheduler *async_task_scheduler_get()
 	ZEND_SECURE_ZERO(scheduler, sizeof(async_task_scheduler));
 
 	zend_object_std_init(&scheduler->std, async_task_scheduler_ce);
+	object_properties_init(&scheduler->std, async_task_scheduler_ce);
+
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 
 	ALLOC_HASHTABLE(scheduler->tasks);
@@ -309,7 +315,7 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 	ASYNC_G(current_scheduler) = prev;
 }
 
-void concurrent_task_scheduler_stop_loop(async_task_scheduler *scheduler)
+void async_task_scheduler_stop_loop(async_task_scheduler *scheduler)
 {
 	zend_function *func;
 	zval *entry;
@@ -341,6 +347,8 @@ static zend_object *async_task_scheduler_object_create(zend_class_entry *ce)
 	scheduler->activate = 1;
 
 	zend_object_std_init(&scheduler->std, ce);
+	object_properties_init(&scheduler->std, ce);
+
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 
 	ALLOC_HASHTABLE(scheduler->tasks);
@@ -353,7 +361,7 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 {
 	async_task_scheduler *scheduler;
 
-	scheduler = (async_task_scheduler *) object;
+	scheduler = async_task_scheduler_obj(object);
 
 	async_task_scheduler_dispose(scheduler);
 
@@ -369,7 +377,7 @@ ZEND_METHOD(TaskScheduler, count)
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	scheduler = (async_task_scheduler *)Z_OBJ_P(getThis());
+	scheduler = async_task_scheduler_obj(Z_OBJ_P(getThis()));
 
 	RETURN_LONG(scheduler->scheduled);
 }
@@ -383,7 +391,7 @@ ZEND_METHOD(TaskScheduler, run)
 	zval *params;
 	zval retval;
 
-	scheduler = (async_task_scheduler *) Z_OBJ_P(getThis());
+	scheduler = async_task_scheduler_obj(Z_OBJ_P(getThis()));
 
 	ASYNC_CHECK_ERROR(scheduler->running, "Scheduler is already running");
 
@@ -449,7 +457,7 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 	zval *params;
 	zval retval;
 
-	scheduler = (async_task_scheduler *) Z_OBJ_P(getThis());
+	scheduler = async_task_scheduler_obj(Z_OBJ_P(getThis()));
 
 	ASYNC_CHECK_ERROR(scheduler->running, "Scheduler is already running");
 
@@ -520,7 +528,7 @@ ZEND_METHOD(TaskScheduler, setDefaultScheduler)
 
 	ASYNC_CHECK_ERROR(scheduler != NULL, "The default task scheduler must not be changed after it has been used for the first time");
 
-	scheduler = (async_task_scheduler *) Z_OBJ_P(val);
+	scheduler = async_task_scheduler_obj(Z_OBJ_P(val));
 
 	ASYNC_G(scheduler) = scheduler;
 
@@ -565,7 +573,7 @@ static const zend_function_entry task_scheduler_functions[] = {
 };
 
 
-static zend_object *async_task_loop_scheduler_object_create(zend_class_entry *ce)
+static zend_object *async_loop_task_scheduler_object_create(zend_class_entry *ce)
 {
 	async_task_scheduler *scheduler;
 
@@ -576,26 +584,14 @@ static zend_object *async_task_loop_scheduler_object_create(zend_class_entry *ce
 	scheduler->activate = 1;
 
 	zend_object_std_init(&scheduler->std, ce);
-	scheduler->std.handlers = &async_task_loop_scheduler_handlers;
+	object_properties_init(&scheduler->std, ce);
+
+	scheduler->std.handlers = &async_loop_task_scheduler_handlers;
 
 	ALLOC_HASHTABLE(scheduler->tasks);
 	zend_hash_init(scheduler->tasks, 0, NULL, ZVAL_PTR_DTOR, 0);
 
 	return &scheduler->std;
-}
-
-static void async_task_loop_scheduler_object_destroy(zend_object *object)
-{
-	async_task_scheduler *scheduler;
-
-	scheduler = (async_task_scheduler *) object;
-
-	async_task_scheduler_dispose(scheduler);
-
-	zend_hash_destroy(scheduler->tasks);
-	FREE_HASHTABLE(scheduler->tasks);
-
-	zend_object_std_dtor(&scheduler->std);
 }
 
 ZEND_METHOD(LoopTaskScheduler, activate) { }
@@ -612,7 +608,7 @@ ZEND_METHOD(LoopTaskScheduler, dispatch)
 	// Left out on purpose to allow for simplified event-loop integration.
 	// ZEND_PARSE_PARAMETERS_NONE();
 
-	scheduler = (async_task_scheduler *) Z_OBJ_P(getThis());
+	scheduler = async_task_scheduler_obj(Z_OBJ_P(getThis()));
 
 	ASYNC_CHECK_ERROR(scheduler->dispatching, "Cannot dispatch tasks because the dispatcher is already running");
 	ASYNC_CHECK_ERROR(scheduler->running == 0, "Cannot dispatch tasks while the task scheduler is not running");
@@ -662,18 +658,21 @@ void async_task_scheduler_ce_register()
 	zend_class_implements(async_task_scheduler_ce, 1, zend_ce_countable);
 
 	memcpy(&async_task_scheduler_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_task_scheduler_handlers.offset = XtOffsetOf(async_task_scheduler, std);
 	async_task_scheduler_handlers.free_obj = async_task_scheduler_object_destroy;
 	async_task_scheduler_handlers.clone_obj = NULL;
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\LoopTaskScheduler", task_loop_scheduler_functions);
-	async_task_loop_scheduler_ce = zend_register_internal_class_ex(&ce, async_task_scheduler_ce);
-	async_task_loop_scheduler_ce->create_object = async_task_loop_scheduler_object_create;
-	async_task_loop_scheduler_ce->serialize = zend_class_serialize_deny;
-	async_task_loop_scheduler_ce->unserialize = zend_class_unserialize_deny;
+	async_loop_task_scheduler_ce = zend_register_internal_class_ex(&ce, async_task_scheduler_ce);
+	async_loop_task_scheduler_ce->ce_flags |= ZEND_ACC_ABSTRACT;
+	async_loop_task_scheduler_ce->create_object = async_loop_task_scheduler_object_create;
+	async_loop_task_scheduler_ce->serialize = zend_class_serialize_deny;
+	async_loop_task_scheduler_ce->unserialize = zend_class_unserialize_deny;
 
-	memcpy(&async_task_loop_scheduler_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	async_task_loop_scheduler_handlers.free_obj = async_task_loop_scheduler_object_destroy;
-	async_task_loop_scheduler_handlers.clone_obj = NULL;
+	memcpy(&async_loop_task_scheduler_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_loop_task_scheduler_handlers.offset = XtOffsetOf(async_task_scheduler, std);
+	async_loop_task_scheduler_handlers.free_obj = async_task_scheduler_object_destroy;
+	async_loop_task_scheduler_handlers.clone_obj = NULL;
 
 	str_activate = zend_string_init("activate", sizeof("activate")-1, 1);
 	str_runloop = zend_string_init("runloop", sizeof("runloop")-1, 1);

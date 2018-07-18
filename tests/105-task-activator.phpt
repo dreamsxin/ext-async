@@ -9,18 +9,28 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new class() extends LoopTaskScheduler
+$scheduler = new class('anonymous') extends LoopTaskScheduler
 {
+    private $name;
+    
+    private $foo;
+    
+    public function __construct(string $name)
+    {
+        $this->name = $name;
+        $this->foo = 'bar';
+    }
+
     protected function activate()
     {
-        var_dump('ACTIVATE!');
+        var_dump('ACTIVATE!', $this->name);
     }
     
     protected function runLoop()
     {
         var_dump('RUN LOOP!');
         $this->dispatch();
-        var_dump('END LOOP!');
+        var_dump('END LOOP!', $this->foo);
     }
     
     protected function stopLoop()
@@ -58,19 +68,25 @@ var_dump('MAIN');
 --EXPECT--
 string(4) "MAIN"
 string(9) "ACTIVATE!"
+string(9) "anonymous"
 string(9) "RUN LOOP!"
 string(1) "A"
 string(9) "END LOOP!"
+string(3) "bar"
 string(4) "MAIN"
 string(9) "ACTIVATE!"
+string(9) "anonymous"
 string(9) "RUN LOOP!"
 string(1) "B"
 string(1) "C"
 string(9) "END LOOP!"
+string(3) "bar"
 string(4) "MAIN"
 string(9) "ACTIVATE!"
+string(9) "anonymous"
 string(9) "RUN LOOP!"
 string(1) "D"
 string(1) "E"
 string(9) "END LOOP!"
+string(3) "bar"
 string(4) "MAIN"
