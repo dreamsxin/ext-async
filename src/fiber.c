@@ -356,7 +356,6 @@ ZEND_METHOD(Fiber, backend)
 ZEND_METHOD(Fiber, yield)
 {
 	async_fiber *fiber;
-	zend_execute_data *exec;
 	size_t stack_page_size;
 
 	zval *val;
@@ -394,11 +393,10 @@ ZEND_METHOD(Fiber, yield)
 
 	if (error != NULL) {
 		ASYNC_G(error) = NULL;
-		exec = EG(current_execute_data);
 
-		exec->opline--;
+		fiber->exec->opline--;
 		zend_throw_exception_internal(error);
-		exec->opline++;
+		fiber->exec->opline++;
 	}
 }
 /* }}} */

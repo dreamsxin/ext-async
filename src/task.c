@@ -41,6 +41,7 @@ static zend_object_handlers async_task_handlers;
 	if (status == ASYNC_OP_RESOLVED) { \
 		RETURN_ZVAL(result, 1, 0); \
 	} else if (status == ASYNC_OP_FAILED) { \
+		Z_ADDREF_P(result); \
 		execute_data->opline--; \
 		zend_throw_exception_internal(result); \
 		execute_data->opline++; \
@@ -187,8 +188,6 @@ static void async_task_execute_inline(async_task *task, async_task *inner)
 		inner->fiber.status = ASYNC_FIBER_STATUS_FAILED;
 
 		ZVAL_OBJ(&inner->result, EG(exception));
-		Z_ADDREF_P(&inner->result);
-
 		EG(exception) = NULL;
 	} else {
 		inner->fiber.status = ASYNC_FIBER_STATUS_FINISHED;
