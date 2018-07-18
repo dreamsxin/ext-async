@@ -36,7 +36,8 @@ final class Context
     public function with(ContextVar $var, $value): Context { }
     
     /**
-     * Enables the context for the duration of the callback invocation.
+     * Enables the context for the duration of the callback invocation, returns the
+     * value returned from the callback.
      * 
      * Note: It is safe to use await in the callback.
      */

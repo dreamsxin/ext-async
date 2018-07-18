@@ -121,7 +121,7 @@ final class Context
 {
     public function with(ContextVar $var, $value): Context { }
     
-    public function run(callable $callback, ...$args) { }
+    public function run(callable $callback, ...$args): mixed { }
     
     public static function current(): Context { }
     
