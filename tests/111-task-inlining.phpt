@@ -16,7 +16,7 @@ $var = new ContextVar();
 $context = Context::current();
 $context = $context->with($var, 123);
 
-$scheduler->runWithContext($context, function () use ($var) {
+$scheduler->runWithContext($context, function (ContextVar $var) {
     $callback = function () use ($var) {
         return $var->get();
     };
@@ -38,7 +38,7 @@ $scheduler->runWithContext($context, function () use ($var) {
     } catch (\Throwable $e) {
         var_dump($e->getMessage());
     }
-});
+}, $var);
 
 ?>
 --EXPECT--

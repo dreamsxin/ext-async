@@ -27,8 +27,8 @@
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
-zend_class_entry *async_task_scheduler_ce;
-zend_class_entry *async_loop_task_scheduler_ce;
+static zend_class_entry *async_task_scheduler_ce;
+static zend_class_entry *async_loop_task_scheduler_ce;
 
 static zend_object_handlers async_task_scheduler_handlers;
 static zend_object_handlers async_loop_task_scheduler_handlers;
@@ -579,7 +579,7 @@ ZEND_METHOD(TaskScheduler, pop)
 
 	stack = ASYNC_G(scheduler_stack);
 
-	ASYNC_CHECK_ERROR(stack == NULL || stack->top == NULL, "Cannot pop task scheduler that has not been pushed");
+	ASYNC_CHECK_ERROR(stack == NULL || stack->top == NULL, "Cannot pop task scheduler because it is not the active scheduler");
 
 	scheduler = async_task_scheduler_obj(Z_OBJ_P(val));
 
