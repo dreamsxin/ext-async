@@ -27,11 +27,18 @@ typedef struct _async_task async_task;
 BEGIN_EXTERN_C()
 
 typedef struct _async_task_scheduler async_task_scheduler;
+typedef struct _async_task_scheduler_stack async_task_scheduler_stack;
+typedef struct _async_task_scheduler_stack_entry async_task_scheduler_stack_entry;
 typedef struct _async_task_queue async_task_queue;
 
 struct _async_task_queue {
+	/* Number of queued tasks. */
 	size_t size;
+
+	/* First task in the queue, used by dequeue(). */
 	async_task *first;
+
+	/* Last task in the queue, used by enqueue(). */
 	async_task *last;
 };
 
@@ -41,6 +48,9 @@ struct _async_task_scheduler {
 
 	/* Is set while an event loop is running. */
 	zend_bool running;
+
+	/* Has the scheduler been modified since the last call to run. */
+	zend_bool modified;
 
 	/* Is set while the scheduler is in the process of dispatching tasks. */
 	zend_bool dispatching;
@@ -57,8 +67,24 @@ struct _async_task_scheduler {
 	/* Tasks that are suspended. */
 	async_task_queue suspended;
 
-	/* Task PHP object handle. */
+	/* PHP object handle. */
 	zend_object std;
+};
+
+struct _async_task_scheduler_stack_entry {
+	/* Refers to the task scheduler. */
+	async_task_scheduler *scheduler;
+
+	/* Points to the previous scheduler, NULL if no stacked scheduler is active. */
+	async_task_scheduler_stack_entry *prev;
+};
+
+struct _async_task_scheduler_stack {
+	/* Number of stacked schedulers. */
+	size_t size;
+
+	/* Top-most scheduler on the stack. */
+	async_task_scheduler_stack_entry *top;
 };
 
 async_task_scheduler *async_task_scheduler_get();

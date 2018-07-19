@@ -59,8 +59,11 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 	/* Active task context. */
 	async_context *current_context;
 
-	/* Default shared task scheduler. */
+	/* Fallback root task scheduler. */
 	async_task_scheduler *scheduler;
+
+	/* Stack of registered default schedulers. */
+	async_task_scheduler_stack *scheduler_stack;
 
 	/* Running task scheduler. */
 	async_task_scheduler *current_scheduler;

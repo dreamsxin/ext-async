@@ -122,7 +122,7 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 	prev = ASYNC_G(current_scheduler);
 	ASYNC_G(current_scheduler) = scheduler;
 
-	if (!scheduler->running && scheduler->ready.size > 0) {
+	if (!scheduler->running && scheduler->modified) {
 		async_task_scheduler_run_loop(scheduler);
 	}
 
@@ -148,11 +148,18 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 async_task_scheduler *async_task_scheduler_get()
 {
 	async_task_scheduler *scheduler;
+	async_task_scheduler_stack *stack;
 
 	scheduler = ASYNC_G(current_scheduler);
 
 	if (scheduler != NULL) {
 		return scheduler;
+	}
+
+	stack = ASYNC_G(scheduler_stack);
+
+	if (stack != NULL && stack->top != NULL) {
+		return stack->top->scheduler;
 	}
 
 	scheduler = ASYNC_G(scheduler);
@@ -196,6 +203,8 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 	} else {
 		return 0;
 	}
+
+	scheduler->modified = 1;
 
 	if (scheduler->loop && scheduler->activate && !scheduler->dispatching) {
 		scheduler->activate = 0;
@@ -312,11 +321,11 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 	zval obj;
 	zval retval;
 
-	prev = ASYNC_G(current_scheduler);
-	ASYNC_G(current_scheduler) = scheduler;
-
 	ASYNC_CHECK_FATAL(scheduler->running, "Duplicate scheduler loop run detected");
 	ASYNC_CHECK_FATAL(scheduler->dispatching, "Cannot run loop while dispatching");
+
+	prev = ASYNC_G(current_scheduler);
+	ASYNC_G(current_scheduler) = scheduler;
 
 	scheduler->running = 1;
 
@@ -339,6 +348,7 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 	}
 
 	scheduler->running = 0;
+	scheduler->modified = 0;
 
 	ASYNC_G(current_scheduler) = prev;
 }
@@ -376,6 +386,7 @@ static zend_object *async_task_scheduler_object_create(zend_class_entry *ce)
 	ZEND_SECURE_ZERO(scheduler, size);
 
 	scheduler->activate = 1;
+	scheduler->modified = 1;
 
 	zend_object_std_init(&scheduler->std, ce);
 	object_properties_init(&scheduler->std, ce);
@@ -540,9 +551,11 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 	}
 }
 
-ZEND_METHOD(TaskScheduler, setDefaultScheduler)
+ZEND_METHOD(TaskScheduler, push)
 {
 	async_task_scheduler *scheduler;
+	async_task_scheduler_stack *stack;
+	async_task_scheduler_stack_entry *entry;
 
 	zval *val;
 
@@ -550,15 +563,58 @@ ZEND_METHOD(TaskScheduler, setDefaultScheduler)
 		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
 
-	scheduler = ASYNC_G(scheduler);
+	scheduler = async_task_scheduler_obj(Z_OBJ_P(val));
+	stack = ASYNC_G(scheduler_stack);
 
-	ASYNC_CHECK_ERROR(scheduler != NULL, "The default task scheduler must not be changed after it has been used for the first time");
+	if (stack == NULL) {
+		stack = emalloc(sizeof(async_task_scheduler_stack));
+		stack->size = 0;
+		stack->top = NULL;
+
+		ASYNC_G(scheduler_stack) = stack;
+	}
+
+	entry = emalloc(sizeof(async_task_scheduler_stack_entry));
+	entry->scheduler = scheduler;
+	entry->prev = stack->top;
+
+	stack->top = entry;
+	stack->size++;
+
+	GC_ADDREF(&scheduler->std);
+}
+
+ZEND_METHOD(TaskScheduler, pop)
+{
+	async_task_scheduler *scheduler;
+	async_task_scheduler_stack *stack;
+	async_task_scheduler_stack_entry *entry;
+
+	zval *val;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ZVAL(val)
+	ZEND_PARSE_PARAMETERS_END();
+
+	stack = ASYNC_G(scheduler_stack);
+
+	ASYNC_CHECK_ERROR(stack == NULL || stack->top == NULL, "Cannot pop task scheduler that has not been pushed");
 
 	scheduler = async_task_scheduler_obj(Z_OBJ_P(val));
 
-	ASYNC_G(scheduler) = scheduler;
+	ASYNC_CHECK_ERROR(scheduler != stack->top->scheduler, "Cannot pop task scheduler because it is not the active scheduler");
 
-	GC_ADDREF(&scheduler->std);
+	entry = stack->top;
+	stack->top = entry->prev;
+	stack->size--;
+
+	entry->scheduler->modified = 1;
+
+	async_task_scheduler_dispose(entry->scheduler);
+
+	OBJ_RELEASE(&entry->scheduler->std);
+
+	efree(entry);
 }
 
 ZEND_METHOD(TaskScheduler, __wakeup)
@@ -582,7 +638,11 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_run_with_context, 0, 0, 2)
 	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_set_default_scheduler, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_push, 0, 0, 1)
+	ZEND_ARG_OBJ_INFO(0, scheduler, Concurrent\\TaskScheduler, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_pop, 0, 0, 1)
 	ZEND_ARG_OBJ_INFO(0, scheduler, Concurrent\\TaskScheduler, 0)
 ZEND_END_ARG_INFO()
 
@@ -593,7 +653,8 @@ static const zend_function_entry task_scheduler_functions[] = {
 	ZEND_ME(TaskScheduler, count, arginfo_task_scheduler_count, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, run, arginfo_task_scheduler_run, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, runWithContext, arginfo_task_scheduler_run_with_context, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
-	ZEND_ME(TaskScheduler, setDefaultScheduler, arginfo_task_scheduler_set_default_scheduler, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC | ZEND_ACC_FINAL)
+	ZEND_ME(TaskScheduler, push, arginfo_task_scheduler_push, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC | ZEND_ACC_FINAL)
+	ZEND_ME(TaskScheduler, pop, arginfo_task_scheduler_pop, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, __wakeup, arginfo_task_scheduler_wakeup, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_FE_END
 };
@@ -611,6 +672,7 @@ static zend_object *async_loop_task_scheduler_object_create(zend_class_entry *ce
 
 	scheduler->loop = 1;
 	scheduler->activate = 1;
+	scheduler->modified = 1;
 
 	zend_object_std_init(&scheduler->std, ce);
 	object_properties_init(&scheduler->std, ce);
@@ -720,10 +782,39 @@ void async_task_scheduler_ce_unregister()
 void async_task_scheduler_shutdown()
 {
 	async_task_scheduler *scheduler;
+	async_task_scheduler_stack *stack;
+	async_task_scheduler_stack_entry *entry;
+
+	stack = ASYNC_G(scheduler_stack);
+
+	if (stack != NULL) {
+		ASYNC_G(scheduler_stack) = NULL;
+
+		while (stack->top != NULL) {
+			entry = stack->top;
+
+			stack->top = entry->prev;
+			stack->size--;
+
+			entry->scheduler->modified = 1;
+
+			async_task_scheduler_dispose(entry->scheduler);
+
+			OBJ_RELEASE(&entry->scheduler->std);
+
+			efree(entry);
+		}
+
+		efree(stack);
+	}
 
 	scheduler = ASYNC_G(scheduler);
 
 	if (scheduler != NULL) {
+		ASYNC_G(scheduler) = NULL;
+
+		scheduler->modified = 1;
+
 		async_task_scheduler_dispose(scheduler);
 
 		OBJ_RELEASE(&scheduler->std);

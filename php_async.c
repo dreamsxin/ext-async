@@ -35,7 +35,6 @@ static void (*orig_execute_ex)(zend_execute_data *exec);
 static void async_execute_ex(zend_execute_data *exec)
 {
 	async_fiber *fiber;
-	async_task_scheduler *scheduler;
 
 	fiber = ASYNC_G(current_fiber);
 
@@ -44,11 +43,7 @@ static void async_execute_ex(zend_execute_data *exec)
 	}
 
 	if (fiber == NULL && exec->prev_execute_data == NULL) {
-		scheduler = ASYNC_G(scheduler);
-
-		if (scheduler != NULL) {
-			async_task_scheduler_run_loop(scheduler);
-		}
+		async_task_scheduler_shutdown();
 	}
 }
 
@@ -98,6 +93,7 @@ PHP_MINIT_FUNCTION(async)
 
 PHP_MSHUTDOWN_FUNCTION(async)
 {
+	async_task_scheduler_shutdown();
 	async_task_scheduler_ce_unregister();
 	async_fiber_ce_unregister();
 
