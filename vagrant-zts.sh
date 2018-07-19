@@ -37,6 +37,8 @@ sudo ln -s /usr/local/php/cli/bin/php /usr/local/bin/php
 sudo ln -s /usr/local/php/cli/bin/phpize /usr/local/bin/phpize
 sudo ln -s /usr/local/php/cli/bin/php-config /usr/local/bin/php-config
 
+sudo echo "alias phpgdb='gdb $(which php)'" >> ~/.bash_aliases
+
 cd /vagrant
 
 sudo phpize --clean

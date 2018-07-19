@@ -13,7 +13,7 @@ require_once __DIR__ . '/loop-scheduler.inc';
 
 $loop = new TimerLoop();
 
-TaskScheduler::setDefaultScheduler(new TimerLoopScheduler($loop));
+TaskScheduler::push(new TimerLoopScheduler($loop));
 
 var_dump(Task::await('A'));
 

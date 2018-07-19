@@ -176,11 +176,14 @@ class TaskScheduler implements \Countable
     public final function runWithContext(Context $context, callable $callback, ...$args) { }
     
     /**
-     * Sets the default task scheduler implementations.
-     * 
-     * This method must be called before any async tasks are created or awaited!
+     * Push the given scheduler as default scheduler.
      */
-    public static final function setDefaultScheduler(TaskScheduler $scheduler): void { }
+    public static final function push(TaskScheduler $scheduler): void { }
+    
+    /**
+     * Pop the given scheduler if it is the active scheduler.
+     */
+    public static final function pop(TaskScheduler $scheduler): void { }
 }
 
 /**

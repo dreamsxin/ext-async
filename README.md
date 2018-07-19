@@ -87,7 +87,9 @@ class TaskScheduler implements \Countable
     
     public final function runWithContext(Context $context, callable $callback, ...$args): mixed { }
     
-    public static final function setDefaultScheduler(TaskScheduler $scheduler): void { }
+    public static final function push(TaskScheduler $scheduler): void { }
+    
+    public static final function pop(TaskScheduler $scheduler): void { }
 }
 ```
 
