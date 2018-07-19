@@ -265,12 +265,9 @@ void async_task_scheduler_dequeue(async_task *task)
 	scheduler = task->scheduler;
 
 	ZEND_ASSERT(scheduler != NULL);
+	ZEND_ASSERT(task->fiber.status == ASYNC_FIBER_STATUS_INIT);
 
-	if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
-		detach(&scheduler->suspended, task);
-	} else {
-		detach(&scheduler->ready, task);
-	}
+	detach(&scheduler->ready, task);
 }
 
 static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
@@ -290,13 +287,6 @@ static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
 			async_task_start(task);
 		} else {
 			async_task_continue(task);
-		}
-
-		if (UNEXPECTED(EG(exception))) {
-			ZVAL_OBJ(&task->result, EG(exception));
-			EG(exception) = NULL;
-
-			task->fiber.status = ASYNC_FIBER_STATUS_FAILED;
 		}
 
 		if (task->fiber.status == ASYNC_OP_RESOLVED || task->fiber.status == ASYNC_OP_FAILED) {
@@ -477,10 +467,6 @@ ZEND_METHOD(TaskScheduler, run)
 	}
 
 	zval_ptr_dtor(&retval);
-
-	if (EXPECTED(EG(exception) == NULL)) {
-		zend_throw_error(NULL, "Awaitable has not been resolved");
-	}
 }
 
 ZEND_METHOD(TaskScheduler, runWithContext)
@@ -544,10 +530,6 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 	}
 
 	zval_ptr_dtor(&retval);
-
-	if (EXPECTED(EG(exception) == NULL)) {
-		zend_throw_error(NULL, "Awaitable has not been resolved");
-	}
 }
 
 ZEND_METHOD(TaskScheduler, push)
