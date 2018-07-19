@@ -198,7 +198,7 @@ static void async_task_execute_inline(async_task *task, async_task *inner)
 	async_awaitable_trigger_continuation(&inner->continuation, &inner->result, success);
 }
 
-async_task *async_task_object_create(async_task_scheduler *scheduler, async_context *context)
+async_task *async_task_object_create(zend_execute_data *call, async_task_scheduler *scheduler, async_context *context)
 {
 	async_task *task;
 	zend_long stack_size;
@@ -232,7 +232,7 @@ async_task *async_task_object_create(async_task_scheduler *scheduler, async_cont
 	zend_object_std_init(&task->fiber.std, async_task_ce);
 	task->fiber.std.handlers = &async_task_handlers;
 
-	task->fiber.id = strpprintf(16, "%016zx", (intptr_t) &task->fiber.std);
+	async_fiber_init_metadata(&task->fiber, call);
 
 	return task;
 }
@@ -264,6 +264,10 @@ static void async_task_object_destroy(zend_object *object)
 	async_fiber_destroy(task->fiber.context);
 	zend_string_release(task->fiber.id);
 
+	if (task->fiber.file != NULL) {
+		zend_string_release(task->fiber.file);
+	}
+
 	OBJ_RELEASE(&task->context->std);
 	OBJ_RELEASE(&task->scheduler->std);
 
@@ -278,6 +282,41 @@ ZEND_METHOD(Task, __construct)
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	zend_throw_error(NULL, "Tasks must not be constructed by userland code");
+}
+
+ZEND_METHOD(Task, getId)
+{
+	async_task *task;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	task = (async_task *) Z_OBJ_P(getThis());
+
+	RETURN_STRING(ZSTR_VAL(task->fiber.id));
+}
+
+ZEND_METHOD(Task, getFile)
+{
+	async_task *task;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	task = (async_task *) Z_OBJ_P(getThis());
+
+	if (task->fiber.file != NULL) {
+		RETURN_STRING(ZSTR_VAL(task->fiber.file));
+	}
+}
+
+ZEND_METHOD(Task, getLine)
+{
+	async_task *task;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	task = (async_task *) Z_OBJ_P(getThis());
+
+	RETURN_LONG(task->fiber.line);
 }
 
 ZEND_METHOD(Task, isRunning)
@@ -318,7 +357,7 @@ ZEND_METHOD(Task, async)
 
 	Z_TRY_ADDREF_P(&fci.function_name);
 
-	task = async_task_object_create(async_task_scheduler_get(), async_context_get());
+	task = async_task_object_create(EX(prev_execute_data), async_task_scheduler_get(), async_context_get());
 	task->fiber.fci = fci;
 	task->fiber.fcc = fcc;
 
@@ -358,7 +397,7 @@ ZEND_METHOD(Task, asyncWithContext)
 
 	Z_TRY_ADDREF_P(&fci.function_name);
 
-	task = async_task_object_create(async_task_scheduler_get(), (async_context *) Z_OBJ_P(ctx));
+	task = async_task_object_create(EX(prev_execute_data), async_task_scheduler_get(), (async_context *) Z_OBJ_P(ctx));
 	task->fiber.fci = fci;
 	task->fiber.fcc = fcc;
 
@@ -504,6 +543,15 @@ ZEND_METHOD(Task, __wakeup)
 ZEND_BEGIN_ARG_INFO(arginfo_task_ctor, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_get_id, 0, 0, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_get_file, 0, 0, IS_STRING, 1)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_get_line, 0, 0, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_is_running, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
@@ -527,6 +575,9 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_functions[] = {
 	ZEND_ME(Task, __construct, arginfo_task_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
+	ZEND_ME(Task, getId, arginfo_task_get_id, ZEND_ACC_PUBLIC)
+	ZEND_ME(Task, getFile, arginfo_task_get_file, ZEND_ACC_PUBLIC)
+	ZEND_ME(Task, getLine, arginfo_task_get_line, ZEND_ACC_PUBLIC)
 	ZEND_ME(Task, isRunning, arginfo_task_is_running, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, async, arginfo_task_async, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, asyncWithContext, arginfo_task_async_with_context, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)

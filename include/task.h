@@ -71,7 +71,7 @@ extern const zend_uchar ASYNC_TASK_OPERATION_START;
 extern const zend_uchar ASYNC_TASK_OPERATION_RESUME;
 
 void async_task_dispose(async_task *task);
-async_task *async_task_object_create(async_task_scheduler *scheduler, async_context *context);
+async_task *async_task_object_create(zend_execute_data *call, async_task_scheduler *scheduler, async_context *context);
 
 void async_task_start(async_task *task);
 void async_task_continue(async_task *task);

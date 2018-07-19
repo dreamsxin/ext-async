@@ -12,7 +12,7 @@ register_shutdown_function(function () {
     echo "===> Shutdown function(s) execute here.\n";
 });
 
-TaskScheduler::push(new class($loop) extends LoopTaskScheduler {
+TaskScheduler::push($scheduler = new class($loop) extends LoopTaskScheduler {
 
     protected $loop;
 
@@ -104,5 +104,9 @@ $loop->futureTick(function () use ($loop, $work) {
         var_dump(Task::await($v));
     }, 'D');
 });
+
+array_map(function (Task $task) {
+    printf("> Task(#%s) <- %s:%u\n", $task->getId(), $task->getFile(), $task->getLine());
+}, $scheduler->getPendingTasks());
 
 var_dump('=> END OF MAIN SCRIPT');

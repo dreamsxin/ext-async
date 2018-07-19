@@ -73,6 +73,9 @@ struct _async_fiber {
 
 	/* Max size of the C stack being used by the fiber. */
 	size_t stack_size;
+
+	zend_string *file;
+	size_t line;
 };
 
 extern const zend_uchar ASYNC_FIBER_TYPE_DEFAULT;
@@ -82,6 +85,8 @@ extern const zend_uchar ASYNC_FIBER_STATUS_SUSPENDED;
 extern const zend_uchar ASYNC_FIBER_STATUS_RUNNING;
 extern const zend_uchar ASYNC_FIBER_STATUS_FINISHED;
 extern const zend_uchar ASYNC_FIBER_STATUS_FAILED;
+
+void async_fiber_init_metadata(async_fiber *fiber, zend_execute_data *call);
 
 void async_fiber_run();
 zend_bool async_fiber_switch_to(async_fiber *fiber);

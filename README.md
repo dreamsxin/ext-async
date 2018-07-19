@@ -55,6 +55,12 @@ namespace Concurrent;
 
 final class Task implements Awaitable
 {
+    public function getId(): string { }
+    
+    public function getFile(): ?string { }
+    
+    public function getLine(): int { }
+    
     public static function isRunning(): bool { }
     
     /* Should be replaced with async keyword if merged into PHP core. */
@@ -82,6 +88,8 @@ namespace Concurrent;
 class TaskScheduler implements \Countable
 {
     public final function count(): int { }
+    
+    public final function getPendingTasks(): array { }
     
     public final function run(callable $callback, ...$args): mixed { }
     
@@ -166,6 +174,12 @@ final class Fiber
     public function __construct(callable $callback, ?int $stack_size = null) { }
     
     public function status(): int { }
+    
+    public function getId(): string { }
+    
+    public function getFile(): ?string { }
+    
+    public function getLine(): int { }
     
     public function start(...$args): mixed { }
     

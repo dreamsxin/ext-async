@@ -408,6 +408,33 @@ ZEND_METHOD(TaskScheduler, count)
 	RETURN_LONG(scheduler->ready.size);
 }
 
+ZEND_METHOD(TaskScheduler, getPendingTasks)
+{
+	async_task_scheduler *scheduler;
+	async_task *task;
+	zval obj;
+	zend_ulong i;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	scheduler = async_task_scheduler_obj(Z_OBJ_P(getThis()));
+
+	array_init_size(return_value, scheduler->suspended.size);
+
+	task = scheduler->suspended.first;
+	i = 0;
+
+	while (task != NULL) {
+		ZVAL_OBJ(&obj, &task->fiber.std);
+		GC_ADDREF(&task->fiber.std);
+
+		zend_hash_index_update(Z_ARRVAL_P(return_value), i, &obj);
+
+		task = task->next;
+		i++;
+	}
+}
+
 ZEND_METHOD(TaskScheduler, run)
 {
 	async_task_scheduler *scheduler;
@@ -443,7 +470,7 @@ ZEND_METHOD(TaskScheduler, run)
 
 	Z_TRY_ADDREF_P(&fci.function_name);
 
-	task = async_task_object_create(scheduler, async_context_get());
+	task = async_task_object_create(EX(prev_execute_data), scheduler, async_context_get());
 	task->fiber.fci = fci;
 	task->fiber.fcc = fcc;
 
@@ -506,7 +533,7 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 
 	Z_TRY_ADDREF_P(&fci.function_name);
 
-	task = async_task_object_create(scheduler, (async_context *) Z_OBJ_P(ctx));
+	task = async_task_object_create(EX(prev_execute_data), scheduler, (async_context *) Z_OBJ_P(ctx));
 	task->fiber.fci = fci;
 	task->fiber.fcc = fcc;
 
@@ -608,6 +635,9 @@ ZEND_METHOD(TaskScheduler, __wakeup)
 ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_count, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_scheduler_get_pending_tasks, 0, 0, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_run, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 	ZEND_ARG_VARIADIC_INFO(0, arguments)
@@ -632,6 +662,7 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_scheduler_functions[] = {
 	ZEND_ME(TaskScheduler, count, arginfo_task_scheduler_count, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
+	ZEND_ME(TaskScheduler, getPendingTasks, arginfo_task_scheduler_get_pending_tasks, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, run, arginfo_task_scheduler_run, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, runWithContext, arginfo_task_scheduler_run_with_context, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, push, arginfo_task_scheduler_push, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC | ZEND_ACC_FINAL)

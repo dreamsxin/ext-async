@@ -11,6 +11,12 @@ $result = $scheduler->run(function () {
         return max(123, Task::await(Deferred::value()));
     });
   
+    var_dump([
+        $t->getId(),
+        $t->getFile(),
+        $t->getLine()
+    ]);
+    
     try {
         Task::await(Deferred::error(new \Error('Fail!')));
     } catch (\Throwable $e) {

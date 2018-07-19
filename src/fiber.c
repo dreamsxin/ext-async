@@ -44,6 +44,22 @@ static zend_op_array fiber_run_func;
 static zend_try_catch_element fiber_terminate_try_catch_array = { 0, 1, 0, 0 };
 static zend_op fiber_run_op[2];
 
+
+void async_fiber_init_metadata(async_fiber *fiber, zend_execute_data *call)
+{
+	// TODO: Obfuscate memory addresses using some random mask.
+
+	fiber->id = strpprintf(16, "%016zx", (intptr_t) &fiber->std);
+
+	if (call != NULL && call->func && ZEND_USER_CODE(call->func->common.type)) {
+		if (call->func->op_array.filename != NULL) {
+			fiber->file = zend_string_copy(call->func->op_array.filename);
+		}
+
+		fiber->line = call->opline->lineno;
+	}
+}
+
 zend_bool async_fiber_switch_to(async_fiber *fiber)
 {
 	async_fiber_context root;
@@ -161,8 +177,6 @@ static zend_object *async_fiber_object_create(zend_class_entry *ce)
 	zend_object_std_init(&fiber->std, ce);
 	fiber->std.handlers = &async_fiber_handlers;
 
-	fiber->id = strpprintf(16, "%016zx", (intptr_t) &fiber->std);
-
 	return &fiber->std;
 }
 
@@ -188,6 +202,10 @@ static void async_fiber_object_destroy(zend_object *object)
 
 	zend_string_release(fiber->id);
 
+	if (fiber->file != NULL) {
+		zend_string_release(fiber->file);
+	}
+
 	zend_object_std_dtor(&fiber->std);
 }
 
@@ -206,6 +224,8 @@ ZEND_METHOD(Fiber, __construct)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_LONG(stack_size)
 	ZEND_PARSE_PARAMETERS_END();
+
+	async_fiber_init_metadata(fiber, EX(prev_execute_data));
 
 	if (stack_size == 0) {
 		stack_size = 4096 * (((sizeof(void *)) < 8) ? 16 : 128);
@@ -230,6 +250,41 @@ ZEND_METHOD(Fiber, status)
 	RETURN_LONG(fiber->status);
 }
 /* }}} */
+
+ZEND_METHOD(Fiber, getId)
+{
+	async_fiber *fiber;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	fiber = (async_fiber *) Z_OBJ_P(getThis());
+
+	RETURN_STRING(ZSTR_VAL(fiber->id));
+}
+
+ZEND_METHOD(Fiber, getFile)
+{
+	async_fiber *fiber;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	fiber = (async_fiber *) Z_OBJ_P(getThis());
+
+	if (fiber->file != NULL) {
+		RETURN_STRING(ZSTR_VAL(fiber->file));
+	}
+}
+
+ZEND_METHOD(Fiber, getLine)
+{
+	async_fiber *fiber;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	fiber = (async_fiber *) Z_OBJ_P(getThis());
+
+	RETURN_LONG(fiber->line);
+}
 
 
 /* {{{ proto mixed Fiber::start($params...) */
@@ -420,6 +475,15 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_fiber_status, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_fiber_get_id, 0, 0, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_fiber_get_file, 0, 0, IS_STRING, 1)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_fiber_get_line, 0, 0, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_start, 0, 0, 1)
 	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
@@ -448,6 +512,9 @@ ZEND_END_ARG_INFO()
 static const zend_function_entry fiber_functions[] = {
 	ZEND_ME(Fiber, __construct, arginfo_fiber_create, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
 	ZEND_ME(Fiber, status, arginfo_fiber_status, ZEND_ACC_PUBLIC)
+	ZEND_ME(Fiber, getId, arginfo_fiber_get_id, ZEND_ACC_PUBLIC)
+	ZEND_ME(Fiber, getFile, arginfo_fiber_get_file, ZEND_ACC_PUBLIC)
+	ZEND_ME(Fiber, getLine, arginfo_fiber_get_line, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, start, arginfo_fiber_start, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, resume, arginfo_fiber_resume, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, throw, arginfo_fiber_throw, ZEND_ACC_PUBLIC)

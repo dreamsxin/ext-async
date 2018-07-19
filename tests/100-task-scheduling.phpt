@@ -17,6 +17,8 @@ $result = $scheduler->run(function () use ($scheduler) {
 	
 	$t1 = Task::async('var_dump', 'B');
 	
+	var_dump(strlen($t1->getId()), $t1->getFile() == __FILE__, $t1->getLine() == (__LINE__ - 2));
+	
 	var_dump(count($scheduler));
 	
 	var_dump('A');
@@ -32,6 +34,9 @@ var_dump(count($scheduler));
 --EXPECT--
 int(0)
 int(0)
+int(16)
+bool(true)
+bool(true)
 int(1)
 string(1) "A"
 string(1) "B"

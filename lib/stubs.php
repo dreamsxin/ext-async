@@ -131,6 +131,21 @@ final class Deferred
 final class Task implements Awaitable
 {
     /**
+     * Get the unique identifier of the task.
+     */
+    public function getId(): string { }
+    
+    /**
+     * Get the name of the file that created the task.
+     */
+    public function getFile(): ?string { }
+    
+    /**
+     * Get the line number within the file that created the task.
+     */
+    public function getLine(): int { }
+    
+    /**
      * Check if the current execution is running in an async task.
      */
     public static function isRunning(): bool { }
@@ -164,6 +179,11 @@ class TaskScheduler implements \Countable
      * Get the number of currently scheduled tasks.
      */
     public final function count(): int { }
+    
+    /**
+     * Get an array containing all suspended tasks.
+     */
+    public final function getPendingTasks(): array { }
     
     /**
      * Runs the given callback as a task and returns the result.
@@ -254,6 +274,21 @@ final class Fiber
      * Returns the current status of the fiber object (see status class constants).
      */
     public function status(): int { }
+    
+    /**
+     * Get the unique identifier of the fiber.
+     */
+    public function getId(): string { }
+    
+    /**
+     * Get the name of the file that created the fiber.
+     */
+    public function getFile(): ?string { }
+    
+    /**
+     * Get the line number within the file that created the fiber.
+     */
+    public function getLine(): int { }
     
     /**
      * Starts the fiber, arguments are passed to the callback specified in the constructor.
