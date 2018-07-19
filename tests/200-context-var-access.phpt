@@ -17,9 +17,9 @@ var_dump($var->get());
 $scheduler->run(function () use ($var) {
     var_dump($var->get());
     
-    Task::await(Task::asyncWithContext(Context::current()->with($var, 321), function () use ($var) {
+    Task::await(Task::asyncWithContext(Context::current()->with($var, 321), function (ContextVar $var) {
         var_dump($var->get());
-    }));
+    }, $var));
     
     $context = Context::current()->with($var, 'baz');
     
