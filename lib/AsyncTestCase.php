@@ -22,17 +22,32 @@ namespace Concurrent;
 
 use PHPUnit\Framework\TestCase;
 
+/**
+ * Base class for tests that make use of async tasks.
+ */
 abstract class AsyncTestCase extends TestCase
 {
+    /**
+     * Create the task scheduler being used for a test.
+     * 
+     * The scheduler is re-created for every test to ensure proper test isolation.
+     */
     protected function createTaskScheduler(): TaskScheduler
     {
         return new TaskScheduler();
     }
 
+    /**
+     * Run the test method in an isolated task scheduler.
+     */
     protected function runTest()
     {
-        return $this->createTaskScheduler()->run(function () {
+        TaskScheduler::push($scheduler = $this->createTaskScheduler());
+        
+        try {
             return parent::runTest();
-        });
+        } finally {
+            TaskScheduler::pop($scheduler);
+        }
     }
 }
