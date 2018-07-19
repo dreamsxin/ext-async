@@ -404,7 +404,6 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 
 	async_task_scheduler_dispose(scheduler);
 
-	zend_objects_destroy_object(object);
 	zend_object_std_dtor(object);
 }
 
@@ -746,7 +745,6 @@ void async_task_scheduler_ce_register()
 
 	memcpy(&async_task_scheduler_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_task_scheduler_handlers.offset = XtOffsetOf(async_task_scheduler, std);
-	async_task_scheduler_handlers.dtor_obj = async_task_scheduler_object_destroy;
 	async_task_scheduler_handlers.free_obj = async_task_scheduler_object_destroy;
 	async_task_scheduler_handlers.clone_obj = NULL;
 
@@ -759,7 +757,6 @@ void async_task_scheduler_ce_register()
 
 	memcpy(&async_loop_task_scheduler_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_loop_task_scheduler_handlers.offset = XtOffsetOf(async_task_scheduler, std);
-	async_loop_task_scheduler_handlers.dtor_obj = async_task_scheduler_object_destroy;
 	async_loop_task_scheduler_handlers.free_obj = async_task_scheduler_object_destroy;
 	async_loop_task_scheduler_handlers.clone_obj = NULL;
 
