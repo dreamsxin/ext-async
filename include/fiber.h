@@ -40,9 +40,6 @@ struct _async_fiber {
 	/* Fiber PHP object handle. */
 	zend_object std;
 
-	/* Unique identifier of the fiber (only unique as long as the object exists!). */
-	zend_string *id;
-
 	/* Implementation-specific fiber type. */
 	zend_uchar type;
 

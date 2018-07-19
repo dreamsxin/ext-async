@@ -18,15 +18,13 @@ $defer = new Deferred();
 $t = Task::async(function () use ($defer) {
     Task::await($defer->awaitable());
 });
-$line = __LINE__ - 1;
 
 var_dump(empty($scheduler->getPendingTasks()));
 
-$x = Task::async(function () use ($scheduler, $line) {
-    array_map(function (Task $t) use ($line) {
-        var_dump(strlen($t->getId()));
-        var_dump($t->getFile() == __FILE__);
-        var_dump($t->getLine() == $line);
+$x = Task::async(function () use ($scheduler) {
+    array_map(function (Task $t) {
+        var_dump($t->__debugInfo()['status']);
+        var_dump($t->__debugInfo()['suspended']);
     }, $scheduler->getPendingTasks());
 });
 
@@ -37,7 +35,6 @@ var_dump(empty($scheduler->getPendingTasks()));
 --EXPECT--
 bool(true)
 bool(true)
-int(16)
-bool(true)
+string(7) "PENDING"
 bool(true)
 bool(false)

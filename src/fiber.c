@@ -47,10 +47,6 @@ static zend_op fiber_run_op[2];
 
 void async_fiber_init_metadata(async_fiber *fiber, zend_execute_data *call)
 {
-	// TODO: Obfuscate memory addresses using some random mask.
-
-	fiber->id = strpprintf(16, "%016zx", (intptr_t) &fiber->std);
-
 	if (call != NULL && call->func && ZEND_USER_CODE(call->func->common.type)) {
 		if (call->func->op_array.filename != NULL) {
 			fiber->file = zend_string_copy(call->func->op_array.filename);
@@ -200,8 +196,6 @@ static void async_fiber_object_destroy(zend_object *object)
 
 	async_fiber_destroy(fiber->context);
 
-	zend_string_release(fiber->id);
-
 	if (fiber->file != NULL) {
 		zend_string_release(fiber->file);
 	}
@@ -251,39 +245,26 @@ ZEND_METHOD(Fiber, status)
 }
 /* }}} */
 
-ZEND_METHOD(Fiber, getId)
+ZEND_METHOD(Fiber, __debugInfo)
 {
 	async_fiber *fiber;
+
+	HashTable *info;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	fiber = (async_fiber *) Z_OBJ_P(getThis());
 
-	RETURN_STRING(ZSTR_VAL(fiber->id));
-}
+	if (USED_RET()) {
+		info = async_info_init();
 
-ZEND_METHOD(Fiber, getFile)
-{
-	async_fiber *fiber;
+		async_info_prop_cstr(info, "status", async_status_label(fiber->status));
+		async_info_prop_bool(info, "suspended", fiber->status == ASYNC_FIBER_STATUS_SUSPENDED);
+		async_info_prop_str(info, "file", fiber->file);
+		async_info_prop_long(info, "line", fiber->line);
 
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	fiber = (async_fiber *) Z_OBJ_P(getThis());
-
-	if (fiber->file != NULL) {
-		RETURN_STRING(ZSTR_VAL(fiber->file));
+		RETURN_ARR(info);
 	}
-}
-
-ZEND_METHOD(Fiber, getLine)
-{
-	async_fiber *fiber;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	fiber = (async_fiber *) Z_OBJ_P(getThis());
-
-	RETURN_LONG(fiber->line);
 }
 
 
@@ -472,16 +453,10 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_create, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, stack_size, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO(arginfo_fiber_debug_info, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_fiber_status, 0, 0, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_fiber_get_id, 0, 0, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_fiber_get_file, 0, 0, IS_STRING, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_fiber_get_line, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_start, 0, 0, 1)
@@ -511,10 +486,8 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry fiber_functions[] = {
 	ZEND_ME(Fiber, __construct, arginfo_fiber_create, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(Fiber, __debugInfo, arginfo_fiber_debug_info, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, status, arginfo_fiber_status, ZEND_ACC_PUBLIC)
-	ZEND_ME(Fiber, getId, arginfo_fiber_get_id, ZEND_ACC_PUBLIC)
-	ZEND_ME(Fiber, getFile, arginfo_fiber_get_file, ZEND_ACC_PUBLIC)
-	ZEND_ME(Fiber, getLine, arginfo_fiber_get_line, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, start, arginfo_fiber_start, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, resume, arginfo_fiber_resume, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, throw, arginfo_fiber_throw, ZEND_ACC_PUBLIC)

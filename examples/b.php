@@ -105,8 +105,6 @@ $loop->futureTick(function () use ($loop, $work) {
     }, 'D');
 });
 
-array_map(function (Task $task) {
-    printf("> Task(#%s) <- %s:%u\n", $task->getId(), $task->getFile(), $task->getLine());
-}, $scheduler->getPendingTasks());
+print_r($scheduler->getPendingTasks());
 
 var_dump('=> END OF MAIN SCRIPT');

@@ -129,22 +129,7 @@ final class Deferred
  * A task is a fiber-based, concurrent VM execution, that can be paused and resumed.
  */
 final class Task implements Awaitable
-{
-    /**
-     * Get the unique identifier of the task.
-     */
-    public function getId(): string { }
-    
-    /**
-     * Get the name of the file that created the task.
-     */
-    public function getFile(): ?string { }
-    
-    /**
-     * Get the line number within the file that created the task.
-     */
-    public function getLine(): int { }
-    
+{   
     /**
      * Check if the current execution is running in an async task.
      */
@@ -274,21 +259,6 @@ final class Fiber
      * Returns the current status of the fiber object (see status class constants).
      */
     public function status(): int { }
-    
-    /**
-     * Get the unique identifier of the fiber.
-     */
-    public function getId(): string { }
-    
-    /**
-     * Get the name of the file that created the fiber.
-     */
-    public function getFile(): ?string { }
-    
-    /**
-     * Get the line number within the file that created the fiber.
-     */
-    public function getLine(): int { }
     
     /**
      * Starts the fiber, arguments are passed to the callback specified in the constructor.

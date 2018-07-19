@@ -16,8 +16,12 @@ $result = $scheduler->run(function () use ($scheduler) {
 	var_dump(count($scheduler));
 	
 	$t1 = Task::async('var_dump', 'B');
+	$line = __LINE__ - 1;
 	
-	var_dump(strlen($t1->getId()), $t1->getFile() == __FILE__, $t1->getLine() == (__LINE__ - 2));
+	var_dump($t1->__debugInfo()['status']);
+	var_dump($t1->__debugInfo()['suspended']);
+	var_dump($t1->__debugInfo()['file'] == __FILE__);
+	var_dump($t1->__debugInfo()['line'] == $line);
 	
 	var_dump(count($scheduler));
 	
@@ -34,7 +38,8 @@ var_dump(count($scheduler));
 --EXPECT--
 int(0)
 int(0)
-int(16)
+string(7) "PENDING"
+bool(false)
 bool(true)
 bool(true)
 int(1)

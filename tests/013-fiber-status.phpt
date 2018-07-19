@@ -12,8 +12,12 @@ use Concurrent\Fiber;
 $f = new Fiber(function () {
     Fiber::yield();
 });
+$line = __LINE__ - 1;
 
-var_dump(strlen($f->getId()), $f->getFile() == __FILE__, $f->getLine() == (__LINE__ - 2));
+var_dump($f->__debugInfo()['status']);
+var_dump($f->__debugInfo()['suspended']);
+var_dump($f->__debugInfo()['file'] == __FILE__);
+var_dump($f->__debugInfo()['line'] == $line);
 
 var_dump($f->status() == Fiber::STATUS_INIT);
 $f->start();
@@ -41,7 +45,8 @@ var_dump($f->status() == Fiber::STATUS_FAILED);
 
 ?>
 --EXPECT--
-int(16)
+string(7) "PENDING"
+bool(false)
 bool(true)
 bool(true)
 bool(true)

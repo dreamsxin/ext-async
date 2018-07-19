@@ -262,7 +262,6 @@ static void async_task_object_destroy(zend_object *object)
 	task = (async_task *) object;
 
 	async_fiber_destroy(task->fiber.context);
-	zend_string_release(task->fiber.id);
 
 	if (task->fiber.file != NULL) {
 		zend_string_release(task->fiber.file);
@@ -284,39 +283,26 @@ ZEND_METHOD(Task, __construct)
 	zend_throw_error(NULL, "Tasks must not be constructed by userland code");
 }
 
-ZEND_METHOD(Task, getId)
+ZEND_METHOD(Task, __debugInfo)
 {
 	async_task *task;
+
+	HashTable *info;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	task = (async_task *) Z_OBJ_P(getThis());
 
-	RETURN_STRING(ZSTR_VAL(task->fiber.id));
-}
+	if (USED_RET()) {
+		info = async_info_init();
 
-ZEND_METHOD(Task, getFile)
-{
-	async_task *task;
+		async_info_prop_cstr(info, "status", async_status_label(task->fiber.status));
+		async_info_prop_bool(info, "suspended", task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED);
+		async_info_prop_str(info, "file", task->fiber.file);
+		async_info_prop_long(info, "line", task->fiber.line);
 
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	task = (async_task *) Z_OBJ_P(getThis());
-
-	if (task->fiber.file != NULL) {
-		RETURN_STRING(ZSTR_VAL(task->fiber.file));
+		RETURN_ARR(info);
 	}
-}
-
-ZEND_METHOD(Task, getLine)
-{
-	async_task *task;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	task = (async_task *) Z_OBJ_P(getThis());
-
-	RETURN_LONG(task->fiber.line);
 }
 
 ZEND_METHOD(Task, isRunning)
@@ -543,13 +529,7 @@ ZEND_METHOD(Task, __wakeup)
 ZEND_BEGIN_ARG_INFO(arginfo_task_ctor, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_get_id, 0, 0, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_get_file, 0, 0, IS_STRING, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_get_line, 0, 0, IS_LONG, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_task_debug_info, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_is_running, 0, 0, _IS_BOOL, 0)
@@ -575,9 +555,7 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_functions[] = {
 	ZEND_ME(Task, __construct, arginfo_task_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
-	ZEND_ME(Task, getId, arginfo_task_get_id, ZEND_ACC_PUBLIC)
-	ZEND_ME(Task, getFile, arginfo_task_get_file, ZEND_ACC_PUBLIC)
-	ZEND_ME(Task, getLine, arginfo_task_get_line, ZEND_ACC_PUBLIC)
+	ZEND_ME(Task, __debugInfo, arginfo_task_debug_info, ZEND_ACC_PUBLIC)
 	ZEND_ME(Task, isRunning, arginfo_task_is_running, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, async, arginfo_task_async, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, asyncWithContext, arginfo_task_async_with_context, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)

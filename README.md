@@ -54,13 +54,7 @@ Calling `Task::await()` will suspend the current task and await resolution if th
 namespace Concurrent;
 
 final class Task implements Awaitable
-{
-    public function getId(): string { }
-    
-    public function getFile(): ?string { }
-    
-    public function getLine(): int { }
-    
+{   
     public static function isRunning(): bool { }
     
     /* Should be replaced with async keyword if merged into PHP core. */
@@ -174,12 +168,6 @@ final class Fiber
     public function __construct(callable $callback, ?int $stack_size = null) { }
     
     public function status(): int { }
-    
-    public function getId(): string { }
-    
-    public function getFile(): ?string { }
-    
-    public function getLine(): int { }
     
     public function start(...$args): mixed { }
     
