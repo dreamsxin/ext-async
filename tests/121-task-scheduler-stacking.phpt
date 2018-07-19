@@ -27,23 +27,23 @@ class TestScheduler extends LoopTaskScheduler {
     protected function stopLoop() { }
 }
 
-TaskScheduler::push($s1 = new TestScheduler('S1'));
+TaskScheduler::register($s1 = new TestScheduler('S1'));
 
 Task::await(Task::async('var_dump', 'A'));
 
-TaskScheduler::push($s2 = new TestScheduler('S2'));
+TaskScheduler::register($s2 = new TestScheduler('S2'));
 
 $t = Task::async('var_dump', 'B');
 Task::async('var_dump', 'C');
 
 Task::await($t);
 
-TaskScheduler::pop($s2);
+TaskScheduler::unregister($s2);
 
 Task::await(Task::async('var_dump', 'D'));
 Task::async('var_dump', 'E');
 
-TaskScheduler::pop($s1);
+TaskScheduler::unregister($s1);
 
 Task::await(Task::async('var_dump', 'X'));
 

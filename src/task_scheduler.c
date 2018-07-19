@@ -559,7 +559,7 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 	zval_ptr_dtor(&retval);
 }
 
-ZEND_METHOD(TaskScheduler, push)
+ZEND_METHOD(TaskScheduler, register)
 {
 	async_task_scheduler *scheduler;
 	async_task_scheduler_stack *stack;
@@ -592,7 +592,7 @@ ZEND_METHOD(TaskScheduler, push)
 	GC_ADDREF(&scheduler->std);
 }
 
-ZEND_METHOD(TaskScheduler, pop)
+ZEND_METHOD(TaskScheduler, unregister)
 {
 	async_task_scheduler *scheduler;
 	async_task_scheduler_stack *stack;
@@ -606,11 +606,11 @@ ZEND_METHOD(TaskScheduler, pop)
 
 	stack = ASYNC_G(scheduler_stack);
 
-	ASYNC_CHECK_ERROR(stack == NULL || stack->top == NULL, "Cannot pop task scheduler because it is not the active scheduler");
+	ASYNC_CHECK_ERROR(stack == NULL || stack->top == NULL, "Cannot unregister task scheduler because it is not the active scheduler");
 
 	scheduler = async_task_scheduler_obj(Z_OBJ_P(val));
 
-	ASYNC_CHECK_ERROR(scheduler != stack->top->scheduler, "Cannot pop task scheduler because it is not the active scheduler");
+	ASYNC_CHECK_ERROR(scheduler != stack->top->scheduler, "Cannot unregister task scheduler because it is not the active scheduler");
 
 	entry = stack->top;
 	stack->top = entry->prev;
@@ -649,11 +649,11 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_run_with_context, 0, 0, 2)
 	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_push, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_register, 0, 0, 1)
 	ZEND_ARG_OBJ_INFO(0, scheduler, Concurrent\\TaskScheduler, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_pop, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_task_scheduler_unregister, 0, 0, 1)
 	ZEND_ARG_OBJ_INFO(0, scheduler, Concurrent\\TaskScheduler, 0)
 ZEND_END_ARG_INFO()
 
@@ -665,8 +665,8 @@ static const zend_function_entry task_scheduler_functions[] = {
 	ZEND_ME(TaskScheduler, getPendingTasks, arginfo_task_scheduler_get_pending_tasks, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, run, arginfo_task_scheduler_run, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, runWithContext, arginfo_task_scheduler_run_with_context, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
-	ZEND_ME(TaskScheduler, push, arginfo_task_scheduler_push, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC | ZEND_ACC_FINAL)
-	ZEND_ME(TaskScheduler, pop, arginfo_task_scheduler_pop, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC | ZEND_ACC_FINAL)
+	ZEND_ME(TaskScheduler, register, arginfo_task_scheduler_register, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC | ZEND_ACC_FINAL)
+	ZEND_ME(TaskScheduler, unregister, arginfo_task_scheduler_unregister, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC | ZEND_ACC_FINAL)
 	ZEND_ME(TaskScheduler, __wakeup, arginfo_task_scheduler_wakeup, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
 	ZEND_FE_END
 };

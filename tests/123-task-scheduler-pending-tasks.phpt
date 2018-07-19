@@ -9,7 +9,7 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-TaskScheduler::push($scheduler = new TaskScheduler());
+TaskScheduler::register($scheduler = new TaskScheduler());
 
 var_dump(empty($scheduler->getPendingTasks()));
 

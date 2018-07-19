@@ -42,12 +42,12 @@ abstract class AsyncTestCase extends TestCase
      */
     protected function runTest()
     {
-        TaskScheduler::push($scheduler = $this->createTaskScheduler());
+        TaskScheduler::register($scheduler = $this->createTaskScheduler());
         
         try {
             return parent::runTest();
         } finally {
-            TaskScheduler::pop($scheduler);
+            TaskScheduler::unregister($scheduler);
         }
     }
 }

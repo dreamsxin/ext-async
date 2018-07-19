@@ -9,7 +9,7 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-TaskScheduler::push(new class() extends LoopTaskScheduler {
+TaskScheduler::register(new class() extends LoopTaskScheduler {
     protected function activate() {
         var_dump('ACTIVATE');
     }

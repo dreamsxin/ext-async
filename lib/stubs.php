@@ -198,12 +198,12 @@ class TaskScheduler implements \Countable
     /**
      * Push the given scheduler as default scheduler.
      */
-    public static final function push(TaskScheduler $scheduler): void { }
+    public static final function register(TaskScheduler $scheduler): void { }
     
     /**
      * Pop the given scheduler if it is the active scheduler.
      */
-    public static final function pop(TaskScheduler $scheduler): void { }
+    public static final function unregister(TaskScheduler $scheduler): void { }
 }
 
 /**

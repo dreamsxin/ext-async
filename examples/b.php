@@ -12,7 +12,7 @@ register_shutdown_function(function () {
     echo "===> Shutdown function(s) execute here.\n";
 });
 
-TaskScheduler::push($scheduler = new class($loop) extends LoopTaskScheduler {
+TaskScheduler::register($scheduler = new class($loop) extends LoopTaskScheduler {
 
     protected $loop;
 
