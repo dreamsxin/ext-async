@@ -300,6 +300,7 @@ ZEND_METHOD(Task, __debugInfo)
 		async_info_prop_bool(info, "suspended", task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED);
 		async_info_prop_str(info, "file", task->fiber.file);
 		async_info_prop_long(info, "line", task->fiber.line);
+		async_info_prop(info, "result", &task->result);
 
 		RETURN_ARR(info);
 	}

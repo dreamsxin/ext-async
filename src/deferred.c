@@ -230,11 +230,35 @@ ZEND_METHOD(DeferredAwaitable, __construct)
 	zend_throw_error(NULL, "Deferred awaitable must not be created from userland code");
 }
 
+ZEND_METHOD(DeferredAwaitable, __debugInfo)
+{
+	async_deferred *defer;
+
+	HashTable *info;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	defer = ((async_deferred_awaitable *) Z_OBJ_P(getThis()))->defer;
+
+	if (USED_RET()) {
+		info = async_info_init();
+
+		async_info_prop_cstr(info, "status", async_status_label(defer->status));
+		async_info_prop(info, "result", &defer->result);
+
+		RETURN_ARR(info);
+	}
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_deferred_awaitable_debug_info, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_deferred_awaitable_ctor, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry deferred_awaitable_functions[] = {
 	ZEND_ME(DeferredAwaitable, __construct, arginfo_deferred_awaitable_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
+	ZEND_ME(DeferredAwaitable, __debugInfo, arginfo_deferred_awaitable_debug_info, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -271,6 +295,26 @@ static void async_deferred_object_destroy(zend_object *object)
 	zval_ptr_dtor(&defer->result);
 
 	zend_object_std_dtor(&defer->std);
+}
+
+ZEND_METHOD(Deferred, __debugInfo)
+{
+	async_deferred *defer;
+
+	HashTable *info;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	defer = (async_deferred *) Z_OBJ_P(getThis());
+
+	if (USED_RET()) {
+		info = async_info_init();
+
+		async_info_prop_cstr(info, "status", async_status_label(defer->status));
+		async_info_prop(info, "result", &defer->result);
+
+		RETURN_ARR(info);
+	}
 }
 
 ZEND_METHOD(Deferred, awaitable)
@@ -588,6 +632,9 @@ ZEND_METHOD(Deferred, transform)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
+ZEND_BEGIN_ARG_INFO(arginfo_deferred_debug_info, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_deferred_awaitable, 0, 0, Concurrent\\Awaitable, 0)
 ZEND_END_ARG_INFO()
 
@@ -618,6 +665,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_deferred_transform, 0, 2, Concurr
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry deferred_functions[] = {
+	ZEND_ME(Deferred, __debugInfo, arginfo_deferred_debug_info, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, awaitable, arginfo_deferred_awaitable, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, resolve, arginfo_deferred_resolve, ZEND_ACC_PUBLIC)
 	ZEND_ME(Deferred, fail, arginfo_deferred_fail, ZEND_ACC_PUBLIC)

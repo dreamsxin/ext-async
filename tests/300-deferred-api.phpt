@@ -36,10 +36,16 @@ $a = $scheduler->run(function () {
         var_dump('B');
         
         $defer->resolve(777);
+        
+        var_dump($defer->__debugInfo()['status']);
+        var_dump($defer->awaitable()->__debugInfo()['status']);
     });
     
     var_dump('A');
     
+    var_dump($defer->__debugInfo()['status']);
+    var_dump($defer->awaitable()->__debugInfo()['status']);
+        
     return Task::await($defer->awaitable());
 });
 
@@ -58,6 +64,10 @@ int(321)
 string(1) "X"
 string(5) "Fail!"
 string(1) "A"
+string(7) "PENDING"
+string(7) "PENDING"
 string(1) "B"
+string(8) "RESOLVED"
+string(8) "RESOLVED"
 int(777)
 NULL
