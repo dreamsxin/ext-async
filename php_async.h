@@ -46,8 +46,6 @@ extern zend_module_entry async_module_entry;
 #define ASYNC_OP_RESOLVED 64
 #define ASYNC_OP_FAILED 65
 
-char *async_status_label(zend_uchar status);
-
 ZEND_BEGIN_MODULE_GLOBALS(async)
 	/* Root fiber context (main thread). */
 	async_fiber_context root;
@@ -97,6 +95,8 @@ ZEND_TSRMLS_CACHE_EXTERN()
     	return; \
     } \
 } while (0)
+
+char *async_status_label(zend_uchar status);
 
 HashTable *async_info_init();
 void async_info_prop(HashTable *info, char *key, zval *value);
