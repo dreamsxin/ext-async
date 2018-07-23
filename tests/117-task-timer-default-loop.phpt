@@ -15,7 +15,7 @@ $loop = new TimerLoop();
 
 TaskScheduler::register(new TimerLoopScheduler($loop));
 
-var_dump(Task::await('A'));
+var_dump('A');
 
 $defer = new Deferred();
 

@@ -433,7 +433,7 @@ ZEND_METHOD(Task, await)
 			async_task_scheduler_run_loop(scheduler);
 
 			ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
-		} else if (ce == async_task_ce) {
+		} else {
 			inner = (async_task *) Z_OBJ_P(val);
 
 			ASYNC_CHECK_ERROR(inner->scheduler != scheduler, "Cannot await a task that runs on a different task scheduler");
@@ -444,8 +444,6 @@ ZEND_METHOD(Task, await)
 			async_task_scheduler_run_loop(inner->scheduler);
 
 			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
-		} else {
-			RETURN_ZVAL(val, 1, 0);
 		}
 
 		cont->disposed = 1;
@@ -478,14 +476,12 @@ ZEND_METHOD(Task, await)
 		ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 
 		task->suspended = async_awaitable_register_continuation(&inner->continuation, task, NULL, async_task_continuation);
-	} else if (ce == async_deferred_awaitable_ce) {
+	} else {
 		defer = ((async_deferred_awaitable *) Z_OBJ_P(val))->defer;
 
 		ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
 
 		task->suspended = async_awaitable_register_continuation(&defer->continuation, task, NULL, async_task_continuation);
-	} else {
-		RETURN_ZVAL(val, 1, 0);
 	}
 
 	task->fiber.value = USED_RET() ? return_value : NULL;
@@ -548,7 +544,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_async_with_context, 0, 2, Co
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_await, 0, 0, 1)
-	ZEND_ARG_INFO(0, value)
+	ZEND_ARG_OBJ_INFO(0, awaitable, Concurrent\\Awaitable, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO(arginfo_task_wakeup, 0)

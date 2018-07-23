@@ -25,8 +25,6 @@ TaskScheduler::register(new class() extends LoopTaskScheduler {
     }
 });
 
-var_dump(Task::await(123));
-
 var_dump(Task::await(Deferred::value(321)));
 
 try {
@@ -45,7 +43,6 @@ var_dump(Task::await($defer->awaitable()));
 
 ?>
 --EXPECT--
-int(123)
 int(321)
 string(5) "Fail!"
 string(8) "ACTIVATE"

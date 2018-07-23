@@ -31,7 +31,7 @@ try {
 
 try {
     Task::await(Deferred::transform(Deferred::value(123), function () {
-        Task::await(321);
+        Task::await(Deferred::value(321));
     }));
 } catch (\Throwable $e) {
     var_dump($e->getMessage());
@@ -43,7 +43,7 @@ try {
     
         $scheduler->run(function () {
             Task::await(Deferred::transform(Deferred::value(123), function () {
-                Task::await(321);
+                Task::await(Deferred::value(321));
             }));
         });
     }));

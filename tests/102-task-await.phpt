@@ -14,19 +14,17 @@ $scheduler = new TaskScheduler();
 $scheduler->run(function () {
     var_dump('A');
     
-    var_dump(Task::await('B'));
-    
     $defer = new Deferred();
-    $defer->resolve('C');
+    $defer->resolve('B');
     
     var_dump(Task::await($defer->awaitable()));
     
     var_dump(Task::await(Task::async(function (string $x): string {
         return $x;
-    }, 'D')));
+    }, 'C')));
     
     Task::await($t = Task::async(function () {
-        return 'E';
+        return 'D';
     }));
     
     var_dump(Task::await($t));
@@ -38,4 +36,3 @@ string(1) "A"
 string(1) "B"
 string(1) "C"
 string(1) "D"
-string(1) "E"

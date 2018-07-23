@@ -18,7 +18,7 @@ $loop->timer(10, function () {
     var_dump('TIMER');
 
     try {
-        var_dump(Task::await(321));
+        var_dump(Task::await(Deferred::value(321)));
     } catch (\Throwable $e) {
         var_dump($e->getMessage());
     }
@@ -37,7 +37,7 @@ $scheduler2->run(function () use ($scheduler, $loop) {
         var_dump('TIMER');
 
         try {
-            var_dump(Task::await(321));
+            var_dump(Task::await(Deferred::value(321)));
         } catch (\Throwable $e) {
             var_dump($e->getMessage());
         }
