@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PHP_VERSION=7.3.0alpha2
+PHP_VERSION=7.3.0alpha4
 
 sudo apt-get update
 sudo apt-get install gdb git gcc make pkg-config autoconf bison libxml2-dev libssl-dev curl -y
@@ -12,7 +12,9 @@ cd /usr/local/php
 sudo mkdir cli
 
 sudo mkdir php-src
-sudo curl -LSs https://github.com/php/php-src/archive/php-$PHP_VERSION.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
+sudo curl -LSs https://github.com/php/php-src/archive/master.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
+
+#sudo curl -LSs https://github.com/php/php-src/archive/php-$PHP_VERSION.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
 
 pushd php-src
 
