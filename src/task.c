@@ -170,6 +170,9 @@ static void async_task_execute_inline(async_task *task, async_task *inner)
 
 	async_task_scheduler_dequeue(inner);
 
+	// Mark inner fiber as suspended to avoid duplicate inlining attempts.
+	inner->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
+
 	OBJ_RELEASE(&inner->fiber.std);
 
 	context = ASYNC_G(current_context);
