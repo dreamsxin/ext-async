@@ -26,11 +26,10 @@ async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_cb **c
 	async_awaitable_cb *current;
 
 	current = emalloc(sizeof(async_awaitable_cb));
+	ZEND_SECURE_ZERO(current, sizeof(async_awaitable_cb));
 
 	current->object = obj;
-	current->disposed = 0;
 	current->func = func;
-	current->next = NULL;
 
 	if (data == NULL) {
 		ZVAL_UNDEF(&current->data);

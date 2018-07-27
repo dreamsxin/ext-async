@@ -43,23 +43,14 @@ struct _async_task_queue {
 };
 
 struct _async_task_scheduler {
-	/* Flag indidcating if the scheduler is integrated with an event loop. */
-	zend_bool loop;
-
 	/* Is set while an event loop is running. */
 	zend_bool running;
 
-	/* Has the scheduler been modified since the last call to run. */
-	zend_bool modified;
+	/* Is set if stop has been requested during current run. */
+	zend_bool stopped;
 
 	/* Is set while the scheduler is in the process of dispatching tasks. */
 	zend_bool dispatching;
-
-	/* Is set when the next task scheduling operation needs to trigger the activate() method. */
-	zend_bool activate;
-
-	/* Is set during the call to activate(), needed to prevent early dispatching. */
-	zend_bool activating;
 
 	/* Tasks ready to be started or resumed. */
 	async_task_queue ready;
@@ -96,7 +87,6 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler);
 void async_task_scheduler_stop_loop(async_task_scheduler *scheduler);
 
 void async_task_scheduler_ce_register();
-void async_task_scheduler_ce_unregister();
 
 void async_task_scheduler_shutdown();
 

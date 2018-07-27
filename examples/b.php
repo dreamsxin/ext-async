@@ -4,107 +4,53 @@
 
 namespace Concurrent;
 
-require_once dirname(__DIR__) . '/vendor/autoload.php';
-
-$loop = \React\EventLoop\Factory::create();
-
 register_shutdown_function(function () {
     echo "===> Shutdown function(s) execute here.\n";
 });
-
-TaskScheduler::register($scheduler = new class($loop) extends LoopTaskScheduler {
-
-    protected $loop;
-
-    public function __construct(\React\EventLoop\LoopInterface $loop)
-    {
-        $this->loop = $loop;
-    }
-
-    protected function activate()
-    {
-        var_dump('=> activate');
-        
-        $this->loop->futureTick(\Closure::fromCallable([
-            $this,
-            'dispatch'
-        ]));
-    }
-
-    protected function runLoop()
-    {
-        var_dump('START LOOP');
-        $this->loop->run();
-        var_dump('END LOOP');
-    }
-    
-    protected function stopLoop()
-    {
-        var_dump('STOP LOOP');
-        $this->loop->stop();
-    }
-});
-
-function adapt(\React\Promise\PromiseInterface $promise): Awaitable
-{
-    $defer = new Deferred();
-    
-    $promise->done(function ($v) use ($defer) {
-        $defer->resolve($v);
-    }, function ($e) use ($defer) {
-        $defer->fail(($e instanceof \Throwable) ? $e : new \Error((string) $e));
-    });
-    
-    return $defer->awaitable();
-}
 
 $work = function (string $title): void {
     var_dump($title);
 };
 
-Task::await(Task::async(function () use ($loop, $work) {
-    $defer = new \React\Promise\Deferred();
+Task::await(Task::async(function () use ($work) {
+    $defer = new Deferred();
     
-    Task::await(all([
-        Task::async($work, 'A'),
-        Task::async($work, 'B')
-    ]));
+    Task::await(Task::async($work, 'A'));
+    Task::await(Task::async($work, 'B'));
     
-    Task::async(function () use ($loop) {
+    Task::async(function () {
         $defer = new Deferred();
         
-        $loop->addTimer(1, function () use ($defer) {
+        (new Timer(function () use ($defer) {
             $defer->resolve('H :)');
-        });
+        }))->start(1000);
         
         var_dump(Task::await($defer->awaitable()));
     });
     
     Task::async(function () use ($defer) {
-        var_dump(Task::await(adapt($defer->promise())));
+        var_dump(Task::await($defer->awaitable()));
     });
     
-    $loop->addTimer(.5, function () use ($work, $defer) {
+    (new Timer(function () use ($work, $defer) {
         $defer->resolve('F');
         
         Task::async($work, 'G');
-    });
+    }))->start(500);
     
     var_dump('ROOT TASK DONE');
 }));
 
-$loop->futureTick(function () use ($loop, $work) {
+Timer::tick(function () use ($work) {
     Task::async($work, 'C');
     
-    $loop->futureTick(function () use ($work) {
+    Timer::tick(function () use ($work) {
         Task::async($work, 'E');
     });
     
     Task::async(function ($v) {
         var_dump(Task::await($v));
-    }, 'D');
+    }, Deferred::value('D'));
 });
-
-print_r($scheduler->getPendingTasks());
 
 var_dump('=> END OF MAIN SCRIPT');

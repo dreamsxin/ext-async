@@ -3,9 +3,10 @@ ARG_ENABLE('async', 'async support', 'yes');
 if (PHP_ASYNC != 'no') {
 	AC_DEFINE('HAVE_ASYNC', 1, 'async support enabled');
 
-	ADD_FLAG("CFLAGS", "/I " + configure_module_dirname);
-	ADD_FLAG("CFLAGS", "/I " + configure_module_dirname + "\\include");
-	
+	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname);
+	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\include');
+	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\thirdparty\\libuv\\include');
+		
 	var async_source_files = [
 		'php_async.c',
 		'src\\fiber.c',
@@ -14,7 +15,8 @@ if (PHP_ASYNC != 'no') {
 		'src\\context.c',
 		'src\\deferred.c',
 		'src\\task.c',
-		'src\\task_scheduler.c'
+		'src\\task_scheduler.c',
+		'src\\timer.c'
 	];
 	
 	var async_header_files = [
@@ -23,8 +25,19 @@ if (PHP_ASYNC != 'no') {
 		'include\\context.h',
 		'include\\deferred.h',
 		'include\\task.h',
-		'include\\task_scheduler.h'
+		'include\\task_scheduler.h',
+		'include\\timer.h',
+		'thirdparty\\libuv\\include\\uv.h'
 	];
+	
+	// Required in order to link against libuv.
+	CHECK_LIB("Iphlpapi.lib", 'async');
+	CHECK_LIB("psapi.lib", 'async');
+	CHECK_LIB("Ws2_32.lib", 'async');
+	CHECK_LIB('Userenv.lib', 'async');
+	
+	// Use pre-built libuv from async extension.
+	CHECK_LIB('libuv-x64.lib', 'async', configure_module_dirname + '\\thirdparty');
 
 	PHP_INSTALL_HEADERS('ext/async', async_header_files.join(' '));
 

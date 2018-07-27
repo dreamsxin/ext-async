@@ -24,4 +24,9 @@ $result = $scheduler->run(function () {
     return 777;
 });
 
+$timer = new Timer(function () {
+    var_dump('DONE TIMER :)');
+});
+$timer->start(500);
+
 var_dump($result);

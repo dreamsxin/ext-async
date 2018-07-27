@@ -10,9 +10,27 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 namespace Concurrent;
 
 require_once __DIR__ . '/loop-scheduler.inc';
-require_once dirname(__DIR__) . '/lib/functions.php';
 
 TaskScheduler::register(new TimerLoopScheduler($loop = new TimerLoop()));
+
+function all(array $awaitables): Awaitable
+{
+    $result = \array_fill_keys(\array_keys($awaitables), null);
+    
+    $all = function (Deferred $defer, $last, $k, $e, $v) use (& $result) {
+        if ($e) {
+            $defer->fail($e);
+        } else {
+            $result[$k] = $v;
+            
+            if ($last) {
+                $defer->resolve($result);
+            }
+        }
+    };
+    
+    return Deferred::combine($awaitables, $all);
+}
 
 $d1 = new Deferred();
 $d2 = new Deferred();

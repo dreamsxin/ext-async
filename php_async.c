@@ -25,6 +25,8 @@
 
 #include "php_async.h"
 
+#include "uv.h"
+
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
 static void async_execute_ex(zend_execute_data *exec);
@@ -155,11 +157,15 @@ PHP_MINIT_FUNCTION(async)
 	async_fiber_ce_register();
 	async_task_ce_register();
 	async_task_scheduler_ce_register();
+	async_timer_ce_register();
 
 	REGISTER_INI_ENTRIES();
 
 	orig_execute_ex = zend_execute_ex;
 	zend_execute_ex = async_execute_ex;
+
+	// Load something from libuv to verify it is loaded.
+	uv_default_loop();
 
 	return SUCCESS;
 }
@@ -168,7 +174,6 @@ PHP_MINIT_FUNCTION(async)
 PHP_MSHUTDOWN_FUNCTION(async)
 {
 	async_task_scheduler_shutdown();
-	async_task_scheduler_ce_unregister();
 	async_fiber_ce_unregister();
 
 	UNREGISTER_INI_ENTRIES();
@@ -191,18 +196,34 @@ static PHP_MINFO_FUNCTION(async)
 
 static PHP_RINIT_FUNCTION(async)
 {
+	uv_loop_t *loop;
+
 #if defined(ZTS) && defined(COMPILE_DL_ASYNC)
 	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
+
+	loop = emalloc(sizeof(uv_loop_t));
+	uv_loop_init(loop);
+
+	ASYNC_G(loop) = loop;
 
 	return SUCCESS;
 }
 
 static PHP_RSHUTDOWN_FUNCTION(async)
 {
+	uv_loop_t *loop;
+
 	async_task_scheduler_shutdown();
 	async_context_shutdown();
 	async_fiber_shutdown();
+
+	loop = ASYNC_G(loop);
+
+	if (loop != NULL) {
+		uv_loop_close(loop);
+		efree(loop);
+	}
 
 	return SUCCESS;
 }

@@ -29,9 +29,10 @@ before_install:
   - pip install --user cpp-coveralls
 
 script:
+  - ./install-libuv.sh /tmp/libuv
   - phpize
   - wget -q -O run-tests.php https://raw.githubusercontent.com/php/php-src/master/run-tests.php
-  - ./configure
+  - ./configure --with-uv=/tmp/libuv
   - make test-coverage
 
 after_success:

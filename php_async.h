@@ -25,6 +25,9 @@
 #include "fiber.h"
 #include "task.h"
 #include "task_scheduler.h"
+#include "timer.h"
+
+#include "uv.h"
 
 extern zend_module_entry async_module_entry;
 #define phpext_async_ptr &async_module_entry
@@ -67,6 +70,9 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 
 	/* Running task scheduler. */
 	async_task_scheduler *current_scheduler;
+
+	/* Shared event loop. */
+	uv_loop_t *loop;
 
 	/* Default fiber C stack size. */
 	zend_long stack_size;

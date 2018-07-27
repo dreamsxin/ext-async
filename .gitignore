@@ -7,28 +7,30 @@
 *.global
 *.la
 *.lo
+*.log
 *.loT
+*.nice
 
-config*
-!config.m4
-!config.w32
+/config*
+!/config.m4
+!/config.w32
 
-ac*.m4
-build
-install-sh
-libtool
-ltmain.sh
-Makefile*
-!Makefile.frag
-modules
-missing
-mkinstalldirs
-run-*
+/ac*.m4
+/build
+/install-sh
+/libtool
+/ltmain.sh
+/Makefile*
+!/Makefile.frag
+/modules
+/missing
+/mkinstalldirs
+/run-*
 
-tests/*
-!tests/*.inc
-!tests/*.phpt
+/tests/*
+!/tests/*.inc
+!/tests/*.phpt
 
-composer.lock
-local
-vendor
+/composer.lock
+/local
+/vendor

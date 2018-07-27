@@ -1,7 +1,7 @@
 #!/bin/bash
 
 sudo apt-get update
-sudo apt-get install git gcc make pkg-config autoconf bison libxml2-dev libssl-dev curl -y
+sudo apt-get install git gcc make pkg-config autoconf libtool bison libxml2-dev libssl-dev curl -y
 
 # Install PHP:
 sudo mkdir /usr/local/php
@@ -39,8 +39,10 @@ sudo ln -s /usr/local/php/cli/bin/php-config /usr/local/bin/php-config
 
 sudo echo "alias phpgdb='gdb $(which php)'" >> ~/.bash_aliases
 
+# Compile async extension:
 cd /vagrant
 
+sudo ./install-libuv.sh
 sudo phpize --clean
 sudo phpize
 sudo ./configure
