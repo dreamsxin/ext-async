@@ -44,7 +44,7 @@ async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_queue 
 
 void async_awaitable_dispose_continuation(async_awaitable_queue *q, async_awaitable_cb *cb)
 {
-	ASYNC_Q_DEQUEUE(q, cb);
+	ASYNC_Q_DETACH(q, cb);
 
 	zval_ptr_dtor(&cb->data);
 
