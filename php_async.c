@@ -164,16 +164,12 @@ PHP_MINIT_FUNCTION(async)
 	orig_execute_ex = zend_execute_ex;
 	zend_execute_ex = async_execute_ex;
 
-	// Load something from libuv to verify it is loaded.
-	uv_default_loop();
-
 	return SUCCESS;
 }
 
 
 PHP_MSHUTDOWN_FUNCTION(async)
 {
-	async_task_scheduler_shutdown();
 	async_fiber_ce_unregister();
 
 	UNREGISTER_INI_ENTRIES();
@@ -221,6 +217,8 @@ static PHP_RSHUTDOWN_FUNCTION(async)
 	loop = ASYNC_G(loop);
 
 	if (loop != NULL) {
+		ZEND_ASSERT(!uv_loop_alive(loop));
+
 		uv_loop_close(loop);
 		efree(loop);
 	}

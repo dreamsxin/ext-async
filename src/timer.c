@@ -30,14 +30,6 @@ zend_class_entry *async_timer_ce;
 
 static zend_object_handlers async_timer_handlers;
 
-static void dispose_timer(uv_handle_t *handle)
-{
-	async_timer *timer;
-
-	timer = uv_handle_get_data(handle);
-
-	zend_object_std_dtor(&timer->std);
-}
 
 static void trigger_timer(uv_timer_t *handle)
 {
@@ -45,17 +37,21 @@ static void trigger_timer(uv_timer_t *handle)
 
 	zval retval;
 
-	timer = uv_handle_get_data((uv_handle_t *) handle);
+	timer = (async_timer *) uv_handle_get_data((uv_handle_t *) handle);
+	timer->fci.param_count = 0;
 	timer->fci.retval = &retval;
+	timer->fci.no_separation = 1;
 
 	zend_call_function(&timer->fci, &timer->fcc);
 	zval_ptr_dtor(&retval);
 
-	if (!timer->repeat) {
+	if (uv_timer_get_repeat(handle) == 0) {
 		OBJ_RELEASE(&timer->std);
 	}
 
-	// TODO: Error handling!
+	if (UNEXPECTED(EG(exception))) {
+		ASYNC_CHECK_FATAL(1, "Timmer callback failed!");
+	}
 }
 
 
@@ -78,22 +74,12 @@ static zend_object *async_timer_object_create(zend_class_entry *ce)
 static void async_timer_object_destroy(zend_object *object)
 {
 	async_timer *timer;
-	uv_handle_t *handle;
 
 	timer = (async_timer *) object;
-	handle = (uv_handle_t *) &timer->timer;
 
 	zval_ptr_dtor(&timer->fci.function_name);
 
-	if (uv_is_active(handle)) {
-		uv_timer_stop(&timer->timer);
-	}
-
-	if (timer->nodelay) {
-		zend_object_std_dtor(&timer->std);
-	} else {
-		uv_close(handle, dispose_timer);
-	}
+	zend_object_std_dtor(&timer->std);
 }
 
 ZEND_METHOD(Timer, __construct)
@@ -105,9 +91,6 @@ ZEND_METHOD(Timer, __construct)
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_FUNC_EX(timer->fci, timer->fcc, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
-
-	timer->fci.param_count = 0;
-	timer->fci.no_separation = 1;
 
 	Z_TRY_ADDREF_P(&timer->fci.function_name);
 }
@@ -136,21 +119,11 @@ ZEND_METHOD(Timer, start)
 
 	ASYNC_CHECK_ERROR(delay < 0, "Delay must not be shorter than 0 milliseconds");
 
-	GC_ADDREF(&timer->std);
-
-	if (uv_is_active((uv_handle_t *) &timer->timer)) {
-		uv_timer_stop(&timer->timer);
-
-		OBJ_RELEASE(&timer->std);
+	if (!uv_is_active((uv_handle_t *) &timer->timer)) {
+		GC_ADDREF(&timer->std);
 	}
 
 	uv_timer_start(&timer->timer, trigger_timer, delay, repeat);
-
-	timer->nodelay = (delay == 0);
-
-	if (repeat > 0) {
-		timer->repeat = 1;
-	}
 }
 
 ZEND_METHOD(Timer, stop)
@@ -180,16 +153,11 @@ ZEND_METHOD(Timer, tick)
 		Z_PARAM_FUNC_EX(timer->fci, timer->fcc, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
-	timer->fci.param_count = 0;
-	timer->fci.no_separation = 1;
-
 	Z_TRY_ADDREF_P(&timer->fci.function_name);
 
 	GC_ADDREF(&timer->std);
 
 	uv_timer_start(&timer->timer, trigger_timer, 0, 0);
-
-	timer->nodelay = 1;
 
 	ZVAL_OBJ(&obj, &timer->std);
 

@@ -35,28 +35,9 @@ $result = $scheduler->runWithContext(Context::current(), function () use ($sched
 
 var_dump($result);
 
-$scheduler = new class() extends LoopTaskScheduler {
-    protected function activate() {
-        $this->dispatch();
-    }
-    
-    protected function runLoop() {
-        $this->dispatch();
-    }
-    
-    protected function stopLoop() { }
-};
-
-try {
-    $scheduler->run(function () { });
-} catch (\Throwable $e) {
-    var_dump($e->getMessage());
-}
-
 ?>
 --EXPECT--
 string(28) "Scheduler is already running"
 int(123)
 string(28) "Scheduler is already running"
 int(321)
-string(61) "Cannot dispatch tasks while the task scheduler is not running"

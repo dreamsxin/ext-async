@@ -46,8 +46,6 @@ static inline void enqueue(async_task_queue *q, async_task *task)
 		q->last->next = task;
 		q->last = task;
 	}
-
-	q->size++;
 }
 
 static inline async_task *dequeue(async_task_queue *q)
@@ -68,8 +66,6 @@ static inline async_task *dequeue(async_task_queue *q)
 	if (q->last == task) {
 		q->last = NULL;
 	}
-
-	q->size--;
 
 	task->next = NULL;
 	task->prev = NULL;
@@ -97,8 +93,6 @@ static inline void detach(async_task_queue *q, async_task *task)
 
 	task->next = NULL;
 	task->prev = NULL;
-
-	q->size--;
 }
 
 
@@ -119,7 +113,7 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 		async_task_scheduler_run_loop(scheduler);
 	}
 
-	while (scheduler->ready.size > 0) {
+	while (scheduler->ready.first != NULL) {
 		task = dequeue(&scheduler->ready);
 
 		async_task_dispose(task);
@@ -127,7 +121,7 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 		OBJ_RELEASE(&task->fiber.std);
 	}
 
-	while (scheduler->suspended.size > 0) {
+	while (scheduler->suspended.first != NULL) {
 		task = dequeue(&scheduler->suspended);
 
 		async_task_dispose(task);
@@ -249,7 +243,7 @@ static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
 
 	scheduler->dispatching = 1;
 
-	while (scheduler->ready.size > 0) {
+	while (scheduler->ready.first != NULL) {
 		task = dequeue(&scheduler->ready);
 
 		ZEND_ASSERT(task->operation != ASYNC_TASK_OPERATION_NONE);
@@ -289,9 +283,15 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 	scheduler->running = 1;
 	scheduler->stopped = 0;
 
-	do {
+	while (!scheduler->stopped) {
 		async_task_scheduler_dispatch(scheduler);
-	} while (!scheduler->stopped && uv_run(loop, UV_RUN_ONCE) != 0);
+
+		uv_run(loop, scheduler->stopped ? UV_RUN_NOWAIT : UV_RUN_ONCE);
+
+		if (scheduler->ready.first == NULL) {
+			scheduler->stopped = 1;
+		}
+	}
 
 	scheduler->stopped = 0;
 	scheduler->running = 0;
@@ -340,21 +340,12 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 	zend_object_std_dtor(object);
 }
 
-ZEND_METHOD(TaskScheduler, count)
-{
-	async_task_scheduler *scheduler;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	scheduler = async_task_scheduler_obj(Z_OBJ_P(getThis()));
-
-	RETURN_LONG(scheduler->ready.size);
-}
-
 ZEND_METHOD(TaskScheduler, getPendingTasks)
 {
 	async_task_scheduler *scheduler;
 	async_task *task;
+	uint32_t size;
+
 	zval obj;
 	zend_ulong i;
 
@@ -362,7 +353,15 @@ ZEND_METHOD(TaskScheduler, getPendingTasks)
 
 	scheduler = async_task_scheduler_obj(Z_OBJ_P(getThis()));
 
-	array_init_size(return_value, scheduler->suspended.size);
+	task = scheduler->suspended.first;
+	size = 0;
+
+	while (task != NULL) {
+		task = task->next;
+		size++;
+	}
+
+	array_init_size(return_value, size);
 
 	task = scheduler->suspended.first;
 	i = 0;
@@ -573,9 +572,6 @@ ZEND_METHOD(TaskScheduler, __wakeup)
 	zend_throw_error(NULL, "Unserialization of a task scheduler is not allowed");
 }
 
-ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_count, 0)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_scheduler_get_pending_tasks, 0, 0, IS_ARRAY, 0)
 ZEND_END_ARG_INFO()
 
@@ -602,7 +598,6 @@ ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_wakeup, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_scheduler_functions[] = {
-	ZEND_ME(TaskScheduler, count, arginfo_task_scheduler_count, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, getPendingTasks, arginfo_task_scheduler_get_pending_tasks, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, run, arginfo_task_scheduler_run, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, runWithContext, arginfo_task_scheduler_run_with_context, ZEND_ACC_PUBLIC)
@@ -623,8 +618,6 @@ void async_task_scheduler_ce_register()
 	async_task_scheduler_ce->create_object = async_task_scheduler_object_create;
 	async_task_scheduler_ce->serialize = zend_class_serialize_deny;
 	async_task_scheduler_ce->unserialize = zend_class_unserialize_deny;
-
-	zend_class_implements(async_task_scheduler_ce, 1, zend_ce_countable);
 
 	memcpy(&async_task_scheduler_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_task_scheduler_handlers.offset = XtOffsetOf(async_task_scheduler, std);

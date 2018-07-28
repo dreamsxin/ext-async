@@ -38,11 +38,6 @@ struct _async_timer {
 
 	/* UV timer handle. */
 	uv_timer_t timer;
-
-	zend_bool nodelay;
-
-	/* Is set when the timer has a repeat interval. */
-	zend_bool repeat;
 };
 
 void async_timer_ce_register();

@@ -9,12 +9,9 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-require_once __DIR__ . '/loop-scheduler.inc';
+$scheduler = new TaskScheduler();
 
-$loop = new TimerLoop();
-$scheduler = new TimerLoopScheduler($loop);
-
-$loop->timer(10, function () {
+(new Timer(function () {
     var_dump('TIMER');
 
     try {
@@ -22,7 +19,7 @@ $loop->timer(10, function () {
     } catch (\Throwable $e) {
         var_dump($e->getMessage());
     }
-});
+}))->start(10);
 
 $scheduler->run(function () {
     var_dump('TASK');
@@ -30,10 +27,10 @@ $scheduler->run(function () {
 
 var_dump('DONE');
 
-$scheduler2 = new TimerLoopScheduler(new TimerLoop());
+$scheduler2 = new TaskScheduler();
 
-$scheduler2->run(function () use ($scheduler, $loop) {
-    $loop->timer(10, function () {
+$scheduler2->run(function () use ($scheduler) {
+    (new Timer(function () {
         var_dump('TIMER');
 
         try {
@@ -41,7 +38,7 @@ $scheduler2->run(function () use ($scheduler, $loop) {
         } catch (\Throwable $e) {
             var_dump($e->getMessage());
         }
-    });
+    }))->start(10);
 
     $scheduler->run(function () {
         var_dump('TASK');

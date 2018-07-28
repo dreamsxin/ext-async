@@ -32,9 +32,6 @@ typedef struct _async_task_scheduler_stack_entry async_task_scheduler_stack_entr
 typedef struct _async_task_queue async_task_queue;
 
 struct _async_task_queue {
-	/* Number of queued tasks. */
-	uint32_t size;
-
 	/* First task in the queue, used by dequeue(). */
 	async_task *first;
 
