@@ -70,19 +70,15 @@ final class Task implements Awaitable
 
 ### TaskScheduler
 
-The task scheduler is based on a queue of scheduled tasks that are run whenever `dispatch()` is called (this is usually not called directly from PHP code). The scheduler will start (or resume) all tasks that are scheduled for execution and return when no more tasks are scheduled. Tasks may be re-scheduled (an hence run multiple times) during a single call to the dispatch method. The scheduler implements `Countable` and will return the current number of scheduled tasks.
+The task scheduler manages a queue of ready-to-run tasks and a (shared) event loop that provides support for timers and async IO. It will also keep track of suspended tasks to allow for proper cleanup on shutdown. There is an implicit default scheduler that will be used when `Task::async()` or `Task::asyncWithContext()` is used in PHP code that is not run using one of the public scheduler methods. It is neighter necessary (nor advisable) to create a task scheduler instance yourself. The only exception to that rule are unit tests, each test should use a dedicated task scheduler to ensure proper test isolation.
 
-You can use `run()` or `runWithContext()` to have the scheduler execute all scheduled tasks (including the one you pass to the run method). The run methods will return the value returned from your task callback or throw an error if your task callback throws. The scheduler will allways run all scheduled tasks, even if the callback task you passed is completed before other tasks.
-
-There is an implicit default scheduler that will be used when `Task::async()` or `Task::asyncWithContext()` is used in PHP code that is not running in a `Task`. You can replace the default scheduler with your own scheduler as long as no async tasks have been created yet.
+You can use `run()` or `runWithContext()` to have the scheduler execute all scheduled tasks (including the one you pass to the run method). The run methods will return the value returned from your task callback or throw an error if your task callback throws. The scheduler will allways run all scheduled tasks to completion, even if the callback task you passed is completed before other tasks.
 
 ```php
 namespace Concurrent;
 
-class TaskScheduler implements \Countable
+final class TaskScheduler
 {
-    public final function count(): int { }
-    
     public final function getPendingTasks(): array { }
     
     public final function run(callable $callback, ...$args): mixed { }
@@ -92,25 +88,6 @@ class TaskScheduler implements \Countable
     public static final function register(TaskScheduler $scheduler): void { }
     
     public static final function unregister(TaskScheduler $scheduler): void { }
-}
-```
-
-### LoopTaskScheduler
-
-You can extend the `LoopTaskScheduler` class to create a scheduler with support for an event loop. The scheduler provides integration by letting you implement the `runLoop()` method that must start the event loop and keep it running until no more events can occur. The primary problem with event loop integration is that you need to call `dispatch()` whenever tasks are ready run. You have to implement the `activate()` method to schedule execution of `dispatch()` with your event loop (future tick or defer watcher). The scheduler will call `activate()` whenever a task is registered for execution and the scheduler is not in the process of dispatching tasks. It is also necessary to implement `stopLoop()` that is needed if `await()` is used from the main execution (the event loop always runs in the context of the main execution). A call to `stopLoop()` should stop the event loop after current tick has completed (you can keep executing for a few ticks as well, but this decreases responsiveness of the main execution).
-
-```php
-namespace Concurrent;
-
-abstract class LoopTaskScheduler extends TaskScheduler
-{   
-    protected abstract function activate(): void;
-    
-    protected abstract function runLoop(): void;
-    
-    protected abstract function stopLoop(): void;
-    
-    protected final function dispatch(): void { }
 }
 ```
 
@@ -143,6 +120,25 @@ namespace Concurrent;
 final class ContextVar
 {
     public function get(?Context $context = null) { }
+}
+```
+
+### Timer
+
+The `Timer` class is used to schedule timers with the integrated event loop. Timers will call a user-defined callback function after the specified timer delay has passed. It is also possible to create timers that repeatedly trigger the callback at the timer interval. The `tick()` method creates a timer that will fire immediately within the next tick of the integrated event loop. It can be used to interrupt long-running task to allow for other events and tasks to be processed.
+
+```php
+namespace Concurrent;
+
+final class Timer
+{
+    public function __construct(callable $callback) { }
+    
+    public function start(int $milliseconds, bool $repeat = false): void { }
+    
+    public function stop(): void { }
+    
+    public static function tick(callable $callback): void { }
 }
 ```
 
