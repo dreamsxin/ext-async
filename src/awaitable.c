@@ -21,54 +21,47 @@
 zend_class_entry *async_awaitable_ce;
 
 
-async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_cb **cont, void *obj, zval *data, async_awaitable_func func)
+async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_queue *q, void *obj, zval *data, async_awaitable_func func)
 {
-	async_awaitable_cb *current;
+	async_awaitable_cb *cb;
 
-	current = emalloc(sizeof(async_awaitable_cb));
-	ZEND_SECURE_ZERO(current, sizeof(async_awaitable_cb));
+	cb = emalloc(sizeof(async_awaitable_cb));
+	ZEND_SECURE_ZERO(cb, sizeof(async_awaitable_cb));
 
-	current->object = obj;
-	current->func = func;
+	cb->object = obj;
+	cb->func = func;
 
 	if (data == NULL) {
-		ZVAL_UNDEF(&current->data);
+		ZVAL_UNDEF(&cb->data);
 	} else {
-		ZVAL_COPY(&current->data, data);
+		ZVAL_COPY(&cb->data, data);
 	}
 
-	if (*cont == NULL) {
-		*cont = current;
-	} else {
-		(*cont)->next = current;
-	}
+	ASYNC_Q_ENQUEUE(q, cb);
 
-	return current;
+	return cb;
 }
 
-void async_awaitable_trigger_continuation(async_awaitable_cb **cont, zval *result, zend_bool success)
+void async_awaitable_dispose_continuation(async_awaitable_queue *q, async_awaitable_cb *cb)
 {
-	async_awaitable_cb *current;
-	async_awaitable_cb *next;
+	ASYNC_Q_DEQUEUE(q, cb);
 
-	current = *cont;
-	*cont = NULL;
+	zval_ptr_dtor(&cb->data);
 
-	if (current != NULL) {
-		do {
-			next = current->next;
-			*cont = next;
+	efree(cb);
+}
 
-			if (!current->disposed) {
-				current->func(current->object, &current->data, result, success);
-			}
+void async_awaitable_trigger_continuation(async_awaitable_queue *q, zval *result, zend_bool success)
+{
+	async_awaitable_cb *cb;
 
-			zval_ptr_dtor(&current->data);
+	while (q->first != NULL) {
+		ASYNC_Q_DEQUEUE(q, cb);
 
-			efree(current);
+		cb->func(cb->object, &cb->data, result, success);
+		zval_ptr_dtor(&cb->data);
 
-			current = next;
-		} while (current != NULL);
+		efree(cb);
 	}
 }
 

@@ -288,9 +288,7 @@ static void async_deferred_object_destroy(zend_object *object)
 
 	defer->status = ASYNC_DEFERRED_STATUS_FAILED;
 
-	if (defer->continuation != NULL) {
-		async_awaitable_trigger_continuation(&defer->continuation, NULL, 0);
-	}
+	async_awaitable_trigger_continuation(&defer->continuation, NULL, 0);
 
 	zval_ptr_dtor(&defer->result);
 

@@ -26,6 +26,7 @@ BEGIN_EXTERN_C()
 extern zend_class_entry *async_awaitable_ce;
 
 typedef struct _async_awaitable_cb async_awaitable_cb;
+typedef struct _async_awaitable_queue async_awaitable_queue;
 
 typedef void (* async_awaitable_func)(void *obj, zval *data, zval *result, zend_bool success);
 
@@ -36,18 +37,24 @@ struct _async_awaitable_cb {
 	/* Arbitrary zval being passed to the continuation. */
 	zval data;
 
-	/* Will be set if the continuation is no longer applicable. */
-	zend_bool disposed;
-
 	/* Continuation function to be called. */
 	async_awaitable_func func;
 
 	/* Link to the next registered continuation (or NULL if no more continuations are available). */
 	async_awaitable_cb *next;
+
+	/* Link to the previous registered continuation (or NULL if this is the first one). */
+	async_awaitable_cb *prev;
 };
 
-async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_cb **cont, void *obj, zval *data, async_awaitable_func func);
-void async_awaitable_trigger_continuation(async_awaitable_cb **cont, zval *result, zend_bool success);
+struct _async_awaitable_queue {
+	async_awaitable_cb *first;
+	async_awaitable_cb *last;
+};
+
+async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_queue *q, void *obj, zval *data, async_awaitable_func func);
+void async_awaitable_dispose_continuation(async_awaitable_queue *q, async_awaitable_cb *cb);
+void async_awaitable_trigger_continuation(async_awaitable_queue *q, zval *result, zend_bool success);
 
 void async_awaitable_ce_register();
 

@@ -405,6 +405,7 @@ ZEND_METHOD(Task, await)
 	async_task *task;
 	async_task *inner;
 	async_awaitable_cb *cont;
+	async_awaitable_queue *q;
 	async_task_scheduler *scheduler;
 	async_deferred *defer;
 	async_context *context;
@@ -432,7 +433,8 @@ ZEND_METHOD(Task, await)
 
 			ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
 
-			cont = async_awaitable_register_continuation(&defer->continuation, scheduler, NULL, top_level_continuation);
+			q = &defer->continuation;
+			cont = async_awaitable_register_continuation(q, scheduler, NULL, top_level_continuation);
 			async_task_scheduler_run_loop(scheduler);
 
 			ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
@@ -443,13 +445,14 @@ ZEND_METHOD(Task, await)
 
 			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 
-			cont = async_awaitable_register_continuation(&inner->continuation, inner->scheduler, NULL, top_level_continuation);
+			q = &inner->continuation;
+			cont = async_awaitable_register_continuation(q, inner->scheduler, NULL, top_level_continuation);
 			async_task_scheduler_run_loop(inner->scheduler);
 
 			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 		}
 
-		cont->disposed = 1;
+		async_awaitable_dispose_continuation(q, cont);
 
 		if (EXPECTED(EG(exception) == NULL)) {
 			zend_throw_error(NULL, "Awaitable has not been resolved");
@@ -478,13 +481,15 @@ ZEND_METHOD(Task, await)
 
 		ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 
-		task->suspended = async_awaitable_register_continuation(&inner->continuation, task, NULL, async_task_continuation);
+		q = &inner->continuation;
+		task->suspended = async_awaitable_register_continuation(q, task, NULL, async_task_continuation);
 	} else {
 		defer = ((async_deferred_awaitable *) Z_OBJ_P(val))->defer;
 
 		ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
 
-		task->suspended = async_awaitable_register_continuation(&defer->continuation, task, NULL, async_task_continuation);
+		q = &defer->continuation;
+		task->suspended = async_awaitable_register_continuation(q, task, NULL, async_task_continuation);
 	}
 
 	task->fiber.value = USED_RET() ? return_value : NULL;
@@ -498,9 +503,9 @@ ZEND_METHOD(Task, await)
 
 	ASYNC_G(current_context) = context;
 
-	// Mark continuation as disposed if task continues before continuation fired.
+	// Dispose of continuation if task continues before continuation fired.
 	if (task->suspended != NULL) {
-		task->suspended->disposed = 1;
+		async_awaitable_dispose_continuation(q, task->suspended);
 		task->suspended = NULL;
 	}
 

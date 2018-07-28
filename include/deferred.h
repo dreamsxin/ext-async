@@ -40,8 +40,8 @@ struct _async_deferred {
 	/* Result (or error) value in case of resolved deferred. */
 	zval result;
 
-	/* Linked list of registered continuation callbacks (can be NULL). */
-	async_awaitable_cb *continuation;
+	/* Linked list of registered continuation callbacks. */
+	async_awaitable_queue continuation;
 };
 
 extern const zend_uchar ASYNC_DEFERRED_STATUS_PENDING;

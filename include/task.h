@@ -61,7 +61,7 @@ struct _async_task {
 	async_awaitable_cb *suspended;
 
 	/* Linked list of registered continuation callbacks. */
-	async_awaitable_cb *continuation;
+	async_awaitable_queue continuation;
 };
 
 extern const zend_uchar ASYNC_FIBER_TYPE_TASK;
