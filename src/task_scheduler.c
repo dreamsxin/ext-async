@@ -31,71 +31,6 @@ static zend_class_entry *async_task_scheduler_ce;
 static zend_object_handlers async_task_scheduler_handlers;
 
 
-static inline void enqueue(async_task_queue *q, async_task *task)
-{
-	task->next = NULL;
-
-	if (q->last == NULL) {
-		task->prev = NULL;
-
-		q->first = task;
-		q->last = task;
-	} else {
-		task->prev = q->last;
-
-		q->last->next = task;
-		q->last = task;
-	}
-}
-
-static inline async_task *dequeue(async_task_queue *q)
-{
-	async_task *task;
-
-	if (q->first == NULL) {
-		return NULL;
-	}
-
-	task = q->first;
-	q->first = task->next;
-
-	if (q->first != NULL) {
-		q->first->prev = NULL;
-	}
-
-	if (q->last == task) {
-		q->last = NULL;
-	}
-
-	task->next = NULL;
-	task->prev = NULL;
-
-	return task;
-}
-
-static inline void detach(async_task_queue *q, async_task *task)
-{
-	if (task->prev != NULL) {
-		task->prev->next = task->next;
-	}
-
-	if (task->next != NULL) {
-		task->next->prev = task->prev;
-	}
-
-	if (q->first == task) {
-		q->first = task->next;
-	}
-
-	if (q->last == task) {
-		q->last = task->prev;
-	}
-
-	task->next = NULL;
-	task->prev = NULL;
-}
-
-
 static async_task_scheduler *async_task_scheduler_obj(zend_object *obj)
 {
 	return (async_task_scheduler *)((char *)obj - obj->handlers->offset);
@@ -114,7 +49,7 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 	}
 
 	while (scheduler->ready.first != NULL) {
-		task = dequeue(&scheduler->ready);
+		ASYNC_Q_DEQUEUE(&scheduler->ready, task);
 
 		async_task_dispose(task);
 
@@ -122,7 +57,7 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 	}
 
 	while (scheduler->suspended.first != NULL) {
-		task = dequeue(&scheduler->suspended);
+		ASYNC_Q_DEQUEUE(&scheduler->suspended, task);
 
 		async_task_dispose(task);
 
@@ -183,7 +118,7 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 	} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->operation = ASYNC_TASK_OPERATION_RESUME;
 
-		detach(&scheduler->suspended, task);
+		ASYNC_Q_DETACH(&scheduler->suspended, task);
 	} else {
 		return 0;
 	}
@@ -218,7 +153,7 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 		}
 	}
 
-	enqueue(&scheduler->ready, task);
+	ASYNC_Q_ENQUEUE(&scheduler->ready, task);
 
 	return 1;
 }
@@ -232,7 +167,7 @@ void async_task_scheduler_dequeue(async_task *task)
 	ZEND_ASSERT(scheduler != NULL);
 	ZEND_ASSERT(task->fiber.status == ASYNC_FIBER_STATUS_INIT);
 
-	detach(&scheduler->ready, task);
+	ASYNC_Q_DETACH(&scheduler->ready, task);
 }
 
 static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
@@ -244,7 +179,7 @@ static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
 	scheduler->dispatching = 1;
 
 	while (scheduler->ready.first != NULL) {
-		task = dequeue(&scheduler->ready);
+		ASYNC_Q_DEQUEUE(&scheduler->ready, task);
 
 		ZEND_ASSERT(task->operation != ASYNC_TASK_OPERATION_NONE);
 
@@ -259,7 +194,7 @@ static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
 
 			OBJ_RELEASE(&task->fiber.std);
 		} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
-			enqueue(&scheduler->suspended, task);
+			ASYNC_Q_ENQUEUE(&scheduler->suspended, task);
 		}
 	}
 

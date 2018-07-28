@@ -111,6 +111,58 @@ void async_info_prop_long(HashTable *info, char *key, zend_ulong value);
 void async_info_prop_str(HashTable *info, char *key, zend_string *value);
 void async_info_prop_cstr(HashTable *info, char *key, char *value);
 
+/*
+ * Queue macros require a "q" pointer with fields "first" and "last" of same ponter type as "v".
+ * The "v" pointer must have fields "prev" and "next" of the same pointer type as "v".
+ */
+
+#define ASYNC_Q_ENQUEUE(q, v) do { \
+	(v)->next = NULL; \
+	if ((q)->last == NULL) { \
+		(v)->prev = NULL; \
+		(q)->first = v; \
+		(q)->last = v; \
+	} else { \
+		(v)->prev = (q)->last; \
+		(q)->last->next = v; \
+		(q)->last = v; \
+	} \
+} while (0)
+
+#define ASYNC_Q_DEQUEUE(q, v) do { \
+	if ((q)->first == NULL) { \
+		v = NULL; \
+	} else { \
+		v = (q)->first; \
+		(q)->first = (v)->next; \
+		if ((q)->first != NULL) { \
+			(q)->first->prev = NULL; \
+		} \
+		if ((q)->last == v) { \
+			(q)->last = NULL; \
+		} \
+		(v)->next = NULL; \
+		(v)->prev = NULL; \
+	} \
+} while (0)
+
+#define ASYNC_Q_DETACH(q, v) do { \
+	if ((v)->prev != NULL) { \
+		(v)->prev->next = (v)->next; \
+	} \
+	if ((v)->next != NULL) { \
+		(v)->next->prev = (v)->prev; \
+	} \
+	if ((q)->first == v) { \
+		(q)->first = (v)->next; \
+	} \
+	if ((q)->last == v) { \
+		(q)->last = (v)->prev; \
+	} \
+	(v)->next = NULL; \
+	(v)->prev = NULL; \
+} while (0)
+
 #endif
 
 /*
