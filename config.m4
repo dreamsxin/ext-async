@@ -1,9 +1,6 @@
 PHP_ARG_ENABLE(async, Whether to enable "async" support,
 [ --enable-async          Enable "async" support], no)
 
-PHP_ARG_WITH(uv, Use custom "libuv" location,
-[ --with-uv=DIR           "libuv" location])
-
 if test "$PHP_ASYNC" != "no"; then
   AC_DEFINE(HAVE_ASYNC, 1, [ ])
   
@@ -76,32 +73,12 @@ if test "$PHP_ASYNC" != "no"; then
       thirdparty/boost/asm/jump_${async_asm_file}"
   elif test "$async_use_ucontext" = 'yes'; then
     async_source_files="$async_source_files \
-      src/fiber_ucontext.c" 
+      src/fiber_ucontext.c"
   fi
   
-  AC_MSG_CHECKING(for libuv)
+  PHP_ADD_INCLUDE("$srcdir/thirdparty/libuv/include")
   
-  if test $PHP_UV != "yes"; then
-    if test -r $PHP_UV/lib/libuv.so; then
-      UV_DIR="$PHP_UV"
-    else
-      AC_MSG_ERROR(not found in $PHP_UV)
-    fi
-  else
-    UV_DIR="/usr/local"
-  fi;
-  
-  AC_MSG_RESULT(found in $UV_DIR)
-  
-  PHP_ADD_INCLUDE($UV_DIR/include)
-  
-  PHP_CHECK_LIBRARY(uv, uv_version, [
-    PHP_ADD_LIBRARY_WITH_PATH(uv, $UV_DIR/lib, ASYNC_SHARED_LIBADD)
-  ],[
-    AC_MSG_ERROR([wrong uv library version or library not found])
-  ],[
-    -L$UV_DIR/lib -lm
-  ])
+  shared_objects_async="$shared_objects_async $srcdir/thirdparty/lib/libuv.a"
   
   case $host in
     *linux*)
@@ -109,10 +86,17 @@ if test "$PHP_ASYNC" != "no"; then
   esac
   
   PHP_NEW_EXTENSION(async, $async_source_files, $ext_shared,, \\$(ASYNC_CFLAGS))
-  PHP_SUBST(ASYNC_CFLAGS)
-  PHP_SUBST(ASYNC_SHARED_LIBADD)
   
   PHP_ADD_MAKEFILE_FRAGMENT
+  
+  case $host in
+    *linux*)
+      LDFLAGS="-lrt $LDFLAGS"
+  esac
+  
+  LDFLAGS="-lpthread $LDFLAGS"
+      
+  PHP_SUBST(ASYNC_CFLAGS)
   
   PHP_INSTALL_HEADERS([ext/async], [config.h include/*.h thirdparty/libuv/include/*.h])
 fi

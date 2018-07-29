@@ -6,3 +6,6 @@ test-coverage-lcov: test-coverage
 
 test-coverage-html: test-coverage-lcov
 	genhtml $(top_srcdir)/coverage.info --output-directory=$(top_srcdir)/html
+
+thirdparty/lib/libuv.a:
+	bash $(top_srcdir)/install-libuv.sh

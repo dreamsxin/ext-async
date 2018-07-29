@@ -42,11 +42,10 @@ sudo echo "alias phpgdb='gdb $(which php)'" >> ~/.bash_aliases
 # Compile async extension:
 cd /vagrant
 
-sudo ./install-libuv.sh
 sudo phpize --clean
 sudo phpize
 sudo ./configure
-sudo make install -B
+sudo make install
 
 sudo echo "extension=\"async.so\"" >> /usr/local/php/cli/php.ini
 
