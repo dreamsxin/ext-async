@@ -35,14 +35,22 @@ static void trigger_timer(uv_timer_t *handle)
 {
 	async_timer *timer;
 
+	zval args[1];
 	zval retval;
 
 	timer = (async_timer *) uv_handle_get_data((uv_handle_t *) handle);
-	timer->fci.param_count = 0;
+
+	ZVAL_OBJ(&args[0], &timer->std);
+	GC_ADDREF(&timer->std);
+
+	timer->fci.param_count = 1;
+	timer->fci.params = args;
 	timer->fci.retval = &retval;
 	timer->fci.no_separation = 1;
 
 	zend_call_function(&timer->fci, &timer->fcc);
+
+	zval_ptr_dtor(&args[0]);
 	zval_ptr_dtor(&retval);
 
 	if (uv_timer_get_repeat(handle) == 0) {
