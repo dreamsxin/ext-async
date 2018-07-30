@@ -198,41 +198,18 @@ static PHP_MINFO_FUNCTION(async)
 
 static PHP_RINIT_FUNCTION(async)
 {
-	uv_loop_t *loop;
-
 #if defined(ZTS) && defined(COMPILE_DL_ASYNC)
 	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
-
-	loop = emalloc(sizeof(uv_loop_t));
-	uv_loop_init(loop);
-
-	ASYNC_G(loop) = loop;
 
 	return SUCCESS;
 }
 
 static PHP_RSHUTDOWN_FUNCTION(async)
 {
-	uv_loop_t *loop;
-
 	async_task_scheduler_shutdown();
 	async_context_shutdown();
 	async_fiber_shutdown();
-
-	loop = ASYNC_G(loop);
-
-	if (loop != NULL) {
-		if (uv_loop_alive(loop)) {
-			async_task_scheduler_get();
-			async_task_scheduler_shutdown();
-		}
-
-		ZEND_ASSERT(!uv_loop_alive(loop));
-
-		uv_loop_close(loop);
-		efree(loop);
-	}
 
 	return SUCCESS;
 }

@@ -44,25 +44,25 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 	prev = ASYNC_G(current_scheduler);
 	ASYNC_G(current_scheduler) = scheduler;
 
-	if (!scheduler->running) {
+	do {
 		async_task_scheduler_run_loop(scheduler);
-	}
 
-	while (scheduler->ready.first != NULL) {
-		ASYNC_Q_DEQUEUE(&scheduler->ready, task);
+		while (scheduler->ready.first != NULL) {
+			ASYNC_Q_DEQUEUE(&scheduler->ready, task);
 
-		async_task_dispose(task);
+			async_task_dispose(task);
 
-		OBJ_RELEASE(&task->fiber.std);
-	}
+			OBJ_RELEASE(&task->fiber.std);
+		}
 
-	while (scheduler->suspended.first != NULL) {
-		ASYNC_Q_DEQUEUE(&scheduler->suspended, task);
+		while (scheduler->suspended.first != NULL) {
+			ASYNC_Q_DEQUEUE(&scheduler->suspended, task);
 
-		async_task_dispose(task);
+			async_task_dispose(task);
 
-		OBJ_RELEASE(&task->fiber.std);
-	}
+			OBJ_RELEASE(&task->fiber.std);
+		}
+	} while (uv_loop_alive(&scheduler->loop));
 
 	ASYNC_G(current_scheduler) = prev;
 }
@@ -98,9 +98,16 @@ async_task_scheduler *async_task_scheduler_get()
 
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 
+	uv_loop_init(&scheduler->loop);
+
 	ASYNC_G(scheduler) = scheduler;
 
 	return scheduler;
+}
+
+uv_loop_t *async_task_scheduler_get_loop()
+{
+	return &async_task_scheduler_get()->loop;
 }
 
 zend_bool async_task_scheduler_enqueue(async_task *task)
@@ -205,7 +212,6 @@ static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
 void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 {
 	async_task_scheduler *prev;
-	uv_loop_t *loop;
 
 	ASYNC_CHECK_FATAL(scheduler->running, "Duplicate scheduler loop run detected");
 	ASYNC_CHECK_FATAL(scheduler->dispatching, "Cannot run loop while dispatching");
@@ -213,17 +219,17 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 	prev = ASYNC_G(current_scheduler);
 	ASYNC_G(current_scheduler) = scheduler;
 
-	loop = ASYNC_G(loop);
-
 	scheduler->running = 1;
 	scheduler->stopped = 0;
 
 	while (!scheduler->stopped) {
 		async_task_scheduler_dispatch(scheduler);
 
-		uv_run(loop, scheduler->stopped ? UV_RUN_NOWAIT : UV_RUN_ONCE);
+		if (!scheduler->stopped) {
+			uv_run(&scheduler->loop, UV_RUN_ONCE);
+		}
 
-		if (scheduler->ready.first == NULL && !uv_loop_alive(loop)) {
+		if (scheduler->ready.first == NULL && !uv_loop_alive(&scheduler->loop)) {
 			scheduler->stopped = 1;
 		}
 	}
@@ -236,14 +242,11 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 
 void async_task_scheduler_stop_loop(async_task_scheduler *scheduler)
 {
-	uv_loop_t *loop;
-
 	ASYNC_CHECK_FATAL(scheduler->running == 0, "Cannot stop scheduler loop that is not running");
 
-	loop = ASYNC_G(loop);
-
 	scheduler->stopped = 1;
-	uv_stop(loop);
+
+	uv_stop(&scheduler->loop);
 }
 
 static zend_object *async_task_scheduler_object_create(zend_class_entry *ce)
@@ -261,6 +264,8 @@ static zend_object *async_task_scheduler_object_create(zend_class_entry *ce)
 
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 
+	uv_loop_init(&scheduler->loop);
+
 	return &scheduler->std;
 }
 
@@ -271,6 +276,10 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 	scheduler = async_task_scheduler_obj(object);
 
 	async_task_scheduler_dispose(scheduler);
+
+	ZEND_ASSERT(!uv_loop_alive(&scheduler->loop));
+
+	uv_loop_close(&scheduler->loop);
 
 	zend_object_std_dtor(object);
 }

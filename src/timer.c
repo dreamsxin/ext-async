@@ -65,7 +65,7 @@ static zend_object *async_timer_object_create(zend_class_entry *ce)
 	zend_object_std_init(&timer->std, ce);
 	timer->std.handlers = &async_timer_handlers;
 
-	uv_timer_init(ASYNC_G(loop), &timer->timer);
+	uv_timer_init(async_task_scheduler_get_loop(), &timer->timer);
 	uv_handle_set_data((uv_handle_t *) &timer->timer, timer);
 
 	return &timer->std;

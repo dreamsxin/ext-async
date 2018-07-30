@@ -22,6 +22,8 @@
 #include "php.h"
 #include "context.h"
 
+#include "uv.h"
+
 typedef struct _async_task async_task;
 
 BEGIN_EXTERN_C()
@@ -55,6 +57,9 @@ struct _async_task_scheduler {
 	/* Tasks that are suspended. */
 	async_task_queue suspended;
 
+	/* Libuv event loop. */
+	uv_loop_t loop;
+
 	/* PHP object handle. */
 	zend_object std;
 };
@@ -76,6 +81,7 @@ struct _async_task_scheduler_stack {
 };
 
 async_task_scheduler *async_task_scheduler_get();
+uv_loop_t *async_task_scheduler_get_loop();
 
 zend_bool async_task_scheduler_enqueue(async_task *task);
 void async_task_scheduler_dequeue(async_task *task);

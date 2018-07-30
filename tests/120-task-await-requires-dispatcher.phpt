@@ -11,25 +11,7 @@ namespace Concurrent;
 
 $scheduler = new TaskScheduler();
 
-(new Timer(function () {
-    var_dump('TIMER');
-
-    try {
-        var_dump(Task::await(Deferred::value(321)));
-    } catch (\Throwable $e) {
-        var_dump($e->getMessage());
-    }
-}))->start(10);
-
 $scheduler->run(function () {
-    var_dump('TASK');
-});
-
-var_dump('DONE');
-
-$scheduler2 = new TaskScheduler();
-
-$scheduler2->run(function () use ($scheduler) {
     (new Timer(function () {
         var_dump('TIMER');
 
@@ -40,7 +22,25 @@ $scheduler2->run(function () use ($scheduler) {
         }
     }))->start(10);
 
+    var_dump('TASK');
+});
+
+var_dump('DONE');
+
+$scheduler2 = new TaskScheduler();
+
+$scheduler2->run(function () use ($scheduler) {
     $scheduler->run(function () {
+        (new Timer(function () {
+            var_dump('TIMER');
+
+            try {
+                var_dump(Task::await(Deferred::value(321)));
+            } catch (\Throwable $e) {
+                var_dump($e->getMessage());
+            }
+        }))->start(10);
+    
         var_dump('TASK');
     });
 

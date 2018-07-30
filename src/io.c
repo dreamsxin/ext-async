@@ -154,9 +154,9 @@ DONE:
 	ZVAL_COPY(&watcher->resource, val);
 
 #ifdef PHP_WIN32
-	uv_poll_init_socket(ASYNC_G(loop), &watcher->poll, (uv_os_sock_t) fd);
+	uv_poll_init_socket(async_task_scheduler_get_loop(), &watcher->poll, (uv_os_sock_t) fd);
 #else
-	uv_poll_init(ASYNC_G(loop), &watcher->poll, fd);
+	uv_poll_init(async_task_scheduler_get_loop(), &watcher->poll, fd);
 #endif
 
 	watcher->poll.data = watcher;
