@@ -223,7 +223,7 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 
 		uv_run(loop, scheduler->stopped ? UV_RUN_NOWAIT : UV_RUN_ONCE);
 
-		if (scheduler->ready.first == NULL) {
+		if (scheduler->ready.first == NULL && !uv_loop_alive(loop)) {
 			scheduler->stopped = 1;
 		}
 	}

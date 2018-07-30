@@ -14,6 +14,7 @@ if (PHP_ASYNC != 'no') {
 		'src\\awaitable.c',
 		'src\\context.c',
 		'src\\deferred.c',
+		'src\\io.c',
 		'src\\task.c',
 		'src\\task_scheduler.c',
 		'src\\timer.c'
@@ -24,6 +25,7 @@ if (PHP_ASYNC != 'no') {
 		'include\\awaitable.h',
 		'include\\context.h',
 		'include\\deferred.h',
+		'include\\io.c'
 		'include\\task.h',
 		'include\\task_scheduler.h',
 		'include\\timer.h',

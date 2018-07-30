@@ -154,6 +154,7 @@ PHP_MINIT_FUNCTION(async)
 	async_awaitable_ce_register();
 	async_context_ce_register();
 	async_deferred_ce_register();
+	async_io_ce_register();
 	async_fiber_ce_register();
 	async_task_ce_register();
 	async_task_scheduler_ce_register();
@@ -182,8 +183,13 @@ PHP_MSHUTDOWN_FUNCTION(async)
 
 static PHP_MINFO_FUNCTION(async)
 {
+	char uv_version[20];
+
+	sprintf(uv_version, "%d.%d", UV_VERSION_MAJOR, UV_VERSION_MINOR);
+
 	php_info_print_table_start();
 	php_info_print_table_row(2, "Fiber backend", async_fiber_backend_info());
+	php_info_print_table_row(2, "Libuv version", uv_version);
 	php_info_print_table_end();
 
 	DISPLAY_INI_ENTRIES();
@@ -217,6 +223,11 @@ static PHP_RSHUTDOWN_FUNCTION(async)
 	loop = ASYNC_G(loop);
 
 	if (loop != NULL) {
+		if (uv_loop_alive(loop)) {
+			async_task_scheduler_get();
+			async_task_scheduler_shutdown();
+		}
+
 		ZEND_ASSERT(!uv_loop_alive(loop));
 
 		uv_loop_close(loop);

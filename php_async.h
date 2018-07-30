@@ -22,6 +22,7 @@
 #include "awaitable.h"
 #include "context.h"
 #include "deferred.h"
+#include "io.h"
 #include "fiber.h"
 #include "task.h"
 #include "task_scheduler.h"

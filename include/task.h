@@ -25,6 +25,7 @@
 #include "fiber.h"
 
 typedef struct _async_task_scheduler async_task_scheduler;
+typedef struct _async_task_suspended async_task_suspended;
 
 BEGIN_EXTERN_C()
 
@@ -76,9 +77,22 @@ async_task *async_task_object_create(zend_execute_data *call, async_task_schedul
 void async_task_start(async_task *task);
 void async_task_continue(async_task *task);
 
+void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data);
+
 void async_task_ce_register();
 
 END_EXTERN_C()
+
+struct _async_task_suspended {
+	/* Active root task scheduler. */
+	async_task_scheduler *scheduler;
+
+	/* State of the continuation. */
+	zend_uchar state;
+
+	/* Result of the awaited operation. */
+	zval result;
+};
 
 #endif
 
