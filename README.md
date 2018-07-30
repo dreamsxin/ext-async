@@ -142,6 +142,25 @@ final class Timer
 }
 ```
 
+### Watcher
+
+A `Watcher` observes a PHP stream or socket for readability or writability. Only a single watcher is allowed for any PHP resource. The watcher should be closed when it is no longer needed to free internal resources. The `Watcher` can only used from within async tasks because `awaitReadable()` and `awaitWritable()` have to suspend the current execution.
+
+```php
+namespace Concurrent;
+
+final class Watcher
+{
+    public function __construct($resource) { }
+    
+    public function close(?\Throwable $e = null): void { }
+    
+    public function awaitReadable(): void { }
+    
+    public function awaitWritable(): void { }
+}
+```
+
 ### Fiber
 
 A lower-level API for concurrent callback execution is available through the `Fiber` API. The underlying stack-switching is the same as in the `Task` implementation but fibers do not come with a scheduler or a higher level abstraction of continuations. A fiber must be started and resumed by the caller in PHP userland. Calling `Fiber::yield()` will suspend the fiber and return the yielded value to `start()`, `resume()` or `throw()`. The `status()` method is needed to check if the fiber has been run to completion yet.

@@ -127,7 +127,7 @@ void async_task_continue(async_task *task)
 	ASYNC_CHECK_FATAL(!async_fiber_switch_to(&task->fiber), "Failed to switch to fiber");
 }
 
-static void async_task_continuation(void *obj, zval *data, zval *result, zend_bool success)
+static void task_continuation(void *obj, zval *data, zval *result, zend_bool success)
 {
 	async_task *task;
 
@@ -185,8 +185,8 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 	async_task_scheduler *scheduler;
 	async_awaitable_cb *cont;
 	async_context *context;
-	size_t stack_page_size;
 	async_task_suspended info;
+	size_t stack_page_size;
 
 	zval error;
 
@@ -238,7 +238,7 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 
 	ASYNC_CHECK_ERROR(!ASYNC_G(current_scheduler)->dispatching, "Cannot await while the task scheduler is not dispatching tasks");
 
-	task->suspended = async_awaitable_register_continuation(q, task, NULL, async_task_continuation);
+	task->suspended = async_awaitable_register_continuation(q, task, NULL, task_continuation);
 
 	task->fiber.value = USED_RET() ? return_value : NULL;
 	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
@@ -593,14 +593,14 @@ ZEND_METHOD(Task, await)
 		ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 
 		q = &inner->continuation;
-		task->suspended = async_awaitable_register_continuation(q, task, NULL, async_task_continuation);
+		task->suspended = async_awaitable_register_continuation(q, task, NULL, task_continuation);
 	} else {
 		defer = ((async_deferred_awaitable *) Z_OBJ_P(val))->defer;
 
 		ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
 
 		q = &defer->continuation;
-		task->suspended = async_awaitable_register_continuation(q, task, NULL, async_task_continuation);
+		task->suspended = async_awaitable_register_continuation(q, task, NULL, task_continuation);
 	}
 
 	task->fiber.value = USED_RET() ? return_value : NULL;

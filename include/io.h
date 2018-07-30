@@ -51,15 +51,22 @@ struct _async_watcher {
 	/* PHP object handle. */
 	zend_object std;
 
+	/* Error being set as the watcher was closed (undef by default). */
 	zval error;
 
+	/* PHP stream or socket being observed. */
 	zval resource;
 
+	/** File descriptor being polled by libuv. */
 	php_socket_t fd;
 
+	/* Libuv poll instance being used to receive events. */
 	uv_poll_t poll;
 
+	/* Queue of tasks wanting to be notified when the stream is readable. */
 	async_awaitable_queue reads;
+
+	/* Queue of tasks wanting to be notified when the stream is writable. */
 	async_awaitable_queue writes;
 };
 
