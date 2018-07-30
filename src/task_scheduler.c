@@ -199,7 +199,7 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 		}
 	}
 
-	if (scheduler->ready.first == NULL) {
+	if (!scheduler->dispatching && scheduler->ready.first == NULL) {
 		uv_idle_start(&scheduler->idle, dispatch_tasks);
 	}
 
