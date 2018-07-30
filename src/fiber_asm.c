@@ -16,14 +16,7 @@
   +----------------------------------------------------------------------+
 */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
-#include "php.h"
-#include "zend.h"
-
-#include "fiber.h"
+#include "php_async.h"
 #include "fiber_stack.h"
 
 #undef ASM_CALLDECL

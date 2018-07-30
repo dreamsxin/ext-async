@@ -16,16 +16,9 @@
   +----------------------------------------------------------------------+
 */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
-#include "php.h"
-#include "ext/standard/info.h"
-
 #include "php_async.h"
 
-#include "uv.h"
+#include "ext/standard/info.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
@@ -154,11 +147,11 @@ PHP_MINIT_FUNCTION(async)
 	async_awaitable_ce_register();
 	async_context_ce_register();
 	async_deferred_ce_register();
-	async_io_ce_register();
 	async_fiber_ce_register();
 	async_task_ce_register();
 	async_task_scheduler_ce_register();
 	async_timer_ce_register();
+	async_watcher_ce_register();
 
 	REGISTER_INI_ENTRIES();
 

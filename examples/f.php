@@ -2,7 +2,9 @@
 
 namespace Concurrent;
 
-list ($a, $b) = stream_socket_pair(\STREAM_PF_UNIX, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
+$domain = (\DIRECTORY_SEPARATOR == '\\') ? \STREAM_PF_INET : \STREAM_PF_UNIX;
+
+list ($a, $b) = stream_socket_pair($domain, \STREAM_SOCK_STREAM, \STREAM_IPPROTO_IP);
 
 foreach ([$a, $b] as $r) {
     stream_set_blocking($r, false);

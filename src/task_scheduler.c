@@ -16,13 +16,6 @@
   +----------------------------------------------------------------------+
 */
 
-
-#include "php.h"
-#include "zend.h"
-#include "zend_API.h"
-#include "zend_interfaces.h"
-#include "zend_exceptions.h"
-
 #include "php_async.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(async)

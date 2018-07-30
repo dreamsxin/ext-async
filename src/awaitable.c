@@ -65,7 +65,7 @@ void async_awaitable_trigger_continuation(async_awaitable_queue *q, zval *result
 	}
 }
 
-static int async_awaitable_implement_interface(zend_class_entry *interface, zend_class_entry *implementor)
+static int async_awaitable_implement_interface(zend_class_entry *entry, zend_class_entry *implementor)
 {
 	if (implementor == async_deferred_awaitable_ce) {
 		return SUCCESS;
@@ -79,7 +79,7 @@ static int async_awaitable_implement_interface(zend_class_entry *interface, zend
 		E_CORE_ERROR,
 		"Class %s must not implement interface %s, create an awaitable using %s instead",
 		ZSTR_VAL(implementor->name),
-		ZSTR_VAL(interface->name),
+		ZSTR_VAL(entry->name),
 		ZSTR_VAL(async_deferred_ce->name)
 	);
 

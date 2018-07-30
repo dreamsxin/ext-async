@@ -16,12 +16,6 @@
   +----------------------------------------------------------------------+
 */
 
-#include "php.h"
-#include "zend.h"
-#include "zend_API.h"
-#include "zend_interfaces.h"
-#include "zend_exceptions.h"
-
 #include "php_async.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
@@ -34,6 +28,57 @@ static zend_object_handlers async_watcher_handlers;
 static int (*le_socket)(void);
 #endif
 
+
+static php_socket_t get_poll_fd(zval *val)
+{
+	php_socket_t fd;
+	php_stream *stream;
+
+	stream = (php_stream *) zend_fetch_resource_ex(val, NULL, php_file_le_stream());
+
+#if ASYNC_SOCKETS
+	php_socket *socket;
+
+	if (!stream && le_socket && (socket = (php_socket *) zend_fetch_resource_ex(val, NULL, php_sockets_le_socket()))) {
+		return socket->bsd_socket;
+	}
+#endif
+
+	if (!stream) {
+		return -1;
+	}
+
+	if (stream->wrapper) {
+		if (!strcmp((char *)stream->wrapper->wops->label, "PHP")) {
+			if (!stream->orig_path || (strncmp(stream->orig_path, "php://std", sizeof("php://std") - 1) && strncmp(stream->orig_path, "php://fd", sizeof("php://fd") - 1))) {
+				return -1;
+			}
+		}
+	}
+
+	if (php_stream_cast(stream, PHP_STREAM_AS_FD_FOR_SELECT | PHP_STREAM_CAST_INTERNAL, (void *) &fd, 1) != SUCCESS) {
+		return -1;
+	}
+
+	if (fd < 1) {
+		return -1;
+	}
+
+	if (stream->wrapper && !strcmp((char *) stream->wrapper->wops->label, "plainfile")) {
+#ifndef PHP_WIN32
+		struct stat stat;
+		fstat(fd, &stat);
+
+		if (!S_ISFIFO(stat.st_mode)) {
+			return -1;
+		}
+#else
+		return -1;
+#endif
+	}
+
+	return fd;
+}
 
 static void trigger_poll(uv_poll_t *handle, int status, int events)
 {
@@ -96,7 +141,6 @@ ZEND_METHOD(Watcher, __construct)
 {
 	async_watcher *watcher;
 	php_socket_t fd;
-	php_stream *stream;
 
 	zval *val;
 
@@ -106,51 +150,10 @@ ZEND_METHOD(Watcher, __construct)
 
 	watcher = (async_watcher *) Z_OBJ_P(getThis());
 
-	ASYNC_CHECK_ERROR(Z_TYPE_P(val) != IS_RESOURCE, "Watcher requires a PHP stream resource");
+	fd = get_poll_fd(val);
 
-	stream = (php_stream *) zend_fetch_resource_ex(val, NULL, php_file_le_stream());
+	ASYNC_CHECK_ERROR(fd < 0, "Cannot cast resource to file descriptor");
 
-#if ASYNC_SOCKETS
-	php_socket *socket;
-
-	if (!stream && le_socket && (socket = (php_socket *) zend_fetch_resource_ex(val, NULL, php_sockets_le_socket()))) {
-		fd = socket->bsd_socket;
-
-		goto DONE;
-	}
-#endif
-
-	ASYNC_CHECK_ERROR(!stream, "Unhandled resource type");
-
-	if (stream->wrapper) {
-		if (!strcmp((char *)stream->wrapper->wops->label, "PHP")) {
-			if (!stream->orig_path || (strncmp(stream->orig_path, "php://std", sizeof("php://std") - 1) && strncmp(stream->orig_path, "php://fd", sizeof("php://fd") - 1))) {
-				zend_throw_error(NULL, "Unsupported resource type");
-				return;
-			}
-		}
-	}
-
-	if (php_stream_cast(stream, PHP_STREAM_AS_FD_FOR_SELECT | PHP_STREAM_CAST_INTERNAL, (void *) &fd, 1) != SUCCESS) {
-		zend_throw_error(NULL, "Cannot aquire file descriptor from stream");
-		return;
-	}
-
-	ASYNC_CHECK_ERROR(fd < 1, "Cast to file descriptor failed");
-
-	if (stream->wrapper && !strcmp((char *) stream->wrapper->wops->label, "plainfile")) {
-#ifndef PHP_WIN32
-		struct stat stat;
-		fstat(fd, &stat);
-
-		ASYNC_CHECK_ERROR(!S_ISFIFO(stat.st_mode), "Unhandled resource type, plain files are not supported");
-#else
-		zend_throw_error(NULL, "Unhandled resource type, plain files are not supported");
-		return;
-#endif
-	}
-
-DONE:
 	watcher->fd = fd;
 
 	ZVAL_COPY(&watcher->resource, val);
@@ -278,9 +281,12 @@ static const zend_function_entry async_watcher_functions[] = {
 };
 
 
-void async_io_ce_register()
+void async_watcher_ce_register()
 {
+#if ASYNC_SOCKETS
 	zend_module_entry *sockets;
+#endif
+
 	zend_class_entry ce;
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Watcher", async_watcher_functions);

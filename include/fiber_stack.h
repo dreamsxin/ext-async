@@ -19,6 +19,10 @@
 #ifndef ASYNC_FIBER_STACK_H
 #define ASYNC_FIBER_STACK_H
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 typedef struct _async_fiber_stack {
 	void *pointer;
 	size_t size;

@@ -14,21 +14,14 @@ if (PHP_ASYNC != 'no') {
 		'src\\awaitable.c',
 		'src\\context.c',
 		'src\\deferred.c',
-		'src\\io.c',
 		'src\\task.c',
 		'src\\task_scheduler.c',
-		'src\\timer.c'
+		'src\\timer.c',
+		'src\\watcher.c'
 	];
 	
 	var async_header_files = [
-		'include\\fiber.h',
-		'include\\awaitable.h',
-		'include\\context.h',
-		'include\\deferred.h',
-		'include\\io.c'
-		'include\\task.h',
-		'include\\task_scheduler.h',
-		'include\\timer.h',
+		'php_async.h',
 		'thirdparty\\libuv\\include\\uv.h'
 	];
 	

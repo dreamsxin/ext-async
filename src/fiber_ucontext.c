@@ -16,17 +16,10 @@
   +----------------------------------------------------------------------+
 */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include "php_async.h"
+#include "fiber_stack.h"
 
 #include <ucontext.h>
-
-#include "php.h"
-#include "zend.h"
-
-#include "fiber.h"
-#include "fiber_stack.h"
 
 typedef struct _async_fiber_context_ucontext async_fiber_context_ucontext;
 
