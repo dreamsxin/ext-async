@@ -45,14 +45,8 @@ struct _async_task_scheduler {
 	/* Is set while an event loop is running. */
 	zend_bool running;
 
-	/* Is set if stop has been requested during current run. */
-	zend_bool stopped;
-
 	/* Is set while the scheduler is in the process of dispatching tasks. */
 	zend_bool dispatching;
-
-	/* Is set to true while libuv is running a loop iteration. */
-	zend_bool looping;
 
 	/* Tasks ready to be started or resumed. */
 	async_task_queue ready;
@@ -62,6 +56,9 @@ struct _async_task_scheduler {
 
 	/* Libuv event loop. */
 	uv_loop_t loop;
+
+	/* Idle handler being used to dispatch tasks from within a running event loop. */
+	uv_idle_t idle;
 
 	/* PHP object handle. */
 	zend_object std;

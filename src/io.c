@@ -43,6 +43,8 @@ static void trigger_poll(uv_poll_t *handle, int status, int events)
 
 	watcher = (async_watcher *) handle->data;
 
+	ZEND_ASSERT(watcher != NULL);
+
 	ZVAL_NULL(&result);
 
 	if (events & (UV_READABLE | UV_DISCONNECT)) {

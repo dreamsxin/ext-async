@@ -38,7 +38,9 @@ static void trigger_timer(uv_timer_t *handle)
 	zval args[1];
 	zval retval;
 
-	timer = (async_timer *) uv_handle_get_data((uv_handle_t *) handle);
+	timer = (async_timer *) handle->data;
+
+	ZEND_ASSERT(timer != NULL);
 
 	ZVAL_OBJ(&args[0], &timer->std);
 	GC_ADDREF(&timer->std);
@@ -74,7 +76,8 @@ static zend_object *async_timer_object_create(zend_class_entry *ce)
 	timer->std.handlers = &async_timer_handlers;
 
 	uv_timer_init(async_task_scheduler_get_loop(), &timer->timer);
-	uv_handle_set_data((uv_handle_t *) &timer->timer, timer);
+
+	timer->timer.data = timer;
 
 	return &timer->std;
 }
@@ -155,7 +158,7 @@ ZEND_METHOD(Timer, tick)
 
 	zval obj;
 
-	timer = (async_timer *)async_timer_object_create(async_timer_ce);
+	timer = (async_timer *) async_timer_object_create(async_timer_ce);
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_FUNC_EX(timer->fci, timer->fcc, 1, 0)

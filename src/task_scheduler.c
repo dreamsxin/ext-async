@@ -31,6 +31,42 @@ static zend_class_entry *async_task_scheduler_ce;
 static zend_object_handlers async_task_scheduler_handlers;
 
 
+static void dispatch_tasks(uv_idle_t *idle)
+{
+	async_task_scheduler *scheduler;
+	async_task *task;
+
+	scheduler = (async_task_scheduler *) idle->data;
+
+	ZEND_ASSERT(scheduler != NULL);
+
+	uv_idle_stop(idle);
+
+	scheduler->dispatching = 1;
+
+	while (scheduler->ready.first != NULL) {
+		ASYNC_Q_DEQUEUE(&scheduler->ready, task);
+
+		ZEND_ASSERT(task->operation != ASYNC_TASK_OPERATION_NONE);
+
+		if (task->operation == ASYNC_TASK_OPERATION_START) {
+			async_task_start(task);
+		} else {
+			async_task_continue(task);
+		}
+
+		if (task->fiber.status == ASYNC_OP_RESOLVED || task->fiber.status == ASYNC_OP_FAILED) {
+			async_task_dispose(task);
+
+			OBJ_RELEASE(&task->fiber.std);
+		} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
+			ASYNC_Q_ENQUEUE(&scheduler->suspended, task);
+		}
+	}
+
+	scheduler->dispatching = 0;
+}
+
 static async_task_scheduler *async_task_scheduler_obj(zend_object *obj)
 {
 	return (async_task_scheduler *)((char *)obj - obj->handlers->offset);
@@ -99,6 +135,9 @@ async_task_scheduler *async_task_scheduler_get()
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 
 	uv_loop_init(&scheduler->loop);
+	uv_idle_init(&scheduler->loop, &scheduler->idle);
+
+	scheduler->idle.data = scheduler;
 
 	ASYNC_G(scheduler) = scheduler;
 
@@ -160,14 +199,11 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 		}
 	}
 
-	ASYNC_Q_ENQUEUE(&scheduler->ready, task);
-
-	// Ensure current libuv loop iteration is stopped if a timer enqueues a task.
-	if (scheduler->looping) {
-		scheduler->looping = 0;
-
-		uv_stop(&scheduler->loop);
+	if (scheduler->ready.first == NULL) {
+		uv_idle_start(&scheduler->idle, dispatch_tasks);
 	}
+
+	ASYNC_Q_ENQUEUE(&scheduler->ready, task);
 
 	return 1;
 }
@@ -184,38 +220,6 @@ void async_task_scheduler_dequeue(async_task *task)
 	ASYNC_Q_DETACH(&scheduler->ready, task);
 }
 
-static void async_task_scheduler_dispatch(async_task_scheduler *scheduler)
-{
-	async_task *task;
-
-	ZEND_ASSERT(scheduler != NULL);
-
-	scheduler->dispatching = 1;
-
-	while (scheduler->ready.first != NULL) {
-		ASYNC_Q_DEQUEUE(&scheduler->ready, task);
-
-		ZEND_ASSERT(task->operation != ASYNC_TASK_OPERATION_NONE);
-
-		if (task->operation == ASYNC_TASK_OPERATION_START) {
-			async_task_start(task);
-		} else {
-			async_task_continue(task);
-		}
-
-		if (task->fiber.status == ASYNC_OP_RESOLVED || task->fiber.status == ASYNC_OP_FAILED) {
-			async_task_dispose(task);
-
-			OBJ_RELEASE(&task->fiber.std);
-		} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
-			ASYNC_Q_ENQUEUE(&scheduler->suspended, task);
-		}
-	}
-
-	scheduler->dispatching = 0;
-}
-
-
 void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 {
 	async_task_scheduler *prev;
@@ -227,25 +231,9 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 	ASYNC_G(current_scheduler) = scheduler;
 
 	scheduler->running = 1;
-	scheduler->stopped = 0;
 
-	while (!scheduler->stopped) {
-		async_task_scheduler_dispatch(scheduler);
+	uv_run(&scheduler->loop, UV_RUN_DEFAULT);
 
-		if (!scheduler->stopped) {
-			scheduler->looping = 1;
-
-			uv_run(&scheduler->loop, UV_RUN_ONCE);
-
-			scheduler->looping = 0;
-		}
-
-		if (scheduler->ready.first == NULL && !uv_loop_alive(&scheduler->loop)) {
-			scheduler->stopped = 1;
-		}
-	}
-
-	scheduler->stopped = 0;
 	scheduler->running = 0;
 
 	ASYNC_G(current_scheduler) = prev;
@@ -254,8 +242,6 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 void async_task_scheduler_stop_loop(async_task_scheduler *scheduler)
 {
 	ASYNC_CHECK_FATAL(scheduler->running == 0, "Cannot stop scheduler loop that is not running");
-
-	scheduler->stopped = 1;
 
 	uv_stop(&scheduler->loop);
 }
@@ -276,6 +262,9 @@ static zend_object *async_task_scheduler_object_create(zend_class_entry *ce)
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 
 	uv_loop_init(&scheduler->loop);
+	uv_idle_init(&scheduler->loop, &scheduler->idle);
+
+	scheduler->idle.data = scheduler;
 
 	return &scheduler->std;
 }
