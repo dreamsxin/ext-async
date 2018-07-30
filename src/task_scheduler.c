@@ -162,6 +162,13 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 
 	ASYNC_Q_ENQUEUE(&scheduler->ready, task);
 
+	// Ensure current libuv loop iteration is stopped if a timer enqueues a task.
+	if (scheduler->looping) {
+		scheduler->looping = 0;
+
+		uv_stop(&scheduler->loop);
+	}
+
 	return 1;
 }
 
@@ -226,7 +233,11 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 		async_task_scheduler_dispatch(scheduler);
 
 		if (!scheduler->stopped) {
+			scheduler->looping = 1;
+
 			uv_run(&scheduler->loop, UV_RUN_ONCE);
+
+			scheduler->looping = 0;
 		}
 
 		if (scheduler->ready.first == NULL && !uv_loop_alive(&scheduler->loop)) {

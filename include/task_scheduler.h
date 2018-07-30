@@ -51,6 +51,9 @@ struct _async_task_scheduler {
 	/* Is set while the scheduler is in the process of dispatching tasks. */
 	zend_bool dispatching;
 
+	/* Is set to true while libuv is running a loop iteration. */
+	zend_bool looping;
+
 	/* Tasks ready to be started or resumed. */
 	async_task_queue ready;
 
