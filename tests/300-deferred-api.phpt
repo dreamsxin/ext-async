@@ -9,16 +9,14 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new TaskScheduler();
-
-$a = $scheduler->run(function () {
+$a = TaskScheduler::run(function () {
 	return Task::await(Deferred::value(321));
 });
 
 var_dump($a);
 
 try {
-    var_dump($scheduler->run(function () {
+    var_dump(TaskScheduler::run(function () {
         $e = Deferred::error(new \Error('Fail!'));
     
         var_dump('X');
@@ -29,7 +27,7 @@ try {
     var_dump($e->getMessage());
 }
 
-$a = $scheduler->run(function () {
+$a = TaskScheduler::run(function () {
     $defer = new Deferred();
     
     Task::async(function () use ($defer) {
@@ -51,7 +49,7 @@ $a = $scheduler->run(function () {
 
 var_dump($a);
 
-var_dump($scheduler->run(function () {
+var_dump(TaskScheduler::run(function () {
     $defer = new Deferred();
     $defer->resolve();
     

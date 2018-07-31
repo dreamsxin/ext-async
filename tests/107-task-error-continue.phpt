@@ -9,9 +9,7 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new TaskScheduler();
-
-$scheduler->run(function () {
+TaskScheduler::run(function () {
     try {
         Task::await(Task::async(function () {
             throw new \Error('Fail 1');
@@ -22,7 +20,7 @@ $scheduler->run(function () {
 });
 
 try {
-    $scheduler->run(function () {
+    TaskScheduler::run(function () {
         throw new \Error('Fail 2');
     });
 } catch (\Throwable $e) {

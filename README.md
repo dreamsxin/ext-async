@@ -46,7 +46,7 @@ final class Deferred
 
 ### Task
 
-A task is a fiber-based object that executes a PHP function or method on a separate call stack. Tasks are created using `Task::async()` or `TaskScheduler->run()` (and there contextual counterparts). All tasks are associated with a task scheduler as they are created, there is no way to migrate tasks between different schedulers.
+A task is a fiber-based object that executes a PHP function or method on a separate call stack. Tasks are created using `Task::async()` or `TaskScheduler::run()` (and there contextual counterparts). All tasks are associated with a task scheduler as they are created, there is no way to migrate tasks between different schedulers.
 
 Calling `Task::await()` will suspend the current task and await resolution of the given `Awaitable`. If the awaited object is another `Task` it has to be run on the same scheduler, otherwise `await()` will throw an error.
 
@@ -72,22 +72,18 @@ final class Task implements Awaitable
 
 The task scheduler manages a queue of ready-to-run tasks and a (shared) event loop that provides support for timers and async IO. It will also keep track of suspended tasks to allow for proper cleanup on shutdown. There is an implicit default scheduler that will be used when `Task::async()` or `Task::asyncWithContext()` is used in PHP code that is not run using one of the public scheduler methods. It is neighter necessary (nor advisable) to create a task scheduler instance yourself. The only exception to that rule are unit tests, each test should use a dedicated task scheduler to ensure proper test isolation.
 
-You can use `run()` or `runWithContext()` to have the scheduler execute all scheduled tasks (including the one you pass to the run method). The run methods will return the value returned from your task callback or throw an error if your task callback throws. The scheduler will allways run all scheduled tasks to completion, even if the callback task you passed is completed before other tasks.
+You can use `run()` or `runWithContext()` to have the given callback be executed as root task within an isolated task scheduler. The run methods will return the value returned from your task callback or throw an error if your task callback throws. The scheduler will allways run all scheduled tasks to completion, even if the callback task you passed is completed before other tasks. The optional inspection callback will be called as soon as the root task (= the callback) is completed and receive the task scheduler instance as argument. You can use `getPendingTasks()` to inspect the remaining tasks that are not completed yet.
 
 ```php
 namespace Concurrent;
 
 final class TaskScheduler
 {
-    public final function getPendingTasks(): array { }
+    public function getPendingTasks(): array { }
     
-    public final function run(callable $callback, ...$args): mixed { }
+    public static function run(callable $callback, ?callable $inspector = null): mixed { }
     
-    public final function runWithContext(Context $context, callable $callback, ...$args): mixed { }
-    
-    public static final function register(TaskScheduler $scheduler): void { }
-    
-    public static final function unregister(TaskScheduler $scheduler): void { }
+    public static function runWithContext(Context $context, callable $callback, ?callable $inspector = null): mixed { }
 }
 ```
 

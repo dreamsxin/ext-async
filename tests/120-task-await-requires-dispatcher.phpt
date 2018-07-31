@@ -9,9 +9,7 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new TaskScheduler();
-
-$scheduler->run(function () {
+TaskScheduler::run(function () {
     (new Timer(function () {
         var_dump('TIMER');
 
@@ -27,10 +25,8 @@ $scheduler->run(function () {
 
 var_dump('DONE');
 
-$scheduler2 = new TaskScheduler();
-
-$scheduler2->run(function () use ($scheduler) {
-    $scheduler->run(function () {
+TaskScheduler::run(function () {
+    TaskScheduler::run(function () {
         (new Timer(function () {
             var_dump('TIMER');
 

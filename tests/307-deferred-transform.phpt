@@ -39,9 +39,7 @@ try {
 
 try {
     Task::await(Task::async(function () {
-        $scheduler = new TaskScheduler();
-    
-        $scheduler->run(function () {
+        TaskScheduler::run(function () {
             Task::await(Deferred::transform(Deferred::value(123), function () {
                 Task::await(Deferred::value(321));
             }));

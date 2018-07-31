@@ -9,15 +9,13 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new TaskScheduler();
-
 $f = new Fiber(function () {
     var_dump(Fiber::isRunning(), Task::isRunning());
 });
 
 var_dump(Task::isRunning());
 
-$scheduler->run(function () {
+TaskScheduler::run(function () {
     var_dump(Fiber::isRunning(), Task::isRunning());
 });
 

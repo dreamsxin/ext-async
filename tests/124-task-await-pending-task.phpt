@@ -9,9 +9,7 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new TaskScheduler();
-
-$scheduler->run(function () {
+TaskScheduler::run(function () {
     $defer = new Deferred();
 
     $t = Task::async(function () use ($defer) {

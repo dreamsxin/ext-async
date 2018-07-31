@@ -9,9 +9,7 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new TaskScheduler();
-
-$result = $scheduler->run(function () use ($scheduler) {
+$result = TaskScheduler::run(function () {
 	$t1 = Task::async('var_dump', 'B');
 	$line = __LINE__ - 1;
 	

@@ -9,23 +9,19 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-TaskScheduler::register($s1 = new TaskScheduler());
+TaskScheduler::run(function () {
+    Task::await(Task::async('var_dump', 'A'));
 
-Task::await(Task::async('var_dump', 'A'));
+    TaskScheduler::run(function () {
+        $t = Task::async('var_dump', 'B');
+        Task::async('var_dump', 'C');
 
-TaskScheduler::register($s2 = new TaskScheduler());
+        Task::await($t);
+    });
 
-$t = Task::async('var_dump', 'B');
-Task::async('var_dump', 'C');
-
-Task::await($t);
-
-TaskScheduler::unregister($s2);
-
-Task::await(Task::async('var_dump', 'D'));
-Task::async('var_dump', 'E');
-
-TaskScheduler::unregister($s1);
+    Task::await(Task::async('var_dump', 'D'));
+    Task::async('var_dump', 'E');
+});
 
 Task::await(Task::async('var_dump', 'X'));
 
