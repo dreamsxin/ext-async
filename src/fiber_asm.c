@@ -17,6 +17,8 @@
 */
 
 #include "php_async.h"
+
+#include "async_fiber.h"
 #include "async_stack.h"
 
 #undef ASM_CALLDECL

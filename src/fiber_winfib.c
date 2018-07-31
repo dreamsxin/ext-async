@@ -18,6 +18,8 @@
 
 #include "php_async.h"
 
+#include "async_fiber.h"
+
 typedef struct _async_fiber_context_win32 {
 	void *fiber;
 	void *caller;
