@@ -62,11 +62,6 @@ static void dispatch_tasks(uv_idle_t *idle)
 	scheduler->dispatching = 0;
 }
 
-static async_task_scheduler *async_task_scheduler_obj(zend_object *obj)
-{
-	return (async_task_scheduler *)((char *)obj - obj->handlers->offset);
-}
-
 static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 {
 	async_task_scheduler *prev;
@@ -239,18 +234,14 @@ void async_task_scheduler_stop_loop(async_task_scheduler *scheduler)
 	uv_stop(&scheduler->loop);
 }
 
-static zend_object *async_task_scheduler_object_create(zend_class_entry *ce)
+static async_task_scheduler *async_task_scheduler_object_create()
 {
 	async_task_scheduler *scheduler;
-	zend_ulong size;
 
-	size = sizeof(async_task_scheduler) + zend_object_properties_size(ce);
+	scheduler = emalloc(sizeof(async_task_scheduler));
+	ZEND_SECURE_ZERO(scheduler, sizeof(async_task_scheduler));
 
-	scheduler = emalloc(size);
-	ZEND_SECURE_ZERO(scheduler, size);
-
-	zend_object_std_init(&scheduler->std, ce);
-	object_properties_init(&scheduler->std, ce);
+	zend_object_std_init(&scheduler->std, async_task_scheduler_ce);
 
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 
@@ -259,14 +250,14 @@ static zend_object *async_task_scheduler_object_create(zend_class_entry *ce)
 
 	scheduler->idle.data = scheduler;
 
-	return &scheduler->std;
+	return scheduler;
 }
 
 static void async_task_scheduler_object_destroy(zend_object *object)
 {
 	async_task_scheduler *scheduler;
 
-	scheduler = async_task_scheduler_obj(object);
+	scheduler = (async_task_scheduler *)object;
 
 	async_task_scheduler_dispose(scheduler);
 
@@ -275,62 +266,6 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 	uv_loop_close(&scheduler->loop);
 
 	zend_object_std_dtor(object);
-}
-
-ZEND_METHOD(TaskScheduler, getPendingTasks)
-{
-	async_task_scheduler *scheduler;
-	async_task *task;
-	uint32_t size;
-
-	zval obj;
-	zend_ulong i;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	scheduler = async_task_scheduler_obj(Z_OBJ_P(getThis()));
-
-	task = scheduler->ready.first;
-	size = 0;
-
-	while (task != NULL) {
-		task = task->next;
-		size++;
-	}
-
-	task = scheduler->suspended.first;
-
-	while (task != NULL) {
-		task = task->next;
-		size++;
-	}
-
-	array_init_size(return_value, size);
-
-	task = scheduler->ready.first;
-	i = 0;
-
-	while (task != NULL) {
-		ZVAL_OBJ(&obj, &task->fiber.std);
-		GC_ADDREF(&task->fiber.std);
-
-		zend_hash_index_update(Z_ARRVAL_P(return_value), i, &obj);
-
-		task = task->next;
-		i++;
-	}
-
-	task = scheduler->suspended.first;
-
-	while (task != NULL) {
-		ZVAL_OBJ(&obj, &task->fiber.std);
-		GC_ADDREF(&task->fiber.std);
-
-		zend_hash_index_update(Z_ARRVAL_P(return_value), i, &obj);
-
-		task = task->next;
-		i++;
-	}
 }
 
 typedef struct _debug_info {
@@ -380,7 +315,7 @@ static void exec_scope(zend_fcall_info fci, zend_fcall_info_cache fcc, debug_inf
 
 	zval retval;
 
-	scheduler = async_task_scheduler_obj(async_task_scheduler_object_create(async_task_scheduler_ce));
+	scheduler = async_task_scheduler_object_create();
 	stack = ASYNC_G(scheduler_stack);
 
 	info->scheduler = scheduler;
@@ -436,6 +371,70 @@ static void exec_scope(zend_fcall_info fci, zend_fcall_info_cache fcc, debug_inf
 	}
 
 	zval_ptr_dtor(&retval);
+}
+
+
+ZEND_METHOD(TaskScheduler, __construct)
+{
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	zend_throw_error(NULL, "Task scheduler must not be constructed by userland code");
+}
+
+ZEND_METHOD(TaskScheduler, getPendingTasks)
+{
+	async_task_scheduler *scheduler;
+	async_task *task;
+	uint32_t size;
+
+	zval obj;
+	zend_ulong i;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	scheduler = (async_task_scheduler *) Z_OBJ_P(getThis());
+
+	task = scheduler->ready.first;
+	size = 0;
+
+	while (task != NULL) {
+		task = task->next;
+		size++;
+	}
+
+	task = scheduler->suspended.first;
+
+	while (task != NULL) {
+		task = task->next;
+		size++;
+	}
+
+	array_init_size(return_value, size);
+
+	task = scheduler->ready.first;
+	i = 0;
+
+	while (task != NULL) {
+		ZVAL_OBJ(&obj, &task->fiber.std);
+		GC_ADDREF(&task->fiber.std);
+
+		zend_hash_index_update(Z_ARRVAL_P(return_value), i, &obj);
+
+		task = task->next;
+		i++;
+	}
+
+	task = scheduler->suspended.first;
+
+	while (task != NULL) {
+		ZVAL_OBJ(&obj, &task->fiber.std);
+		GC_ADDREF(&task->fiber.std);
+
+		zend_hash_index_update(Z_ARRVAL_P(return_value), i, &obj);
+
+		task = task->next;
+		i++;
+	}
 }
 
 ZEND_METHOD(TaskScheduler, run)
@@ -498,6 +497,9 @@ ZEND_METHOD(TaskScheduler, __wakeup)
 	zend_throw_error(NULL, "Unserialization of a task scheduler is not allowed");
 }
 
+ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_ctor, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_task_scheduler_get_pending_tasks, 0, 0, IS_ARRAY, 0)
 ZEND_END_ARG_INFO()
 
@@ -516,6 +518,7 @@ ZEND_BEGIN_ARG_INFO(arginfo_task_scheduler_wakeup, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_scheduler_functions[] = {
+	ZEND_ME(TaskScheduler, __construct, arginfo_task_scheduler_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
 	ZEND_ME(TaskScheduler, getPendingTasks, arginfo_task_scheduler_get_pending_tasks, ZEND_ACC_PUBLIC)
 	ZEND_ME(TaskScheduler, run, arginfo_task_scheduler_run, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(TaskScheduler, runWithContext, arginfo_task_scheduler_run_with_context, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
@@ -531,7 +534,6 @@ void async_task_scheduler_ce_register()
 	INIT_CLASS_ENTRY(ce, "Concurrent\\TaskScheduler", task_scheduler_functions);
 	async_task_scheduler_ce = zend_register_internal_class(&ce);
 	async_task_scheduler_ce->ce_flags |= ZEND_ACC_FINAL;
-	async_task_scheduler_ce->create_object = async_task_scheduler_object_create;
 	async_task_scheduler_ce->serialize = zend_class_serialize_deny;
 	async_task_scheduler_ce->unserialize = zend_class_unserialize_deny;
 

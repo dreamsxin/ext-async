@@ -317,6 +317,9 @@ struct _async_task_queue {
 };
 
 struct _async_task_scheduler {
+	/* PHP object handle. */
+	zend_object std;
+
 	/* Is set while an event loop is running. */
 	zend_bool running;
 
@@ -334,9 +337,6 @@ struct _async_task_scheduler {
 
 	/* Idle handler being used to dispatch tasks from within a running event loop. */
 	uv_idle_t idle;
-
-	/* PHP object handle. */
-	zend_object std;
 };
 
 struct _async_task_scheduler_stack_entry {
