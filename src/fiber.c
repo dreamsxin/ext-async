@@ -18,6 +18,9 @@
 
 #include "php_async.h"
 
+#include "async_fiber.h"
+#include "async_helper.h"
+
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
 #define REGISTER_FIBER_CLASS_CONST_LONG(const_name, value) \

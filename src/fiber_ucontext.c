@@ -17,7 +17,7 @@
 */
 
 #include "php_async.h"
-#include "fiber_stack.h"
+#include "async_stack.h"
 
 #include <ucontext.h>
 

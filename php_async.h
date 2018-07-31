@@ -81,15 +81,15 @@ typedef struct {
 #define ASYNC_OP_FAILED 65
 
 
-extern zend_class_entry *async_awaitable_ce;
-extern zend_class_entry *async_context_ce;
-extern zend_class_entry *async_context_var_ce;
-extern zend_class_entry *async_deferred_ce;
-extern zend_class_entry *async_deferred_awaitable_ce;
-extern zend_class_entry *async_fiber_ce;
-extern zend_class_entry *async_task_ce;
-extern zend_class_entry *async_timer_ce;
-extern zend_class_entry *async_watcher_ce;
+ASYNC_API extern zend_class_entry *async_awaitable_ce;
+ASYNC_API extern zend_class_entry *async_context_ce;
+ASYNC_API extern zend_class_entry *async_context_var_ce;
+ASYNC_API extern zend_class_entry *async_deferred_ce;
+ASYNC_API extern zend_class_entry *async_deferred_awaitable_ce;
+ASYNC_API extern zend_class_entry *async_fiber_ce;
+ASYNC_API extern zend_class_entry *async_task_ce;
+ASYNC_API extern zend_class_entry *async_timer_ce;
+ASYNC_API extern zend_class_entry *async_watcher_ce;
 
 
 void async_awaitable_ce_register();
@@ -391,35 +391,16 @@ struct _async_watcher {
 };
 
 
-async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_queue *q, void *obj, zval *data, async_awaitable_func func);
-void async_awaitable_dispose_continuation(async_awaitable_queue *q, async_awaitable_cb *cb);
-void async_awaitable_trigger_continuation(async_awaitable_queue *q, zval *result, zend_bool success);
+ASYNC_API async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_queue *q, void *obj, zval *data, async_awaitable_func func);
+ASYNC_API void async_awaitable_dispose_continuation(async_awaitable_queue *q, async_awaitable_cb *cb);
+ASYNC_API void async_awaitable_trigger_continuation(async_awaitable_queue *q, zval *result, zend_bool success);
 
-async_context *async_context_get();
+ASYNC_API async_context *async_context_get();
 
-char *async_fiber_backend_info();
-void async_fiber_init_metadata(async_fiber *fiber, zend_execute_data *call);
-void async_fiber_run();
-async_fiber_context async_fiber_create_root_context();
-async_fiber_context async_fiber_create_context();
-zend_bool async_fiber_create(async_fiber_context context, async_fiber_func func, size_t stack_size);
-void async_fiber_destroy(async_fiber_context context);
-zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next);
-zend_bool async_fiber_switch_to(async_fiber *fiber);
-zend_bool async_fiber_yield(async_fiber_context current);
+ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data);
 
-async_task *async_task_object_create(zend_execute_data *call, async_task_scheduler *scheduler, async_context *context);
-void async_task_start(async_task *task);
-void async_task_continue(async_task *task);
-void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data);
-void async_task_dispose(async_task *task);
-
-uv_loop_t *async_task_scheduler_get_loop();
-async_task_scheduler *async_task_scheduler_get();
-zend_bool async_task_scheduler_enqueue(async_task *task);
-void async_task_scheduler_dequeue(async_task *task);
-void async_task_scheduler_run_loop(async_task_scheduler *scheduler);
-void async_task_scheduler_stop_loop(async_task_scheduler *scheduler);
+ASYNC_API uv_loop_t *async_task_scheduler_get_loop();
+ASYNC_API async_task_scheduler *async_task_scheduler_get();
 
 
 ZEND_BEGIN_MODULE_GLOBALS(async)
@@ -487,15 +468,6 @@ ZEND_TSRMLS_CACHE_EXTERN()
     	return; \
     } \
 } while (0)
-
-char *async_status_label(zend_uchar status);
-
-HashTable *async_info_init();
-void async_info_prop(HashTable *info, char *key, zval *value);
-void async_info_prop_bool(HashTable *info, char *key, zend_bool value);
-void async_info_prop_long(HashTable *info, char *key, zend_ulong value);
-void async_info_prop_str(HashTable *info, char *key, zend_string *value);
-void async_info_prop_cstr(HashTable *info, char *key, char *value);
 
 /*
  * Queue macros require a "q" pointer with fields "first" and "last" of same ponter type as "v".

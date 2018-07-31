@@ -18,6 +18,7 @@
 
 #include "php_async.h"
 
+#include "async_fiber.h"
 #include "ext/standard/info.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
@@ -40,80 +41,6 @@ static void async_execute_ex(zend_execute_data *exec)
 	if (fiber == NULL && exec->prev_execute_data == NULL) {
 		async_task_scheduler_shutdown();
 	}
-}
-
-char *async_status_label(zend_uchar status)
-{
-	if (status == ASYNC_OP_RESOLVED) {
-		return "RESOLVED";
-	}
-
-	if (status == ASYNC_OP_FAILED) {
-		return "FAILED";
-	}
-
-	return "PENDING";
-}
-
-HashTable *async_info_init()
-{
-	HashTable *info;
-
-	ALLOC_HASHTABLE(info);
-	zend_hash_init(info, 0, NULL, ZVAL_PTR_DTOR, 0);
-
-	return info;
-}
-
-void async_info_prop(HashTable *info, char *key, zval *value)
-{
-	zend_string *k;
-
-	k = zend_string_init(key, strlen(key), 0);
-	zend_hash_add(info, k, value);
-	zend_string_release(k);
-}
-
-void async_info_prop_bool(HashTable *info, char *key, zend_bool value)
-{
-	zval v;
-
-	ZVAL_BOOL(&v, value);
-	async_info_prop(info, key, &v);
-}
-
-void async_info_prop_long(HashTable *info, char *key, zend_ulong value)
-{
-	zval v;
-
-	ZVAL_LONG(&v, value);
-	async_info_prop(info, key, &v);
-}
-
-void async_info_prop_str(HashTable *info, char *key, zend_string *value)
-{
-	zval v;
-
-	if (value == NULL) {
-		ZVAL_NULL(&v);
-	} else {
-		ZVAL_STR(&v, value);
-	}
-
-	async_info_prop(info, key, &v);
-}
-
-void async_info_prop_cstr(HashTable *info, char *key, char *value)
-{
-	zval v;
-
-	if (value == NULL) {
-		ZVAL_NULL(&v);
-	} else {
-		ZVAL_STRING(&v, value);
-	}
-
-	async_info_prop(info, key, &v);
 }
 
 

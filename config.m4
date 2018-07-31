@@ -19,6 +19,7 @@ if test "$PHP_ASYNC" != "no"; then
     src/awaitable.c \
     src/context.c \
     src/deferred.c \
+    src/helper.c \
     src/task.c \
     src/task_scheduler.c \
     src/timer.c \
@@ -99,5 +100,5 @@ if test "$PHP_ASYNC" != "no"; then
       
   PHP_SUBST(ASYNC_CFLAGS)
   
-  PHP_INSTALL_HEADERS([ext/async], [config.h include/*.h thirdparty/libuv/include/*.h])
+  PHP_INSTALL_HEADERS([ext/async], [config.h thirdparty/libuv/include/*.h])
 fi

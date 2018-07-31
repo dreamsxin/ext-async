@@ -14,6 +14,7 @@ if (PHP_ASYNC != 'no') {
 		'src\\awaitable.c',
 		'src\\context.c',
 		'src\\deferred.c',
+		'src\\helper.c',
 		'src\\task.c',
 		'src\\task_scheduler.c',
 		'src\\timer.c',

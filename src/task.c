@@ -18,6 +18,10 @@
 
 #include "php_async.h"
 
+#include "async_fiber.h"
+#include "async_helper.h"
+#include "async_task.h"
+
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
 zend_class_entry *async_task_ce;

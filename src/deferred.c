@@ -18,6 +18,8 @@
 
 #include "php_async.h"
 
+#include "async_helper.h"
+
 zend_class_entry *async_deferred_ce;
 zend_class_entry *async_deferred_awaitable_ce;
 
