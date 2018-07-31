@@ -289,6 +289,7 @@ static void debug_scope(void *obj, zval *data, zval *result, zend_bool success)
 
 	if (info->inspect) {
 		ZVAL_OBJ(&args[0], &info->scheduler->std);
+		GC_ADDREF(&info->scheduler->std);
 
 		info->fci.param_count = 1;
 		info->fci.params = args;
