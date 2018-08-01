@@ -26,7 +26,10 @@ task::async(function () use ($a, $watcher) {
 
 var_dump('WAIT FOR IO...');
 
-$watcher->awaitReadable();
+while (\is_resource($b) && !\feof($b)) {
+    $watcher->awaitReadable();
+    
+    var_dump(fread($b, 4));
+}
 
-var_dump(stream_get_contents($b));
 fclose($b);

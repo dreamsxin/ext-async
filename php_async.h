@@ -116,6 +116,8 @@ typedef struct _async_deferred                      async_deferred;
 typedef struct _async_deferred_awaitable            async_deferred_awaitable;
 typedef struct _async_deferred_combine              async_deferred_combine;
 typedef struct _async_deferred_transform            async_deferred_transform;
+typedef struct _async_enable_cb                     async_enable_cb;
+typedef struct _async_enable_queue                  async_enable_queue;
 typedef struct _async_fiber                         async_fiber;
 typedef struct _async_task                          async_task;
 typedef struct _async_task_suspended                async_task_suspended;
@@ -129,8 +131,11 @@ typedef struct _async_watcher                       async_watcher;
 typedef void* async_fiber_context;
 
 typedef void (* async_awaitable_func)(void *obj, zval *data, zval *result, zend_bool success);
+
 typedef void (* async_fiber_func)();
 typedef void (* async_fiber_run_func)(async_fiber *fiber);
+
+typedef void (* async_enable_func)(void *obj);
 
 extern const zend_uchar ASYNC_DEFERRED_STATUS_PENDING;
 extern const zend_uchar ASYNC_DEFERRED_STATUS_RESOLVED;
@@ -171,6 +176,20 @@ struct _async_awaitable_queue {
 	async_awaitable_cb *first;
 	async_awaitable_cb *last;
 };
+
+struct _async_enable_cb {
+	zend_bool active;
+	void *object;
+	async_enable_func func;
+	async_enable_cb *prev;
+	async_enable_cb *next;
+};
+
+struct _async_enable_queue {
+	async_enable_cb *first;
+	async_enable_cb *last;
+};
+
 
 struct _async_context {
 	/* PHP object handle. */
@@ -340,6 +359,12 @@ struct _async_task_scheduler {
 
 	/* Idle handler being used to dispatch tasks from within a running event loop. */
 	uv_idle_t idle;
+
+	/* Is set to 0 when the idle handler must be activated when something changes. */
+	zend_bool changes;
+
+	/* Queue of callbacks that are executed due to handle state change. */
+	async_enable_queue enable;
 };
 
 struct _async_task_scheduler_stack_entry {
@@ -376,6 +401,12 @@ struct _async_timer {
 
 	/* Number of pending unreferenced timeout subscriptions. */
 	zend_uchar unref_count;
+
+	zend_bool running;
+	zend_bool new_running;
+
+	async_task_scheduler *scheduler;
+	async_enable_cb enable;
 };
 
 struct _async_watcher {
@@ -405,6 +436,12 @@ struct _async_watcher {
 
 	/* Number of pending unreferenced read / write operations. */
 	zend_uchar unref_count;
+
+	zend_uchar events;
+	zend_uchar new_events;
+
+	async_task_scheduler *scheduler;
+	async_enable_cb enable;
 };
 
 

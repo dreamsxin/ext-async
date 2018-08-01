@@ -29,6 +29,8 @@ void async_task_scheduler_dequeue(async_task *task);
 void async_task_scheduler_run_loop(async_task_scheduler *scheduler);
 void async_task_scheduler_stop_loop(async_task_scheduler *scheduler);
 
+void async_task_scheduler_enqueue_enable(async_task_scheduler *scheduler, async_enable_cb *cb);
+
 #endif
 
 /*

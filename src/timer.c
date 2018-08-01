@@ -42,6 +42,23 @@ static void trigger_timer(uv_timer_t *handle)
 	async_awaitable_trigger_continuation(&timer->timeouts, &result, 1);
 }
 
+static void enable_timer(void *obj)
+{
+	async_timer *timer;
+
+	timer = (async_timer *) obj;
+
+	timer->running = timer->new_running;
+
+	if (timer->running) {
+		uv_timer_start(&timer->timer, trigger_timer, timer->delay, timer->delay);
+	} else {
+		uv_timer_stop(&timer->timer);
+	}
+
+	OBJ_RELEASE(&timer->std);
+}
+
 static inline void suspend(async_timer *timer, zval *return_value, zend_execute_data *execute_data)
 {
 	async_context *context;
@@ -94,6 +111,9 @@ static zend_object *async_timer_object_create(zend_class_entry *ce)
 
 	timer->timer.data = timer;
 
+	timer->enable.object = timer;
+	timer->enable.func = enable_timer;
+
 	return &timer->std;
 }
 
@@ -124,6 +144,7 @@ ZEND_METHOD(Timer, __construct)
 	ASYNC_CHECK_ERROR(delay < 0, "Delay must not be shorter than 0 milliseconds");
 
 	timer->delay = delay;
+	timer->scheduler = async_task_scheduler_get();
 }
 
 ZEND_METHOD(Timer, stop)
@@ -141,10 +162,6 @@ ZEND_METHOD(Timer, stop)
 	ZEND_PARSE_PARAMETERS_END();
 
 	timer = (async_timer *)Z_OBJ_P(getThis());
-
-	if (uv_is_active((uv_handle_t *) &timer->timer)) {
-		uv_timer_stop(&timer->timer);
-	}
 
 	zend_throw_error(NULL, "Timer has been closed");
 
@@ -167,11 +184,41 @@ ZEND_METHOD(Timer, awaitTimeout)
 
 	timer = (async_timer *)Z_OBJ_P(getThis());
 
-	if (!uv_is_active((uv_handle_t *) &timer->timer)) {
-		uv_timer_start(&timer->timer, trigger_timer, timer->delay, 0);
+	timer->new_running = 1;
+
+	if (!timer->ref_count && !timer->unref_count) {
+		if (timer->running) {
+			if (timer->enable.active) {
+				ASYNC_Q_DETACH(&timer->scheduler->enable, &timer->enable);
+				timer->enable.active = 0;
+
+				OBJ_RELEASE(&timer->std);
+			}
+		} else if (!timer->enable.active) {
+			GC_ADDREF(&timer->std);
+
+			async_task_scheduler_enqueue_enable(timer->scheduler, &timer->enable);
+		}
 	}
 
 	suspend(timer, return_value, execute_data);
+
+	if (!timer->ref_count && !timer->unref_count) {
+		timer->new_running = 0;
+
+		if (timer->running) {
+			if (!timer->enable.active) {
+				GC_ADDREF(&timer->std);
+
+				async_task_scheduler_enqueue_enable(timer->scheduler, &timer->enable);
+			}
+		} else if (timer->enable.active) {
+			ASYNC_Q_DETACH(&timer->scheduler->enable, &timer->enable);
+			timer->enable.active = 0;
+
+			OBJ_RELEASE(&timer->std);
+		}
+	}
 }
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_ctor, 0, 0, 1)

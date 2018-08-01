@@ -18,6 +18,8 @@
 
 #include "php_async.h"
 
+#include "async_task.h"
+
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
 zend_class_entry *async_watcher_ce;
@@ -29,7 +31,7 @@ static int (*le_socket)(void);
 #endif
 
 
-static php_socket_t get_poll_fd(zval *val)
+static inline php_socket_t get_poll_fd(zval *val)
 {
 	php_socket_t fd;
 	php_stream *stream;
@@ -101,6 +103,23 @@ static void trigger_poll(uv_poll_t *handle, int status, int events)
 	}
 }
 
+static void enable_poll(void *obj)
+{
+	async_watcher *watcher;
+
+	watcher = (async_watcher *) obj;
+
+	watcher->events = watcher->new_events;
+
+	if (watcher->events & (UV_READABLE | UV_WRITABLE)) {
+		uv_poll_start(&watcher->poll, watcher->events, trigger_poll);
+	} else {
+		uv_poll_stop(&watcher->poll);
+	}
+
+	OBJ_RELEASE(&watcher->std);
+}
+
 static inline void suspend(async_watcher *watcher, async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data)
 {
 	async_context *context;
@@ -152,6 +171,9 @@ static zend_object *async_watcher_object_create(zend_class_entry *ce)
 	ZVAL_UNDEF(&watcher->error);
 	ZVAL_NULL(&watcher->resource);
 
+	watcher->enable.object = watcher;
+	watcher->enable.func = enable_poll;
+
 	return &watcher->std;
 }
 
@@ -192,13 +214,14 @@ ZEND_METHOD(Watcher, __construct)
 	ASYNC_CHECK_ERROR(fd < 0, "Cannot cast resource to file descriptor");
 
 	watcher->fd = fd;
+	watcher->scheduler = async_task_scheduler_get();
 
 	ZVAL_COPY(&watcher->resource, val);
 
 #ifdef PHP_WIN32
-	uv_poll_init_socket(async_task_scheduler_get_loop(), &watcher->poll, (uv_os_sock_t) fd);
+	uv_poll_init_socket(&watcher->scheduler->loop, &watcher->poll, (uv_os_sock_t) fd);
 #else
-	uv_poll_init(async_task_scheduler_get_loop(), &watcher->poll, fd);
+	uv_poll_init(&watcher->scheduler->loop, &watcher->poll, fd);
 #endif
 
 	watcher->poll.data = watcher;
@@ -221,10 +244,6 @@ ZEND_METHOD(Watcher, stop)
 
 	if (Z_TYPE_P(&watcher->error) != IS_UNDEF) {
 		return;
-	}
-
-	if (uv_is_active((uv_handle_t *) &watcher->poll)) {
-		uv_poll_stop(&watcher->poll);
 	}
 
 	zend_throw_error(NULL, "IO watcher has been closed");
@@ -255,16 +274,42 @@ ZEND_METHOD(Watcher, awaitReadable)
 		events |= UV_WRITABLE;
 	}
 
-	uv_poll_start(&watcher->poll, events, trigger_poll);
+	watcher->new_events = events;
+
+	if (events != watcher->events) {
+		if (!watcher->enable.active) {
+			GC_ADDREF(&watcher->std);
+
+			async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
+		}
+	} else if (watcher->enable.active) {
+		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+		watcher->enable.active = 0;
+
+		OBJ_RELEASE(&watcher->std);
+	}
 
 	suspend(watcher, &watcher->reads, return_value, execute_data);
 
 	if (watcher->reads.first == NULL) {
 		if (watcher->writes.first == NULL) {
-			uv_poll_stop(&watcher->poll);
+			watcher->new_events = 0;
 		} else {
-			uv_poll_start(&watcher->poll, UV_WRITABLE | UV_DISCONNECT, trigger_poll);
+			watcher->new_events = UV_WRITABLE | UV_DISCONNECT;
 		}
+	}
+
+	if (watcher->new_events != watcher->events) {
+		if (!watcher->enable.active) {
+			GC_ADDREF(&watcher->std);
+
+			async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
+		}
+	} else if (watcher->enable.active) {
+		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+		watcher->enable.active = 0;
+
+		OBJ_RELEASE(&watcher->std);
 	}
 }
 
@@ -282,16 +327,42 @@ ZEND_METHOD(Watcher, awaitWritable)
 		events |= UV_READABLE;
 	}
 
-	uv_poll_start(&watcher->poll, events, trigger_poll);
+	watcher->new_events = events;
+
+	if (events != watcher->events) {
+		if (!watcher->enable.active) {
+			GC_ADDREF(&watcher->std);
+
+			async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
+		}
+	} else if (watcher->enable.active) {
+		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+		watcher->enable.active = 0;
+
+		OBJ_RELEASE(&watcher->std);
+	}
 
 	suspend(watcher, &watcher->writes, return_value, execute_data);
 
 	if (watcher->writes.first == NULL) {
 		if (watcher->reads.first == NULL) {
-			uv_poll_stop(&watcher->poll);
+			watcher->new_events = 0;
 		} else {
-			uv_poll_start(&watcher->poll, UV_READABLE | UV_DISCONNECT, trigger_poll);
+			watcher->new_events = UV_READABLE | UV_DISCONNECT;
 		}
+	}
+
+	if (watcher->new_events != watcher->events) {
+		if (!watcher->enable.active) {
+			GC_ADDREF(&watcher->std);
+
+			async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
+		}
+	} else if (watcher->enable.active) {
+		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+		watcher->enable.active = 0;
+
+		OBJ_RELEASE(&watcher->std);
 	}
 }
 

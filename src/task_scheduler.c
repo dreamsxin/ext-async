@@ -30,6 +30,7 @@ static void dispatch_tasks(uv_idle_t *idle)
 {
 	async_task_scheduler *scheduler;
 	async_task *task;
+	async_enable_cb *cb;
 
 	scheduler = (async_task_scheduler *) idle->data;
 
@@ -38,6 +39,7 @@ static void dispatch_tasks(uv_idle_t *idle)
 	uv_idle_stop(idle);
 
 	scheduler->dispatching = 1;
+	scheduler->changes = 1;
 
 	while (scheduler->ready.first != NULL) {
 		ASYNC_Q_DEQUEUE(&scheduler->ready, task);
@@ -59,7 +61,15 @@ static void dispatch_tasks(uv_idle_t *idle)
 		}
 	}
 
+	while (scheduler->enable.first != NULL) {
+		ASYNC_Q_DEQUEUE(&scheduler->enable, cb);
+
+		cb->active = 0;
+		cb->func(cb->object);
+	}
+
 	scheduler->dispatching = 0;
+	scheduler->changes = 0;
 }
 
 static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
@@ -187,7 +197,9 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 		return 0;
 	}
 
-	if (!scheduler->dispatching && scheduler->ready.first == NULL) {
+	if (!scheduler->changes) {
+		scheduler->changes = 1;
+
 		uv_idle_start(&scheduler->idle, dispatch_tasks);
 	}
 
@@ -206,6 +218,19 @@ void async_task_scheduler_dequeue(async_task *task)
 	ZEND_ASSERT(task->fiber.status == ASYNC_FIBER_STATUS_INIT);
 
 	ASYNC_Q_DETACH(&scheduler->ready, task);
+}
+
+void async_task_scheduler_enqueue_enable(async_task_scheduler *scheduler, async_enable_cb *cb)
+{
+	cb->active = 1;
+
+	if (!scheduler->changes) {
+		scheduler->changes = 1;
+
+		uv_idle_start(&scheduler->idle, dispatch_tasks);
+	}
+
+	ASYNC_Q_ENQUEUE(&scheduler->enable, cb);
 }
 
 void async_task_scheduler_run_loop(async_task_scheduler *scheduler)

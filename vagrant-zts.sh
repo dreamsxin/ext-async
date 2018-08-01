@@ -1,7 +1,7 @@
 #!/bin/bash
 
 sudo apt-get update
-sudo apt-get install git gcc make pkg-config autoconf libtool bison libxml2-dev libssl-dev curl -y
+sudo apt-get install gdb git gcc make pkg-config autoconf libtool bison libxml2-dev libssl-dev curl -y
 
 # Install PHP:
 sudo mkdir /usr/local/php
