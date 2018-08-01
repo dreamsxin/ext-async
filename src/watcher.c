@@ -101,6 +101,43 @@ static void trigger_poll(uv_poll_t *handle, int status, int events)
 	}
 }
 
+static inline void suspend(async_watcher *watcher, async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data)
+{
+	async_context *context;
+
+	context = async_context_get();
+
+	if (context->background) {
+		watcher->unref_count++;
+
+		if (watcher->unref_count == 1 && !watcher->ref_count) {
+			uv_unref((uv_handle_t *) &watcher->poll);
+		}
+	} else {
+		watcher->ref_count++;
+
+		if (watcher->ref_count == 1 && watcher->unref_count) {
+			uv_ref((uv_handle_t *) &watcher->poll);
+		}
+	}
+
+	async_task_suspend(q, return_value, execute_data);
+
+	if (context->background) {
+		watcher->unref_count--;
+
+		if (watcher->unref_count == 0 && watcher->ref_count) {
+			uv_ref((uv_handle_t *) &watcher->poll);
+		}
+	} else {
+		watcher->ref_count--;
+
+		if (watcher->ref_count == 0 && watcher->unref_count) {
+			uv_unref((uv_handle_t *) &watcher->poll);
+		}
+	}
+}
+
 
 static zend_object *async_watcher_object_create(zend_class_entry *ce)
 {
@@ -220,7 +257,7 @@ ZEND_METHOD(Watcher, awaitReadable)
 
 	uv_poll_start(&watcher->poll, events, trigger_poll);
 
-	async_task_suspend(&watcher->reads, return_value, execute_data);
+	suspend(watcher, &watcher->reads, return_value, execute_data);
 
 	if (watcher->reads.first == NULL) {
 		if (watcher->writes.first == NULL) {
@@ -247,7 +284,7 @@ ZEND_METHOD(Watcher, awaitWritable)
 
 	uv_poll_start(&watcher->poll, events, trigger_poll);
 
-	async_task_suspend(&watcher->writes, return_value, execute_data);
+	suspend(watcher, &watcher->writes, return_value, execute_data);
 
 	if (watcher->writes.first == NULL) {
 		if (watcher->reads.first == NULL) {

@@ -124,6 +124,8 @@ ZEND_METHOD(Context, with)
 	context->parent = current->parent;
 
 	if (context->parent != NULL) {
+		context->background = context->parent->background;
+
 		GC_ADDREF(&context->parent->std);
 	}
 
@@ -198,6 +200,7 @@ ZEND_METHOD(Context, background)
 
 	context = async_context_object_create(NULL, NULL);
 	context->parent = current;
+	context->background = 1;
 
 	GC_ADDREF(&current->std);
 

@@ -179,6 +179,9 @@ struct _async_context {
 	/* Refers to the parent context. */
 	async_context *parent;
 
+	/* Set if the context is a background context. */
+	zend_bool background;
+
 	/* Context var or NULL. */
 	async_context_var *var;
 
@@ -388,6 +391,12 @@ struct _async_watcher {
 
 	/* Queue of tasks wanting to be notified when the stream is writable. */
 	async_awaitable_queue writes;
+
+	/* Number of pending referenced read / write operations. */
+	zend_uchar ref_count;
+
+	/* Number of pending unreferenced read / write operations. */
+	zend_uchar unref_count;
 };
 
 
