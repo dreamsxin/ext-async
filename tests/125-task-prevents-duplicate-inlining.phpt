@@ -12,9 +12,11 @@ namespace Concurrent;
 Task::async(function () use (&$awaitable) {
     $defer = new Deferred();
     
-    (new Timer(function () use ($defer) {
+    Task::async(function () use ($defer) {
+        (new Timer(50))->awaitTimeout();
+    
         $defer->resolve(123);
-    }))->start(50);
+    });
     
     $awaitable = Task::async(function () use ($defer) {
         return Task::await($defer->awaitable());

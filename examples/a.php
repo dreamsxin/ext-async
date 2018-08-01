@@ -24,12 +24,6 @@ $result = TaskScheduler::run(function () {
     print_r($scheduler->getPendingTasks());
 });
 
-$timer = new Timer(function (Timer $timer) {
-    var_dump('DONE TIMER :)');
-    print_r($timer);
-    
-    $timer->stop();
-});
-$timer->start(500, true);
-
+$timer = new Timer(500);
+$timer->awaitTimeout();
 var_dump($result);

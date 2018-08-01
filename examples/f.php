@@ -14,15 +14,15 @@ foreach ([$a, $b] as $r) {
 
 $watcher = new Watcher($b);
 
-$timer = new Timer(function () use ($a, $watcher) {
+task::async(function () use ($a, $watcher) {
+    (new Timer(500))->awaitTimeout();
+    
     fwrite($a, 'Hello Socket :)');
     fclose($a);
     var_dump('EOF!');
 
-//     $watcher->close(new \LogicException('Nope!'));
+//     $watcher->stop(new \LogicException('Nope!'));
 });
-
-$timer->start(500);
 
 var_dump('WAIT FOR IO...');
 

@@ -18,6 +18,8 @@
 
 #include "php_async.h"
 
+#include "async_task.h"
+
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
 zend_class_entry *async_timer_ce;
@@ -29,32 +31,51 @@ static void trigger_timer(uv_timer_t *handle)
 {
 	async_timer *timer;
 
-	zval args[1];
-	zval retval;
+	zval result;
 
 	timer = (async_timer *) handle->data;
 
 	ZEND_ASSERT(timer != NULL);
 
-	ZVAL_OBJ(&args[0], &timer->std);
-	GC_ADDREF(&timer->std);
+	ZVAL_NULL(&result);
 
-	timer->fci.param_count = 1;
-	timer->fci.params = args;
-	timer->fci.retval = &retval;
-	timer->fci.no_separation = 1;
+	async_awaitable_trigger_continuation(&timer->timeouts, &result, 1);
+}
 
-	zend_call_function(&timer->fci, &timer->fcc);
+static inline void suspend(async_timer *timer, zval *return_value, zend_execute_data *execute_data)
+{
+	async_context *context;
 
-	zval_ptr_dtor(&args[0]);
-	zval_ptr_dtor(&retval);
+	context = async_context_get();
 
-	if (uv_timer_get_repeat(handle) == 0) {
-		OBJ_RELEASE(&timer->std);
+	if (context->background) {
+		timer->unref_count++;
+
+		if (timer->unref_count == 1 && !timer->ref_count) {
+			uv_unref((uv_handle_t *) &timer->timer);
+		}
+	} else {
+		timer->ref_count++;
+
+		if (timer->ref_count == 1 && timer->unref_count) {
+			uv_ref((uv_handle_t *) &timer->timer);
+		}
 	}
 
-	if (UNEXPECTED(EG(exception))) {
-		ASYNC_CHECK_FATAL(1, "Timmer callback failed!");
+	async_task_suspend(&timer->timeouts, return_value, execute_data);
+
+	if (context->background) {
+		timer->unref_count--;
+
+		if (timer->unref_count == 0 && timer->ref_count) {
+			uv_ref((uv_handle_t *) &timer->timer);
+		}
+	} else {
+		timer->ref_count--;
+
+		if (timer->ref_count == 0 && timer->unref_count) {
+			uv_unref((uv_handle_t *) &timer->timer);
+		}
 	}
 }
 
@@ -82,56 +103,63 @@ static void async_timer_object_destroy(zend_object *object)
 
 	timer = (async_timer *) object;
 
-	zval_ptr_dtor(&timer->fci.function_name);
-
 	zend_object_std_dtor(&timer->std);
 }
 
 ZEND_METHOD(Timer, __construct)
 {
 	async_timer *timer;
+	uint64_t delay;
+
+	zval *a;
 
 	timer = (async_timer *)Z_OBJ_P(getThis());
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_FUNC_EX(timer->fci, timer->fcc, 1, 0)
+		Z_PARAM_ZVAL(a)
 	ZEND_PARSE_PARAMETERS_END();
 
-	Z_TRY_ADDREF_P(&timer->fci.function_name);
+	delay = (uint64_t) Z_LVAL_P(a);
+
+	ASYNC_CHECK_ERROR(delay < 0, "Delay must not be shorter than 0 milliseconds");
+
+	timer->delay = delay;
 }
 
-ZEND_METHOD(Timer, start)
+ZEND_METHOD(Timer, stop)
 {
 	async_timer *timer;
-	uint64_t delay;
-	uint64_t repeat;
 
-	zval *a;
-	zval *b;
+	zval *val;
+	zval error;
 
-	b = NULL;
+	val = NULL;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
-		Z_PARAM_ZVAL(a)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(b)
+		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
 
 	timer = (async_timer *)Z_OBJ_P(getThis());
 
-	delay = (uint64_t) Z_LVAL_P(a);
-	repeat = (b != NULL && Z_LVAL_P(b) && delay > 0) ? delay : 0;
-
-	ASYNC_CHECK_ERROR(delay < 0, "Delay must not be shorter than 0 milliseconds");
-
-	if (!uv_is_active((uv_handle_t *) &timer->timer)) {
-		GC_ADDREF(&timer->std);
+	if (uv_is_active((uv_handle_t *) &timer->timer)) {
+		uv_timer_stop(&timer->timer);
 	}
 
-	uv_timer_start(&timer->timer, trigger_timer, delay, repeat);
+	zend_throw_error(NULL, "Timer has been closed");
+
+	ZVAL_OBJ(&error, EG(exception));
+	EG(exception) = NULL;
+
+	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
+		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
+		GC_ADDREF(Z_OBJ_P(val));
+	}
+
+	async_awaitable_trigger_continuation(&timer->timeouts, &error, 0);
 }
 
-ZEND_METHOD(Timer, stop)
+ZEND_METHOD(Timer, awaitTimeout)
 {
 	async_timer *timer;
 
@@ -139,57 +167,28 @@ ZEND_METHOD(Timer, stop)
 
 	timer = (async_timer *)Z_OBJ_P(getThis());
 
-	if (uv_is_active((uv_handle_t *) &timer->timer)) {
-		uv_timer_stop(&timer->timer);
-
-		OBJ_RELEASE(&timer->std);
+	if (!uv_is_active((uv_handle_t *) &timer->timer)) {
+		uv_timer_start(&timer->timer, trigger_timer, timer->delay, 0);
 	}
-}
 
-ZEND_METHOD(Timer, tick)
-{
-	async_timer *timer;
-
-	zval obj;
-
-	timer = (async_timer *) async_timer_object_create(async_timer_ce);
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_FUNC_EX(timer->fci, timer->fcc, 1, 0)
-	ZEND_PARSE_PARAMETERS_END();
-
-	Z_TRY_ADDREF_P(&timer->fci.function_name);
-
-	GC_ADDREF(&timer->std);
-
-	uv_timer_start(&timer->timer, trigger_timer, 0, 0);
-
-	ZVAL_OBJ(&obj, &timer->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
+	suspend(timer, return_value, execute_data);
 }
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_ctor, 0, 0, 1)
-	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_start, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, milliseconds, IS_LONG, 0)
-	ZEND_ARG_TYPE_INFO(0, repeat, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_timer_stop, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_stop, 0, 0, 0)
+	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_tick, 0, 0, 1)
-	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_timer_await_timeout, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_timer_functions[] = {
 	ZEND_ME(Timer, __construct, arginfo_timer_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
-	ZEND_ME(Timer, start, arginfo_timer_start, ZEND_ACC_PUBLIC)
 	ZEND_ME(Timer, stop, arginfo_timer_stop, ZEND_ACC_PUBLIC)
-	ZEND_ME(Timer, tick, arginfo_timer_tick, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Timer, awaitTimeout, arginfo_timer_await_timeout, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 

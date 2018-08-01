@@ -204,7 +204,7 @@ ZEND_METHOD(Watcher, __construct)
 	watcher->poll.data = watcher;
 }
 
-ZEND_METHOD(Watcher, close)
+ZEND_METHOD(Watcher, stop)
 {
 	async_watcher *watcher;
 
@@ -299,7 +299,7 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_watcher_ctor, 0, 0, 1)
 	ZEND_ARG_INFO(0, resource)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_watcher_close, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_watcher_stop, 0, 0, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
@@ -311,7 +311,7 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_watcher_functions[] = {
 	ZEND_ME(Watcher, __construct, arginfo_watcher_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
-	ZEND_ME(Watcher, close, arginfo_watcher_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(Watcher, stop, arginfo_watcher_stop, ZEND_ACC_PUBLIC)
 	ZEND_ME(Watcher, awaitReadable, arginfo_watcher_await_readable, ZEND_ACC_PUBLIC)
 	ZEND_ME(Watcher, awaitWritable, arginfo_watcher_await_writable, ZEND_ACC_PUBLIC)
 	ZEND_FE_END

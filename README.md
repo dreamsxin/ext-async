@@ -121,26 +121,24 @@ final class ContextVar
 
 ### Timer
 
-The `Timer` class is used to schedule timers with the integrated event loop. Timers will call a user-defined callback function after the specified timer delay has passed. It is also possible to create timers that repeatedly trigger the callback at the timer interval. The `tick()` method creates a timer that will fire immediately within the next tick of the integrated event loop. It can be used to interrupt long-running task to allow for other events and tasks to be processed.
+The `Timer` class is used to schedule timers with the integrated event loop. Timers do not make use of callbacks, instead they will suspend the current task during `awaitTimeout()` and continue when the next timeout is exceeded. The first call to `awaitTimeout()` will start the timer. If additional tasks await an active the timer they will share the same timeout (which could be less than the value passed to the constructor). A `Timer` can be stopped by calling `stop()` which will fail all pending timeout subscriptions.
 
 ```php
 namespace Concurrent;
 
 final class Timer
 {
-    public function __construct(callable $callback) { }
+    public function __construct(int $milliseconds) { }
     
-    public function start(int $milliseconds, bool $repeat = false): void { }
+    public function stop(?\Throwable $e = null): void { }
     
-    public function stop(): void { }
-    
-    public static function tick(callable $callback): void { }
+    public function awaitTimeout(): void { }
 }
 ```
 
 ### Watcher
 
-A `Watcher` observes a PHP stream or socket for readability or writability. Only a single watcher is allowed for any PHP resource. The watcher should be closed when it is no longer needed to free internal resources. The `Watcher` can only used from within async tasks because `awaitReadable()` and `awaitWritable()` have to suspend the current execution.
+A `Watcher` observes a PHP stream or socket for readability or writability. Only a single watcher is allowed for any PHP resource. The watcher should be closed when it is no longer needed to free internal resources. The `Watcher` will suspend the current task during `awaitReadable()` and `awaitWritable()` and continue once the watched stream becomes readable or is closed by the remote peer. A `Watcher` can be stopped by calling `stop()` which will fail all pending read & write operations.
 
 ```php
 namespace Concurrent;
@@ -149,7 +147,7 @@ final class Watcher
 {
     public function __construct($resource) { }
     
-    public function close(?\Throwable $e = null): void { }
+    public function stop(?\Throwable $e = null): void { }
     
     public function awaitReadable(): void { }
     

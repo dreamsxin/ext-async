@@ -362,12 +362,20 @@ struct _async_timer {
 	/* PHP object handle. */
 	zend_object std;
 
-	/* Callback info and cache. */
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
+	/* Timer interval in milliseconds. */
+	uint64_t delay;
 
 	/* UV timer handle. */
 	uv_timer_t timer;
+
+	/* Queued timeout continuations. */
+	async_awaitable_queue timeouts;
+
+	/* Number of pending referenced timeout subscriptions. */
+	zend_uchar ref_count;
+
+	/* Number of pending unreferenced timeout subscriptions. */
+	zend_uchar unref_count;
 };
 
 struct _async_watcher {

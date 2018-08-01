@@ -47,15 +47,18 @@ Task::await($t4 = Task::async(function () {
     return 'D';
 }));
 
-(new Timer(function () use ($d2) {
+Task::async(function () use ($d1, $d2) {
+    $timer = new Timer(60);
+    $timer->awaitTimeout();
+    
     var_dump('T1');
     $d2->resolve('B');
-}))->start(50);
-
-(new Timer(function () use ($d1) {
+    
+    $timer->awaitTimeout();
+    
     var_dump('T2');
     $d1->resolve('A');
-}))->start(150);
+});
 
 var_dump('START');
 var_dump(Task::await(all([$t1, $t2, $t3, $t4])));

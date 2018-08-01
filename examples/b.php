@@ -21,9 +21,11 @@ Task::await(Task::async(function () use ($work) {
     Task::async(function () {
         $defer = new Deferred();
         
-        (new Timer(function () use ($defer) {
+        Task::async(function () use ($defer) {
+            (new Timer(1000))->awaitTimeout();
+            
             $defer->resolve('H :)');
-        }))->start(1000);
+        });
         
         var_dump(Task::await($defer->awaitable()));
     });
@@ -32,25 +34,29 @@ Task::await(Task::async(function () use ($work) {
         var_dump(Task::await($defer->awaitable()));
     });
     
-    (new Timer(function () use ($work, $defer) {
+    $timer = new Timer(500);
+    
+    Task::async(function () use ($timer, $defer, $work) {
+        $timer->awaitTimeout();
+        
         $defer->resolve('F');
         
         Task::async($work, 'G');
-    }))->start(500);
+    });
     
     var_dump('ROOT TASK DONE');
 }));
 
-Timer::tick(function () use ($work) {
-    Task::async($work, 'C');
+Task::async($work, 'C');
+
+Task::async(function () use ($work) {
+    (new Timer(0))->awaitTimeout();
     
-    Timer::tick(function () use ($work) {
-        Task::async($work, 'E');
-    });
-    
-    Task::async(function ($v) {
-        var_dump(Task::await($v));
-    }, Deferred::value('D'));
+    Task::async($work, 'E');
 });
+
+Task::async(function ($v) {
+    var_dump(Task::await($v));
+}, Deferred::value('D'));
 
 var_dump('=> END OF MAIN SCRIPT');

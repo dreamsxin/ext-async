@@ -30,10 +30,9 @@ Task::asyncWithContext(Context::background(), function () use ($a, $b, $watcher)
     }
 });
 
-$timer = new Timer(function () use ($a) {
+Task::async(function () use ($a) {
+    (new Timer(250))->awaitTimeout();
     var_dump('TIMER TRIGGERED');
     
     fwrite($a, 'Hello!');
-//     fclose($a);
 });
-$timer->start(250);

@@ -19,10 +19,12 @@ TaskScheduler::run(function () {
     $x = Task::async(function () use ($t) {
         var_dump(Task::await($t));
     });
-
-    (new Timer(function () use ($defer) {
+    
+    Task::async(function () use ($defer) {
+        (new Timer(50))->awaitTimeout();
+        
         $defer->resolve('Y');
-    }))->start(50);
+    });
     
     var_dump('X');
     
