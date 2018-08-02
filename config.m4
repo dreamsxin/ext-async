@@ -20,10 +20,10 @@ if test "$PHP_ASYNC" != "no"; then
     src/context.c \
     src/deferred.c \
     src/helper.c \
+    src/stream_watcher.c \
     src/task.c \
     src/task_scheduler.c \
-    src/timer.c \
-    src/watcher.c"
+    src/timer.c"
   
   AS_CASE([$host_cpu],
     [x86_64*], [async_cpu="x86_64"],

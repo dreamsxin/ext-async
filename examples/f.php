@@ -12,7 +12,7 @@ foreach ([$a, $b] as $r) {
     stream_set_write_buffer($r, 0);
 }
 
-$watcher = new Watcher($b);
+$watcher = new StreamWatcher($b);
 
 task::async(function () use ($a, $watcher) {
     (new Timer(500))->awaitTimeout();
@@ -21,7 +21,7 @@ task::async(function () use ($a, $watcher) {
     fclose($a);
     var_dump('EOF!');
 
-//     $watcher->stop(new \LogicException('Nope!'));
+//     $watcher->close(new \LogicException('Nope!'));
 });
 
 var_dump('WAIT FOR IO...');
@@ -33,3 +33,5 @@ while (\is_resource($b) && !\feof($b)) {
 }
 
 fclose($b);
+
+var_dump('DONE!');

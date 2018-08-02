@@ -22,6 +22,7 @@ sudo ./configure \
     --with-openssl \
     --with-zlib \
     --without-pear \
+    --enable-debug \
     --enable-mbstring \
     --enable-pcntl \
     --enable-sockets

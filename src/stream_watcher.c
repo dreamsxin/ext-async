@@ -22,9 +22,9 @@
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
-zend_class_entry *async_watcher_ce;
+zend_class_entry *async_stream_watcher_ce;
 
-static zend_object_handlers async_watcher_handlers;
+static zend_object_handlers async_stream_watcher_handlers;
 
 #if ASYNC_SOCKETS
 static int (*le_socket)(void);
@@ -84,11 +84,11 @@ static inline php_socket_t get_poll_fd(zval *val)
 
 static void trigger_poll(uv_poll_t *handle, int status, int events)
 {
-	async_watcher *watcher;
+	async_stream_watcher *watcher;
 
 	zval result;
 
-	watcher = (async_watcher *) handle->data;
+	watcher = (async_stream_watcher *) handle->data;
 
 	ZEND_ASSERT(watcher != NULL);
 
@@ -105,9 +105,11 @@ static void trigger_poll(uv_poll_t *handle, int status, int events)
 
 static void enable_poll(void *obj)
 {
-	async_watcher *watcher;
+	async_stream_watcher *watcher;
 
-	watcher = (async_watcher *) obj;
+	watcher = (async_stream_watcher *) obj;
+
+	ZEND_ASSERT(watcher != NULL);
 
 	watcher->events = watcher->new_events;
 
@@ -120,7 +122,19 @@ static void enable_poll(void *obj)
 	OBJ_RELEASE(&watcher->std);
 }
 
-static inline void suspend(async_watcher *watcher, async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data)
+static void close_poll(uv_handle_t *handle)
+{
+	async_stream_watcher *watcher;
+
+	watcher = (async_stream_watcher *) handle->data;
+
+	ZEND_ASSERT(watcher != NULL);
+
+	OBJ_RELEASE(&watcher->scheduler->std);
+	OBJ_RELEASE(&watcher->std);
+}
+
+static inline void suspend(async_stream_watcher *watcher, async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data)
 {
 	async_context *context;
 
@@ -158,15 +172,15 @@ static inline void suspend(async_watcher *watcher, async_awaitable_queue *q, zva
 }
 
 
-static zend_object *async_watcher_object_create(zend_class_entry *ce)
+static zend_object *async_stream_watcher_object_create(zend_class_entry *ce)
 {
-	async_watcher *watcher;
+	async_stream_watcher *watcher;
 
-	watcher = emalloc(sizeof(async_watcher));
-	ZEND_SECURE_ZERO(watcher, sizeof(async_watcher));
+	watcher = emalloc(sizeof(async_stream_watcher));
+	ZEND_SECURE_ZERO(watcher, sizeof(async_stream_watcher));
 
 	zend_object_std_init(&watcher->std, ce);
-	watcher->std.handlers = &async_watcher_handlers;
+	watcher->std.handlers = &async_stream_watcher_handlers;
 
 	ZVAL_UNDEF(&watcher->error);
 	ZVAL_NULL(&watcher->resource);
@@ -177,18 +191,24 @@ static zend_object *async_watcher_object_create(zend_class_entry *ce)
 	return &watcher->std;
 }
 
-static void async_watcher_object_destroy(zend_object *object)
+static void async_stream_watcher_object_dtor(zend_object *object)
 {
-	async_watcher *watcher;
+	async_stream_watcher *watcher;
 
-	watcher = (async_watcher *) object;
+	watcher = (async_stream_watcher *) object;
 
-	if (uv_is_active((uv_handle_t *) &watcher->poll)) {
-		uv_poll_stop(&watcher->poll);
+	if (!uv_is_closing((uv_handle_t *) &watcher->poll)) {
+		GC_ADDREF(&watcher->std);
+
+		uv_close((uv_handle_t *) &watcher->poll, close_poll);
 	}
+}
 
-	async_awaitable_trigger_continuation(&watcher->reads, NULL, 0);
-	async_awaitable_trigger_continuation(&watcher->writes, NULL, 0);
+static void async_stream_watcher_object_destroy(zend_object *object)
+{
+	async_stream_watcher *watcher;
+
+	watcher = (async_stream_watcher *) object;
 
 	zval_ptr_dtor(&watcher->error);
 	zval_ptr_dtor(&watcher->resource);
@@ -196,9 +216,9 @@ static void async_watcher_object_destroy(zend_object *object)
 	zend_object_std_dtor(&watcher->std);
 }
 
-ZEND_METHOD(Watcher, __construct)
+ZEND_METHOD(StreamWatcher, __construct)
 {
-	async_watcher *watcher;
+	async_stream_watcher *watcher;
 	php_socket_t fd;
 
 	zval *val;
@@ -207,7 +227,7 @@ ZEND_METHOD(Watcher, __construct)
 		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
 
-	watcher = (async_watcher *) Z_OBJ_P(getThis());
+	watcher = (async_stream_watcher *) Z_OBJ_P(getThis());
 
 	fd = get_poll_fd(val);
 
@@ -215,6 +235,8 @@ ZEND_METHOD(Watcher, __construct)
 
 	watcher->fd = fd;
 	watcher->scheduler = async_task_scheduler_get();
+
+	GC_ADDREF(&watcher->scheduler->std);
 
 	ZVAL_COPY(&watcher->resource, val);
 
@@ -227,9 +249,9 @@ ZEND_METHOD(Watcher, __construct)
 	watcher->poll.data = watcher;
 }
 
-ZEND_METHOD(Watcher, stop)
+ZEND_METHOD(StreamWatcher, close)
 {
-	async_watcher *watcher;
+	async_stream_watcher *watcher;
 
 	zval *val;
 
@@ -240,11 +262,20 @@ ZEND_METHOD(Watcher, stop)
 		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
 
-	watcher = (async_watcher *) Z_OBJ_P(getThis());
+	watcher = (async_stream_watcher *) Z_OBJ_P(getThis());
 
 	if (Z_TYPE_P(&watcher->error) != IS_UNDEF) {
 		return;
 	}
+
+	if (watcher->enable.active) {
+		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+		watcher->enable.active = 0;
+	} else {
+		GC_ADDREF(&watcher->std);
+	}
+
+	uv_close((uv_handle_t *) &watcher->poll, close_poll);
 
 	zend_throw_error(NULL, "IO watcher has been closed");
 
@@ -260,14 +291,25 @@ ZEND_METHOD(Watcher, stop)
 	async_awaitable_trigger_continuation(&watcher->writes, &watcher->error, 0);
 }
 
-ZEND_METHOD(Watcher, awaitReadable)
+ZEND_METHOD(StreamWatcher, awaitReadable)
 {
-	async_watcher *watcher;
+	async_stream_watcher *watcher;
 	int events;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	watcher = (async_watcher *) Z_OBJ_P(getThis());
+	watcher = (async_stream_watcher *) Z_OBJ_P(getThis());
+
+	if (Z_TYPE_P(&watcher->error) != IS_UNDEF) {
+		Z_ADDREF_P(&watcher->error);
+
+		execute_data->opline--;
+		zend_throw_exception_internal(&watcher->error);
+		execute_data->opline++;
+
+		return;
+	}
+
 	events = UV_READABLE | UV_DISCONNECT;
 
 	if (watcher->writes.first != NULL) {
@@ -291,36 +333,49 @@ ZEND_METHOD(Watcher, awaitReadable)
 
 	suspend(watcher, &watcher->reads, return_value, execute_data);
 
-	if (watcher->reads.first == NULL) {
-		if (watcher->writes.first == NULL) {
-			watcher->new_events = 0;
-		} else {
-			watcher->new_events = UV_WRITABLE | UV_DISCONNECT;
+	if (Z_TYPE_P(&watcher->error) == IS_UNDEF) {
+		if (watcher->reads.first == NULL) {
+			if (watcher->writes.first == NULL) {
+				watcher->new_events = 0;
+			} else {
+				watcher->new_events = UV_WRITABLE | UV_DISCONNECT;
+			}
 		}
-	}
 
-	if (watcher->new_events != watcher->events) {
-		if (!watcher->enable.active) {
-			GC_ADDREF(&watcher->std);
+		if (watcher->new_events != watcher->events) {
+			if (!watcher->enable.active) {
+				GC_ADDREF(&watcher->std);
 
-			async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
+				async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
+			}
+		} else if (watcher->enable.active) {
+			ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+			watcher->enable.active = 0;
+
+			OBJ_RELEASE(&watcher->std);
 		}
-	} else if (watcher->enable.active) {
-		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
-		watcher->enable.active = 0;
-
-		OBJ_RELEASE(&watcher->std);
 	}
 }
 
-ZEND_METHOD(Watcher, awaitWritable)
+ZEND_METHOD(StreamWatcher, awaitWritable)
 {
-	async_watcher *watcher;
+	async_stream_watcher *watcher;
 	int events;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	watcher = (async_watcher *) Z_OBJ_P(getThis());
+	watcher = (async_stream_watcher *) Z_OBJ_P(getThis());
+
+	if (Z_TYPE_P(&watcher->error) != IS_UNDEF) {
+		Z_ADDREF_P(&watcher->error);
+
+		execute_data->opline--;
+		zend_throw_exception_internal(&watcher->error);
+		execute_data->opline++;
+
+		return;
+	}
+
 	events = UV_WRITABLE | UV_DISCONNECT;
 
 	if (watcher->reads.first != NULL) {
@@ -344,52 +399,54 @@ ZEND_METHOD(Watcher, awaitWritable)
 
 	suspend(watcher, &watcher->writes, return_value, execute_data);
 
-	if (watcher->writes.first == NULL) {
-		if (watcher->reads.first == NULL) {
-			watcher->new_events = 0;
-		} else {
-			watcher->new_events = UV_READABLE | UV_DISCONNECT;
+	if (Z_TYPE_P(&watcher->error) == IS_UNDEF) {
+		if (watcher->writes.first == NULL) {
+			if (watcher->reads.first == NULL) {
+				watcher->new_events = 0;
+			} else {
+				watcher->new_events = UV_READABLE | UV_DISCONNECT;
+			}
 		}
-	}
 
-	if (watcher->new_events != watcher->events) {
-		if (!watcher->enable.active) {
-			GC_ADDREF(&watcher->std);
+		if (watcher->new_events != watcher->events) {
+			if (!watcher->enable.active) {
+				GC_ADDREF(&watcher->std);
 
-			async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
+				async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
+			}
+		} else if (watcher->enable.active) {
+			ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+			watcher->enable.active = 0;
+
+			OBJ_RELEASE(&watcher->std);
 		}
-	} else if (watcher->enable.active) {
-		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
-		watcher->enable.active = 0;
-
-		OBJ_RELEASE(&watcher->std);
 	}
 }
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_watcher_ctor, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_stream_watcher_ctor, 0, 0, 1)
 	ZEND_ARG_INFO(0, resource)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_watcher_stop, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_stream_watcher_close, 0, 0, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_watcher_await_readable, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_stream_watcher_await_readable, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_watcher_await_writable, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_stream_watcher_await_writable, 0)
 ZEND_END_ARG_INFO()
 
-static const zend_function_entry async_watcher_functions[] = {
-	ZEND_ME(Watcher, __construct, arginfo_watcher_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
-	ZEND_ME(Watcher, stop, arginfo_watcher_stop, ZEND_ACC_PUBLIC)
-	ZEND_ME(Watcher, awaitReadable, arginfo_watcher_await_readable, ZEND_ACC_PUBLIC)
-	ZEND_ME(Watcher, awaitWritable, arginfo_watcher_await_writable, ZEND_ACC_PUBLIC)
+static const zend_function_entry async_stream_watcher_functions[] = {
+	ZEND_ME(StreamWatcher, __construct, arginfo_stream_watcher_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(StreamWatcher, close, arginfo_stream_watcher_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(StreamWatcher, awaitReadable, arginfo_stream_watcher_await_readable, ZEND_ACC_PUBLIC)
+	ZEND_ME(StreamWatcher, awaitWritable, arginfo_stream_watcher_await_writable, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
 
-void async_watcher_ce_register()
+void async_stream_watcher_ce_register()
 {
 #if ASYNC_SOCKETS
 	zend_module_entry *sockets;
@@ -397,16 +454,17 @@ void async_watcher_ce_register()
 
 	zend_class_entry ce;
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Watcher", async_watcher_functions);
-	async_watcher_ce = zend_register_internal_class(&ce);
-	async_watcher_ce->ce_flags |= ZEND_ACC_FINAL;
-	async_watcher_ce->create_object = async_watcher_object_create;
-	async_watcher_ce->serialize = zend_class_serialize_deny;
-	async_watcher_ce->unserialize = zend_class_unserialize_deny;
+	INIT_CLASS_ENTRY(ce, "Concurrent\\StreamWatcher", async_stream_watcher_functions);
+	async_stream_watcher_ce = zend_register_internal_class(&ce);
+	async_stream_watcher_ce->ce_flags |= ZEND_ACC_FINAL;
+	async_stream_watcher_ce->create_object = async_stream_watcher_object_create;
+	async_stream_watcher_ce->serialize = zend_class_serialize_deny;
+	async_stream_watcher_ce->unserialize = zend_class_unserialize_deny;
 
-	memcpy(&async_watcher_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	async_watcher_handlers.free_obj = async_watcher_object_destroy;
-	async_watcher_handlers.clone_obj = NULL;
+	memcpy(&async_stream_watcher_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_stream_watcher_handlers.free_obj = async_stream_watcher_object_destroy;
+	async_stream_watcher_handlers.dtor_obj = async_stream_watcher_object_dtor;
+	async_stream_watcher_handlers.clone_obj = NULL;
 
 #if ASYNC_SOCKETS
 	le_socket = NULL;

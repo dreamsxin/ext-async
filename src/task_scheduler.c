@@ -22,7 +22,8 @@
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
-static zend_class_entry *async_task_scheduler_ce;
+zend_class_entry *async_task_scheduler_ce;
+
 static zend_object_handlers async_task_scheduler_handlers;
 
 
@@ -38,37 +39,41 @@ static void dispatch_tasks(uv_idle_t *idle)
 
 	uv_idle_stop(idle);
 
-	scheduler->dispatching = 1;
 	scheduler->changes = 1;
 
-	while (scheduler->ready.first != NULL) {
-		ASYNC_Q_DEQUEUE(&scheduler->ready, task);
+	do {
+		scheduler->dispatching = 1;
 
-		ZEND_ASSERT(task->operation != ASYNC_TASK_OPERATION_NONE);
+		while (scheduler->ready.first != NULL) {
+			ASYNC_Q_DEQUEUE(&scheduler->ready, task);
 
-		if (task->operation == ASYNC_TASK_OPERATION_START) {
-			async_task_start(task);
-		} else {
-			async_task_continue(task);
+			ZEND_ASSERT(task->operation != ASYNC_TASK_OPERATION_NONE);
+
+			if (task->operation == ASYNC_TASK_OPERATION_START) {
+				async_task_start(task);
+			} else {
+				async_task_continue(task);
+			}
+
+			if (task->fiber.status == ASYNC_OP_RESOLVED || task->fiber.status == ASYNC_OP_FAILED) {
+				async_task_dispose(task);
+
+				OBJ_RELEASE(&task->fiber.std);
+			} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
+				ASYNC_Q_ENQUEUE(&scheduler->suspended, task);
+			}
 		}
 
-		if (task->fiber.status == ASYNC_OP_RESOLVED || task->fiber.status == ASYNC_OP_FAILED) {
-			async_task_dispose(task);
+		scheduler->dispatching = 0;
 
-			OBJ_RELEASE(&task->fiber.std);
-		} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
-			ASYNC_Q_ENQUEUE(&scheduler->suspended, task);
+		while (scheduler->enable.first != NULL) {
+			ASYNC_Q_DEQUEUE(&scheduler->enable, cb);
+
+			cb->active = 0;
+			cb->func(cb->object);
 		}
-	}
+	} while (scheduler->ready.first != NULL);
 
-	while (scheduler->enable.first != NULL) {
-		ASYNC_Q_DEQUEUE(&scheduler->enable, cb);
-
-		cb->active = 0;
-		cb->func(cb->object);
-	}
-
-	scheduler->dispatching = 0;
 	scheduler->changes = 0;
 }
 
@@ -286,9 +291,13 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 
 	async_task_scheduler_dispose(scheduler);
 
-	ZEND_ASSERT(!uv_loop_alive(&scheduler->loop));
+	uv_close((uv_handle_t *) &scheduler->idle, NULL);
 
-	uv_loop_close(&scheduler->loop);
+	// Run loop again to cleanup idle watcher.
+	uv_run(&scheduler->loop, UV_RUN_DEFAULT);
+
+	ZEND_ASSERT(!uv_loop_alive(&scheduler->loop));
+	ZEND_ASSERT(uv_loop_close(&scheduler->loop) == 0);
 
 	zend_object_std_dtor(object);
 }

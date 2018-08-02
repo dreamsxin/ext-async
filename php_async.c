@@ -75,10 +75,10 @@ PHP_MINIT_FUNCTION(async)
 	async_context_ce_register();
 	async_deferred_ce_register();
 	async_fiber_ce_register();
+	async_stream_watcher_ce_register();
 	async_task_ce_register();
 	async_task_scheduler_ce_register();
 	async_timer_ce_register();
-	async_watcher_ce_register();
 
 	REGISTER_INI_ENTRIES();
 

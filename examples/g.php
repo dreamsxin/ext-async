@@ -12,7 +12,7 @@ foreach ([$a, $b] as $r) {
     stream_set_write_buffer($r, 0);
 }
 
-$watcher = new Watcher($b);
+$watcher = new StreamWatcher($b);
 
 Task::async(function () use ($b, $watcher) {
     $watcher->awaitReadable();

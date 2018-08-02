@@ -48,6 +48,8 @@ static void enable_timer(void *obj)
 
 	timer = (async_timer *) obj;
 
+	ZEND_ASSERT(timer != NULL);
+
 	timer->running = timer->new_running;
 
 	if (timer->running) {
@@ -56,6 +58,18 @@ static void enable_timer(void *obj)
 		uv_timer_stop(&timer->timer);
 	}
 
+	OBJ_RELEASE(&timer->std);
+}
+
+static void close_timer(uv_handle_t *handle)
+{
+	async_timer *timer;
+
+	timer = (async_timer *) handle->data;
+
+	ZEND_ASSERT(timer != NULL);
+
+	OBJ_RELEASE(&timer->scheduler->std);
 	OBJ_RELEASE(&timer->std);
 }
 
@@ -107,6 +121,8 @@ static zend_object *async_timer_object_create(zend_class_entry *ce)
 	zend_object_std_init(&timer->std, ce);
 	timer->std.handlers = &async_timer_handlers;
 
+	ZVAL_UNDEF(&timer->error);
+
 	uv_timer_init(async_task_scheduler_get_loop(), &timer->timer);
 
 	timer->timer.data = timer;
@@ -117,11 +133,26 @@ static zend_object *async_timer_object_create(zend_class_entry *ce)
 	return &timer->std;
 }
 
+static void async_timer_object_dtor(zend_object *object)
+{
+	async_timer *timer;
+
+	timer = (async_timer *) object;
+
+	if (!uv_is_closing((uv_handle_t *) &timer->timer)) {
+		GC_ADDREF(&timer->std);
+
+		uv_close((uv_handle_t *) &timer->timer, close_timer);
+	}
+}
+
 static void async_timer_object_destroy(zend_object *object)
 {
 	async_timer *timer;
 
 	timer = (async_timer *) object;
+
+	zval_ptr_dtor(&timer->error);
 
 	zend_object_std_dtor(&timer->std);
 }
@@ -145,14 +176,15 @@ ZEND_METHOD(Timer, __construct)
 
 	timer->delay = delay;
 	timer->scheduler = async_task_scheduler_get();
+
+	GC_ADDREF(&timer->scheduler->std);
 }
 
-ZEND_METHOD(Timer, stop)
+ZEND_METHOD(Timer, close)
 {
 	async_timer *timer;
 
 	zval *val;
-	zval error;
 
 	val = NULL;
 
@@ -163,17 +195,30 @@ ZEND_METHOD(Timer, stop)
 
 	timer = (async_timer *)Z_OBJ_P(getThis());
 
+	if (Z_TYPE_P(&timer->error) != IS_UNDEF) {
+		return;
+	}
+
+	if (timer->enable.active) {
+		ASYNC_Q_DETACH(&timer->scheduler->enable, &timer->enable);
+		timer->enable.active = 0;
+	} else {
+		GC_ADDREF(&timer->std);
+	}
+
+	uv_close((uv_handle_t *) &timer->timer, close_timer);
+
 	zend_throw_error(NULL, "Timer has been closed");
 
-	ZVAL_OBJ(&error, EG(exception));
+	ZVAL_OBJ(&timer->error, EG(exception));
 	EG(exception) = NULL;
 
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
-		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
+		zend_exception_set_previous(Z_OBJ_P(&timer->error), Z_OBJ_P(val));
 		GC_ADDREF(Z_OBJ_P(val));
 	}
 
-	async_awaitable_trigger_continuation(&timer->timeouts, &error, 0);
+	async_awaitable_trigger_continuation(&timer->timeouts, &timer->error, 0);
 }
 
 ZEND_METHOD(Timer, awaitTimeout)
@@ -183,6 +228,16 @@ ZEND_METHOD(Timer, awaitTimeout)
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	timer = (async_timer *)Z_OBJ_P(getThis());
+
+	if (Z_TYPE_P(&timer->error) != IS_UNDEF) {
+		Z_ADDREF_P(&timer->error);
+
+		execute_data->opline--;
+		zend_throw_exception_internal(&timer->error);
+		execute_data->opline++;
+
+		return;
+	}
 
 	timer->new_running = 1;
 
@@ -203,7 +258,7 @@ ZEND_METHOD(Timer, awaitTimeout)
 
 	suspend(timer, return_value, execute_data);
 
-	if (!timer->ref_count && !timer->unref_count) {
+	if (!timer->ref_count && !timer->unref_count && Z_TYPE_P(&timer->error) == IS_UNDEF) {
 		timer->new_running = 0;
 
 		if (timer->running) {
@@ -225,7 +280,7 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_ctor, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, milliseconds, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_stop, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_close, 0, 0, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
@@ -234,7 +289,7 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_timer_functions[] = {
 	ZEND_ME(Timer, __construct, arginfo_timer_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
-	ZEND_ME(Timer, stop, arginfo_timer_stop, ZEND_ACC_PUBLIC)
+	ZEND_ME(Timer, close, arginfo_timer_close, ZEND_ACC_PUBLIC)
 	ZEND_ME(Timer, awaitTimeout, arginfo_timer_await_timeout, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
@@ -253,6 +308,7 @@ void async_timer_ce_register()
 
 	memcpy(&async_timer_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_timer_handlers.free_obj = async_timer_object_destroy;
+	async_timer_handlers.dtor_obj = async_timer_object_dtor;
 	async_timer_handlers.clone_obj = NULL;
 }
 

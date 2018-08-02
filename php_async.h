@@ -35,7 +35,7 @@
 extern zend_module_entry async_module_entry;
 #define phpext_async_ptr &async_module_entry
 
-#define PHP_ASYNC_VERSION "0.1.0"
+#define PHP_ASYNC_VERSION "0.2.0"
 
 #ifdef PHP_WIN32
 # define ASYNC_API __declspec(dllexport)
@@ -87,19 +87,20 @@ ASYNC_API extern zend_class_entry *async_context_var_ce;
 ASYNC_API extern zend_class_entry *async_deferred_ce;
 ASYNC_API extern zend_class_entry *async_deferred_awaitable_ce;
 ASYNC_API extern zend_class_entry *async_fiber_ce;
+ASYNC_API extern zend_class_entry *async_stream_watcher_ce;
 ASYNC_API extern zend_class_entry *async_task_ce;
+ASYNC_API extern zend_class_entry *async_task_scheduler_ce;
 ASYNC_API extern zend_class_entry *async_timer_ce;
-ASYNC_API extern zend_class_entry *async_watcher_ce;
 
 
 void async_awaitable_ce_register();
 void async_context_ce_register();
 void async_deferred_ce_register();
 void async_fiber_ce_register();
+void async_stream_watcher_ce_register();
 void async_task_ce_register();
 void async_task_scheduler_ce_register();
 void async_timer_ce_register();
-void async_watcher_ce_register();
 
 void async_fiber_ce_unregister();
 
@@ -119,6 +120,7 @@ typedef struct _async_deferred_transform            async_deferred_transform;
 typedef struct _async_enable_cb                     async_enable_cb;
 typedef struct _async_enable_queue                  async_enable_queue;
 typedef struct _async_fiber                         async_fiber;
+typedef struct _async_stream_watcher                async_stream_watcher;
 typedef struct _async_task                          async_task;
 typedef struct _async_task_suspended                async_task_suspended;
 typedef struct _async_task_scheduler                async_task_scheduler;
@@ -126,7 +128,6 @@ typedef struct _async_task_scheduler_stack          async_task_scheduler_stack;
 typedef struct _async_task_scheduler_stack_entry    async_task_scheduler_stack_entry;
 typedef struct _async_task_queue                    async_task_queue;
 typedef struct _async_timer                         async_timer;
-typedef struct _async_watcher                       async_watcher;
 
 typedef void* async_fiber_context;
 
@@ -287,6 +288,41 @@ struct _async_fiber {
 	size_t line;
 };
 
+struct _async_stream_watcher {
+	/* PHP object handle. */
+	zend_object std;
+
+	/* Error being set as the watcher was closed (undef by default). */
+	zval error;
+
+	/* PHP stream or socket being observed. */
+	zval resource;
+
+	/** File descriptor being polled by libuv. */
+	php_socket_t fd;
+
+	/* Libuv poll instance being used to receive events. */
+	uv_poll_t poll;
+
+	/* Queue of tasks wanting to be notified when the stream is readable. */
+	async_awaitable_queue reads;
+
+	/* Queue of tasks wanting to be notified when the stream is writable. */
+	async_awaitable_queue writes;
+
+	/* Number of pending referenced read / write operations. */
+	zend_uchar ref_count;
+
+	/* Number of pending unreferenced read / write operations. */
+	zend_uchar unref_count;
+
+	zend_uchar events;
+	zend_uchar new_events;
+
+	async_task_scheduler *scheduler;
+	async_enable_cb enable;
+};
+
 struct _async_task {
 	/* Embedded fiber. */
 	async_fiber fiber;
@@ -387,6 +423,9 @@ struct _async_timer {
 	/* PHP object handle. */
 	zend_object std;
 
+	/* Error being set as the watcher was closed (undef by default). */
+	zval error;
+
 	/* Timer interval in milliseconds. */
 	uint64_t delay;
 
@@ -404,41 +443,6 @@ struct _async_timer {
 
 	zend_bool running;
 	zend_bool new_running;
-
-	async_task_scheduler *scheduler;
-	async_enable_cb enable;
-};
-
-struct _async_watcher {
-	/* PHP object handle. */
-	zend_object std;
-
-	/* Error being set as the watcher was closed (undef by default). */
-	zval error;
-
-	/* PHP stream or socket being observed. */
-	zval resource;
-
-	/** File descriptor being polled by libuv. */
-	php_socket_t fd;
-
-	/* Libuv poll instance being used to receive events. */
-	uv_poll_t poll;
-
-	/* Queue of tasks wanting to be notified when the stream is readable. */
-	async_awaitable_queue reads;
-
-	/* Queue of tasks wanting to be notified when the stream is writable. */
-	async_awaitable_queue writes;
-
-	/* Number of pending referenced read / write operations. */
-	zend_uchar ref_count;
-
-	/* Number of pending unreferenced read / write operations. */
-	zend_uchar unref_count;
-
-	zend_uchar events;
-	zend_uchar new_events;
 
 	async_task_scheduler *scheduler;
 	async_enable_cb enable;
