@@ -121,7 +121,7 @@ ZEND_METHOD(Context, with)
 	var = (async_context_var *) Z_OBJ_P(key);
 
 	context = async_context_object_create(var, value);
-	context->parent = current->parent;
+	context->parent = current;
 
 	if (context->parent != NULL) {
 		context->background = context->parent->background;
@@ -169,6 +169,10 @@ ZEND_METHOD(Context, run)
 
 	ASYNC_G(current_context) = prev;
 
+	if (count > 0) {
+		zend_fcall_info_args_clear(&fci, 1);
+	}
+
 	RETURN_ZVAL(&result, 1, 1);
 }
 
@@ -193,10 +197,6 @@ ZEND_METHOD(Context, background)
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	current = async_context_get();
-
-	while (current->parent != NULL) {
-		current = current->parent;
-	}
 
 	context = async_context_object_create(NULL, NULL);
 	context->parent = current;
