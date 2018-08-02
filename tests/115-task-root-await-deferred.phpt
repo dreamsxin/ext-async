@@ -9,22 +9,6 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-TaskScheduler::register(new class() extends LoopTaskScheduler {
-    protected function activate() {
-        var_dump('ACTIVATE');
-    }
-    
-    protected function runLoop() {
-        var_dump('START');
-        $this->dispatch();
-        var_dump('END');
-    }
-    
-    protected function stopLoop() {
-        var_dump('STOP');
-    }
-});
-
 var_dump(Task::await(Deferred::value(321)));
 
 try {
@@ -45,10 +29,4 @@ var_dump(Task::await($defer->awaitable()));
 --EXPECT--
 int(321)
 string(5) "Fail!"
-string(8) "ACTIVATE"
-string(5) "START"
-string(4) "STOP"
-string(3) "END"
 int(777)
-string(5) "START"
-string(3) "END"

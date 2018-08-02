@@ -16,12 +16,6 @@
   +----------------------------------------------------------------------+
 */
 
-#include "php.h"
-#include "zend.h"
-#include "zend_API.h"
-#include "zend_interfaces.h"
-#include "zend_exceptions.h"
-
 #include "php_async.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
@@ -127,9 +121,11 @@ ZEND_METHOD(Context, with)
 	var = (async_context_var *) Z_OBJ_P(key);
 
 	context = async_context_object_create(var, value);
-	context->parent = current->parent;
+	context->parent = current;
 
 	if (context->parent != NULL) {
+		context->background = context->parent->background;
+
 		GC_ADDREF(&context->parent->std);
 	}
 
@@ -173,6 +169,10 @@ ZEND_METHOD(Context, run)
 
 	ASYNC_G(current_context) = prev;
 
+	if (count > 0) {
+		zend_fcall_info_args_clear(&fci, 1);
+	}
+
 	RETURN_ZVAL(&result, 1, 1);
 }
 
@@ -198,12 +198,9 @@ ZEND_METHOD(Context, background)
 
 	current = async_context_get();
 
-	while (current->parent != NULL) {
-		current = current->parent;
-	}
-
 	context = async_context_object_create(NULL, NULL);
 	context->parent = current;
+	context->background = 1;
 
 	GC_ADDREF(&current->std);
 

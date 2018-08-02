@@ -5,8 +5,6 @@
 
 namespace Concurrent;
 
-$scheduler = new TaskScheduler();
-
 function job(Deferred $defer, ContextVar $var)
 {
     var_dump('INNER DONE!');
@@ -16,18 +14,16 @@ function job(Deferred $defer, ContextVar $var)
     return $num;
 }
 
-$scheduler->run(function () {    
-    $var = new ContextVar();
-    
-    $context = Context::current();
-    $context = $context->with($var, 777);
-    
-    $defer = new Deferred();
+$var = new ContextVar();
 
-    $t = async $context => job($defer, $var);
-    
-    var_dump('GO WAIT');
-    var_dump(await $defer->awaitable());
-    var_dump(await $t);
-    var_dump('OUTER DONE!');
-});
+$context = Context::current();
+$context = $context->with($var, 777);
+
+$defer = new Deferred();
+
+$t = async $context => job($defer, $var);
+
+var_dump('GO WAIT');
+var_dump(await $defer->awaitable());
+var_dump(await $t);
+var_dump('OUTER DONE!');

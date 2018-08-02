@@ -16,15 +16,10 @@
   +----------------------------------------------------------------------+
 */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include "php_async.h"
 
-#include "php.h"
-#include "zend.h"
-
-#include "fiber.h"
-#include "fiber_stack.h"
+#include "async_fiber.h"
+#include "async_stack.h"
 
 #undef ASM_CALLDECL
 #if (defined(i386) || defined(__i386__) || defined(__i386) \

@@ -46,7 +46,7 @@ final class Deferred
 
 ### Task
 
-A task is a fiber-based object that executes a PHP function or method on a separate call stack. Tasks are created using `Task::async()` or `TaskScheduler->run()` (and there contextual counterparts). All tasks are associated with a task scheduler as they are created, there is no way to migrate tasks between different schedulers.
+A task is a fiber-based object that executes a PHP function or method on a separate call stack. Tasks are created using `Task::async()` or `TaskScheduler::run()` (and there contextual counterparts). All tasks are associated with a task scheduler as they are created, there is no way to migrate tasks between different schedulers.
 
 Calling `Task::await()` will suspend the current task and await resolution of the given `Awaitable`. If the awaited object is another `Task` it has to be run on the same scheduler, otherwise `await()` will throw an error.
 
@@ -70,47 +70,18 @@ final class Task implements Awaitable
 
 ### TaskScheduler
 
-The task scheduler is based on a queue of scheduled tasks that are run whenever `dispatch()` is called (this is usually not called directly from PHP code). The scheduler will start (or resume) all tasks that are scheduled for execution and return when no more tasks are scheduled. Tasks may be re-scheduled (an hence run multiple times) during a single call to the dispatch method. The scheduler implements `Countable` and will return the current number of scheduled tasks.
+The task scheduler manages a queue of ready-to-run tasks and a (shared) event loop that provides support for timers and async IO. It will also keep track of suspended tasks to allow for proper cleanup on shutdown. There is an implicit default scheduler that will be used when `Task::async()` or `Task::asyncWithContext()` is used in PHP code that is not run using one of the public scheduler methods. It is neighter necessary (nor advisable) to create a task scheduler instance yourself. The only exception to that rule are unit tests, each test should use a dedicated task scheduler to ensure proper test isolation.
 
-You can use `run()` or `runWithContext()` to have the scheduler execute all scheduled tasks (including the one you pass to the run method). The run methods will return the value returned from your task callback or throw an error if your task callback throws. The scheduler will allways run all scheduled tasks, even if the callback task you passed is completed before other tasks.
-
-There is an implicit default scheduler that will be used when `Task::async()` or `Task::asyncWithContext()` is used in PHP code that is not running in a `Task`. You can replace the default scheduler with your own scheduler as long as no async tasks have been created yet.
+You can use `run()` or `runWithContext()` to have the given callback be executed as root task within an isolated task scheduler. The run methods will return the value returned from your task callback or throw an error if your task callback throws. The scheduler will allways run all scheduled tasks to completion, even if the callback task you passed is completed before other tasks. The optional inspection callback will be called as soon as the root task (= the callback) is completed and receive an array containing information about all tasks that have not been completed yet.
 
 ```php
 namespace Concurrent;
 
-class TaskScheduler implements \Countable
+final class TaskScheduler
 {
-    public final function count(): int { }
+    public static function run(callable $callback, ?callable $inspect = null): mixed { }
     
-    public final function getPendingTasks(): array { }
-    
-    public final function run(callable $callback, ...$args): mixed { }
-    
-    public final function runWithContext(Context $context, callable $callback, ...$args): mixed { }
-    
-    public static final function register(TaskScheduler $scheduler): void { }
-    
-    public static final function unregister(TaskScheduler $scheduler): void { }
-}
-```
-
-### LoopTaskScheduler
-
-You can extend the `LoopTaskScheduler` class to create a scheduler with support for an event loop. The scheduler provides integration by letting you implement the `runLoop()` method that must start the event loop and keep it running until no more events can occur. The primary problem with event loop integration is that you need to call `dispatch()` whenever tasks are ready run. You have to implement the `activate()` method to schedule execution of `dispatch()` with your event loop (future tick or defer watcher). The scheduler will call `activate()` whenever a task is registered for execution and the scheduler is not in the process of dispatching tasks. It is also necessary to implement `stopLoop()` that is needed if `await()` is used from the main execution (the event loop always runs in the context of the main execution). A call to `stopLoop()` should stop the event loop after current tick has completed (you can keep executing for a few ticks as well, but this decreases responsiveness of the main execution).
-
-```php
-namespace Concurrent;
-
-abstract class LoopTaskScheduler extends TaskScheduler
-{   
-    protected abstract function activate(): void;
-    
-    protected abstract function runLoop(): void;
-    
-    protected abstract function stopLoop(): void;
-    
-    protected final function dispatch(): void { }
+    public static function runWithContext(Context $context, callable $callback, ?callable $inspect = null): mixed { }
 }
 ```
 
@@ -143,6 +114,42 @@ namespace Concurrent;
 final class ContextVar
 {
     public function get(?Context $context = null) { }
+}
+```
+
+### Timer
+
+The `Timer` class is used to schedule timers with the integrated event loop. Timers do not make use of callbacks, instead they will suspend the current task during `awaitTimeout()` and continue when the next timeout is exceeded. The first call to `awaitTimeout()` will start the timer. If additional tasks await an active the timer they will share the same timeout (which could be less than the value passed to the constructor). A `Timer` can be closed by calling `close()` which will fail all pending timeout subscriptions and prevent any further operations.
+
+```php
+namespace Concurrent;
+
+final class Timer
+{
+    public function __construct(int $milliseconds) { }
+    
+    public function close(?\Throwable $e = null): void { }
+    
+    public function awaitTimeout(): void { }
+}
+```
+
+### StreamWatcher
+
+A `StreamWatcher` observes a PHP stream or socket for readability or writability. Only a single stream watcher is allowed for any PHP resource. The watcher should be closed when it is no longer needed to free internal resources. The `StreamWatcher` will suspend the current task during `awaitReadable()` and `awaitWritable()` and continue once the watched stream becomes readable or is closed by the remote peer. A `StreamWatcher` can be closed by calling `close()` which will fail all pending read & write subscriptions and prevent any further operations.
+
+```php
+namespace Concurrent;
+
+final class Watcher
+{
+    public function __construct($resource) { }
+    
+    public function close(?\Throwable $e = null): void { }
+    
+    public function awaitReadable(): void { }
+    
+    public function awaitWritable(): void { }
 }
 ```
 

@@ -16,14 +16,11 @@
   +----------------------------------------------------------------------+
 */
 
-
-#include "php.h"
-#include "zend.h"
-#include "zend_API.h"
-#include "zend_interfaces.h"
-#include "zend_exceptions.h"
-
 #include "php_async.h"
+
+#include "async_fiber.h"
+#include "async_helper.h"
+#include "async_task.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
@@ -127,7 +124,7 @@ void async_task_continue(async_task *task)
 	ASYNC_CHECK_FATAL(!async_fiber_switch_to(&task->fiber), "Failed to switch to fiber");
 }
 
-static void async_task_continuation(void *obj, zval *data, zval *result, zend_bool success)
+static void task_continuation(void *obj, zval *data, zval *result, zend_bool success)
 {
 	async_task *task;
 
@@ -135,7 +132,7 @@ static void async_task_continuation(void *obj, zval *data, zval *result, zend_bo
 
 	task->suspended = NULL;
 
-	if (result == NULL ||task->fiber.status != ASYNC_FIBER_STATUS_SUSPENDED) {
+	if (result == NULL || task->fiber.status != ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->fiber.status = ASYNC_FIBER_STATUS_FAILED;
 	} else if (success) {
 		if (task->fiber.value != NULL) {
@@ -159,6 +156,117 @@ static void top_level_continuation(void *obj, zval *data, zval *result, zend_boo
 	ZEND_ASSERT(scheduler != NULL);
 
 	async_task_scheduler_stop_loop(scheduler);
+}
+
+static void suspend_continuation(void *obj, zval *data, zval *result, zend_bool success)
+{
+	async_task_suspended *suspended;
+
+	suspended = (async_task_suspended *) obj;
+
+	ZEND_ASSERT(suspended->scheduler != NULL);
+
+	suspended->state = success ? ASYNC_OP_RESOLVED : ASYNC_OP_FAILED;
+
+	if (result != NULL) {
+		ZVAL_COPY(&suspended->result, result);
+	}
+
+	async_task_scheduler_stop_loop(suspended->scheduler);
+}
+
+void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data)
+{
+	async_fiber *fiber;
+	async_task *task;
+	async_task_scheduler *scheduler;
+	async_awaitable_cb *cont;
+	async_context *context;
+	async_task_suspended info;
+	size_t stack_page_size;
+
+	zval error;
+
+	fiber = ASYNC_G(current_fiber);
+
+	if (fiber == NULL) {
+		scheduler = async_task_scheduler_get();
+
+		ASYNC_CHECK_ERROR(scheduler->running, "Cannot await in the fiber that is running the task scheduler loop");
+
+		info.scheduler = scheduler;
+		info.state = 0;
+
+		cont = async_awaitable_register_continuation(q, &info, NULL, suspend_continuation);
+		async_task_scheduler_run_loop(scheduler);
+
+		if (info.state == ASYNC_OP_RESOLVED) {
+			if (USED_RET()) {
+				ZVAL_COPY(return_value, &info.result);
+			}
+
+			zval_ptr_dtor(&info.result);
+
+			return;
+		}
+
+		if (info.state == ASYNC_OP_FAILED) {
+			execute_data->opline--;
+			zend_throw_exception_internal(&info.result);
+			execute_data->opline++;
+
+			return;
+		}
+
+		async_awaitable_dispose_continuation(q, cont);
+
+		if (EXPECTED(EG(exception) == NULL)) {
+			zend_throw_error(NULL, "Awaitable has not been resolved");
+		}
+
+		return;
+	}
+
+	ASYNC_CHECK_ERROR(fiber->type != ASYNC_FIBER_TYPE_TASK, "Await must be called from within a running task");
+	ASYNC_CHECK_ERROR(fiber->status != ASYNC_FIBER_STATUS_RUNNING, "Cannot await in a task that is not running");
+	ASYNC_CHECK_ERROR(fiber->disposed, "Task has been destroyed");
+
+	task = (async_task *) fiber;
+
+	ASYNC_CHECK_ERROR(!ASYNC_G(current_scheduler)->dispatching, "Cannot await while the task scheduler is not dispatching tasks");
+
+	task->suspended = async_awaitable_register_continuation(q, task, NULL, task_continuation);
+
+	task->fiber.value = USED_RET() ? return_value : NULL;
+	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
+
+	context = ASYNC_G(current_context);
+
+	ASYNC_FIBER_BACKUP_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
+	ASYNC_CHECK_FATAL(!async_fiber_yield(task->fiber.context), "Failed to yield from fiber");
+	ASYNC_FIBER_RESTORE_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
+
+	ASYNC_G(current_context) = context;
+
+	// Dispose of continuation if task continues before continuation fired.
+	if (task->suspended != NULL) {
+		async_awaitable_dispose_continuation(q, task->suspended);
+		task->suspended = NULL;
+	}
+
+	// Re-throw error provided by task scheduler.
+	if (Z_TYPE_P(&task->error) != IS_UNDEF) {
+		error = task->error;
+		ZVAL_UNDEF(&task->error);
+
+		execute_data->opline--;
+		zend_throw_exception_internal(&error);
+		execute_data->opline++;
+
+		return;
+	}
+
+	ASYNC_CHECK_ERROR(task->fiber.disposed, "Task has been destroyed");
 }
 
 static void async_task_execute_inline(async_task *task, async_task *inner)
@@ -200,6 +308,25 @@ static void async_task_execute_inline(async_task *task, async_task *inner)
 
 	async_awaitable_trigger_continuation(&inner->continuation, &inner->result, success);
 }
+
+HashTable *async_task_get_debug_info(async_task *task, zend_bool include_result)
+{
+	HashTable *info;
+
+	info = async_info_init();
+
+	async_info_prop_cstr(info, "status", async_status_label(task->fiber.status));
+	async_info_prop_bool(info, "suspended", task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED);
+	async_info_prop_str(info, "file", task->fiber.file);
+	async_info_prop_long(info, "line", task->fiber.line);
+
+	if (include_result) {
+		async_info_prop(info, "result", &task->result);
+	}
+
+	return info;
+}
+
 
 async_task *async_task_object_create(zend_execute_data *call, async_task_scheduler *scheduler, async_context *context)
 {
@@ -290,22 +417,12 @@ ZEND_METHOD(Task, __debugInfo)
 {
 	async_task *task;
 
-	HashTable *info;
-
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	task = (async_task *) Z_OBJ_P(getThis());
 
 	if (USED_RET()) {
-		info = async_info_init();
-
-		async_info_prop_cstr(info, "status", async_status_label(task->fiber.status));
-		async_info_prop_bool(info, "suspended", task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED);
-		async_info_prop_str(info, "file", task->fiber.file);
-		async_info_prop_long(info, "line", task->fiber.line);
-		async_info_prop(info, "result", &task->result);
-
-		RETURN_ARR(info);
+		RETURN_ARR(async_task_get_debug_info(task, 1));
 	}
 }
 
@@ -405,6 +522,7 @@ ZEND_METHOD(Task, await)
 	async_task *task;
 	async_task *inner;
 	async_awaitable_cb *cont;
+	async_awaitable_queue *q;
 	async_task_scheduler *scheduler;
 	async_deferred *defer;
 	async_context *context;
@@ -432,7 +550,8 @@ ZEND_METHOD(Task, await)
 
 			ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
 
-			cont = async_awaitable_register_continuation(&defer->continuation, scheduler, NULL, top_level_continuation);
+			q = &defer->continuation;
+			cont = async_awaitable_register_continuation(q, scheduler, NULL, top_level_continuation);
 			async_task_scheduler_run_loop(scheduler);
 
 			ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
@@ -443,13 +562,14 @@ ZEND_METHOD(Task, await)
 
 			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 
-			cont = async_awaitable_register_continuation(&inner->continuation, inner->scheduler, NULL, top_level_continuation);
+			q = &inner->continuation;
+			cont = async_awaitable_register_continuation(q, inner->scheduler, NULL, top_level_continuation);
 			async_task_scheduler_run_loop(inner->scheduler);
 
 			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 		}
 
-		cont->disposed = 1;
+		async_awaitable_dispose_continuation(q, cont);
 
 		if (EXPECTED(EG(exception) == NULL)) {
 			zend_throw_error(NULL, "Awaitable has not been resolved");
@@ -478,13 +598,15 @@ ZEND_METHOD(Task, await)
 
 		ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
 
-		task->suspended = async_awaitable_register_continuation(&inner->continuation, task, NULL, async_task_continuation);
+		q = &inner->continuation;
+		task->suspended = async_awaitable_register_continuation(q, task, NULL, task_continuation);
 	} else {
 		defer = ((async_deferred_awaitable *) Z_OBJ_P(val))->defer;
 
 		ASYNC_TASK_DELEGATE_RESULT(defer->status, &defer->result);
 
-		task->suspended = async_awaitable_register_continuation(&defer->continuation, task, NULL, async_task_continuation);
+		q = &defer->continuation;
+		task->suspended = async_awaitable_register_continuation(q, task, NULL, task_continuation);
 	}
 
 	task->fiber.value = USED_RET() ? return_value : NULL;
@@ -498,9 +620,9 @@ ZEND_METHOD(Task, await)
 
 	ASYNC_G(current_context) = context;
 
-	// Mark continuation as disposed if task continues before continuation fired.
+	// Dispose of continuation if task continues before continuation fired.
 	if (task->suspended != NULL) {
-		task->suspended->disposed = 1;
+		async_awaitable_dispose_continuation(q, task->suspended);
 		task->suspended = NULL;
 	}
 

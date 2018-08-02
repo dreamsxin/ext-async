@@ -9,14 +9,12 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-require_once __DIR__ . '/loop-scheduler.inc';
-
-TaskScheduler::register(new TimerLoopScheduler($loop = new TimerLoop()));
-
-Task::async(function () use (&$awaitable, $loop) {
+Task::async(function () use (&$awaitable) {
     $defer = new Deferred();
     
-    $loop->timer(50, function () use ($defer) {
+    Task::async(function () use ($defer) {
+        (new Timer(50))->awaitTimeout();
+    
         $defer->resolve(123);
     });
     

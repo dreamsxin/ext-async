@@ -9,10 +9,24 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-require_once __DIR__ . '/loop-scheduler.inc';
-require_once dirname(__DIR__) . '/lib/functions.php';
-
-TaskScheduler::register(new TimerLoopScheduler($loop = new TimerLoop()));
+function all(array $awaitables): Awaitable
+{
+    $result = \array_fill_keys(\array_keys($awaitables), null);
+    
+    $all = function (Deferred $defer, $last, $k, $e, $v) use (& $result) {
+        if ($e) {
+            $defer->fail($e);
+        } else {
+            $result[$k] = $v;
+            
+            if ($last) {
+                $defer->resolve($result);
+            }
+        }
+    };
+    
+    return Deferred::combine($awaitables, $all);
+}
 
 $d1 = new Deferred();
 $d2 = new Deferred();
@@ -33,11 +47,16 @@ Task::await($t4 = Task::async(function () {
     return 'D';
 }));
 
-$loop->timer(50, function () use ($d2) {
+Task::async(function () use ($d1, $d2) {
+    $timer = new Timer(60);
+    $timer->awaitTimeout();
+    
+    var_dump('T1');
     $d2->resolve('B');
-});
-
-$loop->timer(150, function () use ($d1) {
+    
+    $timer->awaitTimeout();
+    
+    var_dump('T2');
     $d1->resolve('A');
 });
 
@@ -47,6 +66,8 @@ var_dump('END');
 
 --EXPECT--
 string(5) "START"
+string(2) "T1"
+string(2) "T2"
 array(4) {
   [0]=>
   string(1) "A"

@@ -27,7 +27,7 @@
 #include "php.h"
 #include "zend.h"
 
-#include "fiber_stack.h"
+#include "async_stack.h"
 
 zend_bool async_fiber_stack_allocate(async_fiber_stack *stack, unsigned int size)
 {

@@ -16,17 +16,15 @@
   +----------------------------------------------------------------------+
 */
 
-#include "php.h"
-#include "zend.h"
-#include "zend_API.h"
-#include "zend_vm.h"
-#include "zend_interfaces.h"
-#include "zend_exceptions.h"
-#include "zend_closures.h"
-
 #include "php_async.h"
 
+#include "async_fiber.h"
+#include "async_helper.h"
+
 ZEND_DECLARE_MODULE_GLOBALS(async)
+
+#define REGISTER_FIBER_CLASS_CONST_LONG(const_name, value) \
+	zend_declare_class_constant_long(async_fiber_ce, const_name, sizeof(const_name)-1, (zend_long)value);
 
 zend_class_entry *async_fiber_ce;
 

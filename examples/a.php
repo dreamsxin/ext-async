@@ -4,9 +4,7 @@ namespace Concurrent;
 
 var_dump(Fiber::backend());
 
-$scheduler = new TaskScheduler();
-
-$result = $scheduler->run(function () {
+$result = TaskScheduler::run(function () {
     $t = Task::async(function (): int {
         return max(123, Task::await(Deferred::value()));
     });
@@ -22,6 +20,10 @@ $result = $scheduler->run(function () {
     var_dump(2 * Task::await($t));
     
     return 777;
+}, function (array $tasks) {
+    print_r($tasks);
 });
 
+$timer = new Timer(500);
+$timer->awaitTimeout();
 var_dump($result);

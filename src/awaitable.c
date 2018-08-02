@@ -21,59 +21,51 @@
 zend_class_entry *async_awaitable_ce;
 
 
-async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_cb **cont, void *obj, zval *data, async_awaitable_func func)
+async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_queue *q, void *obj, zval *data, async_awaitable_func func)
 {
-	async_awaitable_cb *current;
+	async_awaitable_cb *cb;
 
-	current = emalloc(sizeof(async_awaitable_cb));
+	cb = emalloc(sizeof(async_awaitable_cb));
+	ZEND_SECURE_ZERO(cb, sizeof(async_awaitable_cb));
 
-	current->object = obj;
-	current->disposed = 0;
-	current->func = func;
-	current->next = NULL;
+	cb->object = obj;
+	cb->func = func;
 
 	if (data == NULL) {
-		ZVAL_UNDEF(&current->data);
+		ZVAL_UNDEF(&cb->data);
 	} else {
-		ZVAL_COPY(&current->data, data);
+		ZVAL_COPY(&cb->data, data);
 	}
 
-	if (*cont == NULL) {
-		*cont = current;
-	} else {
-		(*cont)->next = current;
-	}
+	ASYNC_Q_ENQUEUE(q, cb);
 
-	return current;
+	return cb;
 }
 
-void async_awaitable_trigger_continuation(async_awaitable_cb **cont, zval *result, zend_bool success)
+void async_awaitable_dispose_continuation(async_awaitable_queue *q, async_awaitable_cb *cb)
 {
-	async_awaitable_cb *current;
-	async_awaitable_cb *next;
+	ASYNC_Q_DETACH(q, cb);
 
-	current = *cont;
-	*cont = NULL;
+	zval_ptr_dtor(&cb->data);
 
-	if (current != NULL) {
-		do {
-			next = current->next;
-			*cont = next;
+	efree(cb);
+}
 
-			if (!current->disposed) {
-				current->func(current->object, &current->data, result, success);
-			}
+void async_awaitable_trigger_continuation(async_awaitable_queue *q, zval *result, zend_bool success)
+{
+	async_awaitable_cb *cb;
 
-			zval_ptr_dtor(&current->data);
+	while (q->first != NULL) {
+		ASYNC_Q_DEQUEUE(q, cb);
 
-			efree(current);
+		cb->func(cb->object, &cb->data, result, success);
+		zval_ptr_dtor(&cb->data);
 
-			current = next;
-		} while (current != NULL);
+		efree(cb);
 	}
 }
 
-static int async_awaitable_implement_interface(zend_class_entry *interface, zend_class_entry *implementor)
+static int async_awaitable_implement_interface(zend_class_entry *entry, zend_class_entry *implementor)
 {
 	if (implementor == async_deferred_awaitable_ce) {
 		return SUCCESS;
@@ -87,7 +79,7 @@ static int async_awaitable_implement_interface(zend_class_entry *interface, zend
 		E_CORE_ERROR,
 		"Class %s must not implement interface %s, create an awaitable using %s instead",
 		ZSTR_VAL(implementor->name),
-		ZSTR_VAL(interface->name),
+		ZSTR_VAL(entry->name),
 		ZSTR_VAL(async_deferred_ce->name)
 	);
 

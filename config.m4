@@ -1,5 +1,5 @@
-PHP_ARG_ENABLE(async, whether to enable async support,
-[  --enable-async          Enable async support], no)
+PHP_ARG_ENABLE(async, Whether to enable "async" support,
+[ --enable-async          Enable "async" support], no)
 
 if test "$PHP_ASYNC" != "no"; then
   AC_DEFINE(HAVE_ASYNC, 1, [ ])
@@ -19,8 +19,11 @@ if test "$PHP_ASYNC" != "no"; then
     src/awaitable.c \
     src/context.c \
     src/deferred.c \
+    src/helper.c \
+    src/stream_watcher.c \
     src/task.c \
-    src/task_scheduler.c"
+    src/task_scheduler.c \
+    src/timer.c"
   
   AS_CASE([$host_cpu],
     [x86_64*], [async_cpu="x86_64"],
@@ -68,16 +71,34 @@ if test "$PHP_ASYNC" != "no"; then
   if test "$async_use_asm" = 'yes'; then
     async_source_files="$async_source_files \
       src/fiber_asm.c \
-      boost/asm/make_${async_asm_file} \
-      boost/asm/jump_${async_asm_file}"
+      thirdparty/boost/asm/make_${async_asm_file} \
+      thirdparty/boost/asm/jump_${async_asm_file}"
   elif test "$async_use_ucontext" = 'yes'; then
     async_source_files="$async_source_files \
-      src/fiber_ucontext.c" 
+      src/fiber_ucontext.c"
   fi
   
+  PHP_ADD_INCLUDE("$srcdir/thirdparty/libuv/include")
+  
+  shared_objects_async="$shared_objects_async $srcdir/thirdparty/lib/libuv.a"
+  
+  case $host in
+    *linux*)
+      LDFLAGS="$LDFLAGS -lrt"
+  esac
+  
   PHP_NEW_EXTENSION(async, $async_source_files, $ext_shared,, \\$(ASYNC_CFLAGS))
-  PHP_SUBST(ASYNC_CFLAGS)
+  
   PHP_ADD_MAKEFILE_FRAGMENT
   
-  PHP_INSTALL_HEADERS([ext/async], [config.h include/*.h])
+  case $host in
+    *linux*)
+      LDFLAGS="-lrt $LDFLAGS"
+  esac
+  
+  LDFLAGS="-lpthread $LDFLAGS"
+      
+  PHP_SUBST(ASYNC_CFLAGS)
+  
+  PHP_INSTALL_HEADERS([ext/async], [config.h thirdparty/libuv/include/*.h])
 fi

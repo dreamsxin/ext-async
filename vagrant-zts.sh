@@ -1,7 +1,7 @@
 #!/bin/bash
 
 sudo apt-get update
-sudo apt-get install git gcc make pkg-config autoconf bison libxml2-dev libssl-dev curl -y
+sudo apt-get install gdb git gcc make pkg-config autoconf libtool bison libxml2-dev libssl-dev curl -y
 
 # Install PHP:
 sudo mkdir /usr/local/php
@@ -22,6 +22,7 @@ sudo ./configure \
     --with-openssl \
     --with-zlib \
     --without-pear \
+    --enable-debug \
     --enable-mbstring \
     --enable-pcntl \
     --enable-sockets
@@ -39,12 +40,13 @@ sudo ln -s /usr/local/php/cli/bin/php-config /usr/local/bin/php-config
 
 sudo echo "alias phpgdb='gdb $(which php)'" >> ~/.bash_aliases
 
+# Compile async extension:
 cd /vagrant
 
 sudo phpize --clean
 sudo phpize
 sudo ./configure
-sudo make install -B
+sudo make install
 
 sudo echo "extension=\"async.so\"" >> /usr/local/php/cli/php.ini
 

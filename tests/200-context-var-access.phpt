@@ -9,12 +9,11 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$scheduler = new TaskScheduler();
 $var = new ContextVar();
 
 var_dump($var->get());
 
-$scheduler->run(function () use ($var) {
+TaskScheduler::run(function () use ($var) {
     var_dump($var->get());
     
     Task::await(Task::asyncWithContext(Context::current()->with($var, 321), function (ContextVar $var) {
@@ -37,7 +36,7 @@ var_dump($var->get());
 $context = Context::current();
 $context = $context->with($var, 'foo');
 
-$scheduler->runWithContext($context, function () use ($var) {
+TaskScheduler::runWithContext($context, function () use ($var) {
     var_dump($var->get());
 });
 

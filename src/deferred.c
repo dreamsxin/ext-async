@@ -16,13 +16,9 @@
   +----------------------------------------------------------------------+
 */
 
-#include "php.h"
-#include "zend.h"
-#include "zend_API.h"
-#include "zend_interfaces.h"
-#include "zend_exceptions.h"
-
 #include "php_async.h"
+
+#include "async_helper.h"
 
 zend_class_entry *async_deferred_ce;
 zend_class_entry *async_deferred_awaitable_ce;
@@ -288,9 +284,7 @@ static void async_deferred_object_destroy(zend_object *object)
 
 	defer->status = ASYNC_DEFERRED_STATUS_FAILED;
 
-	if (defer->continuation != NULL) {
-		async_awaitable_trigger_continuation(&defer->continuation, NULL, 0);
-	}
+	async_awaitable_trigger_continuation(&defer->continuation, NULL, 0);
 
 	zval_ptr_dtor(&defer->result);
 

@@ -3,7 +3,7 @@
 PHP_VERSION=7.3.0alpha4
 
 sudo apt-get update
-sudo apt-get install gdb git gcc make pkg-config autoconf bison libxml2-dev libssl-dev curl -y
+sudo apt-get install gdb git gcc make pkg-config autoconf libtool bison libxml2-dev libssl-dev curl -y
 
 # Install PHP:
 sudo mkdir /usr/local/php
@@ -12,9 +12,7 @@ cd /usr/local/php
 sudo mkdir cli
 
 sudo mkdir php-src
-sudo curl -LSs https://github.com/php/php-src/archive/master.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
-
-#sudo curl -LSs https://github.com/php/php-src/archive/php-$PHP_VERSION.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
+sudo curl -LSs https://github.com/php/php-src/archive/php-$PHP_VERSION.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
 
 pushd php-src
 
@@ -43,12 +41,13 @@ sudo ln -s /usr/local/php/cli/bin/php-config /usr/local/bin/php-config
 
 sudo echo "alias phpgdb='gdb $(which php)'" >> ~/.bash_aliases
 
+# Compile async extension:
 cd /vagrant
 
 sudo phpize --clean
 sudo phpize
 sudo ./configure
-sudo make install -B
+sudo make install
 
 sudo echo "extension=\"async.so\"" >> /usr/local/php/cli/php.ini
 
