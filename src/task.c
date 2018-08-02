@@ -132,7 +132,7 @@ static void task_continuation(void *obj, zval *data, zval *result, zend_bool suc
 
 	task->suspended = NULL;
 
-	if (result == NULL ||task->fiber.status != ASYNC_FIBER_STATUS_SUSPENDED) {
+	if (result == NULL || task->fiber.status != ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->fiber.status = ASYNC_FIBER_STATUS_FAILED;
 	} else if (success) {
 		if (task->fiber.value != NULL) {

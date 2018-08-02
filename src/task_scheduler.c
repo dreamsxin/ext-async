@@ -173,34 +173,6 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 		return 0;
 	}
 
-	if (!scheduler->dispatching && UNEXPECTED(EG(exception))) {
-		if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {
-			ZVAL_OBJ(&task->result, EG(exception));
-			EG(exception) = NULL;
-
-			zend_clear_exception();
-
-			zend_fcall_info_args_clear(&task->fiber.fci, 1);
-			zval_ptr_dtor(&task->fiber.fci.function_name);
-
-			task->operation = ASYNC_TASK_OPERATION_NONE;
-			task->fiber.status = ASYNC_FIBER_STATUS_FAILED;
-
-			async_awaitable_trigger_continuation(&task->continuation, &task->result, 0);
-		} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
-			ZVAL_OBJ(&task->error, EG(exception));
-			EG(exception) = NULL;
-
-			zend_clear_exception();
-
-			async_task_dispose(task);
-		}
-
-		OBJ_RELEASE(&task->fiber.std);
-
-		return 0;
-	}
-
 	if (!scheduler->changes) {
 		scheduler->changes = 1;
 
