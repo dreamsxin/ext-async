@@ -514,18 +514,37 @@ ZEND_TSRMLS_CACHE_EXTERN()
 	EG(current_execute_data) = exec; \
 } while (0)
 
-#define ASYNC_CHECK_FATAL(expr, message) do { \
-	if (UNEXPECTED(expr)) { \
-		zend_error_noreturn(E_CORE_ERROR, message); \
-	} \
-} while (0)
+#ifdef __GNUC__
 
-#define ASYNC_CHECK_ERROR(expr, message) do { \
+#define ASYNC_CHECK_ERROR(expr, message, ...) do { \
     if (UNEXPECTED(expr)) { \
-    	zend_throw_error(NULL, message); \
+    	zend_throw_error(NULL, message, ##__VA_ARGS__); \
     	return; \
     } \
 } while (0)
+
+#define ASYNC_CHECK_FATAL(expr, message, ...) do { \
+	if (UNEXPECTED(expr)) { \
+		zend_error_noreturn(E_CORE_ERROR, message, ##__VA_ARGS__); \
+	} \
+} while (0)
+
+#else
+
+#define ASYNC_CHECK_ERROR(expr, message, ...) do { \
+    if (UNEXPECTED(expr)) { \
+    	zend_throw_error(NULL, message, __VA_ARGS__); \
+    	return; \
+    } \
+} while (0)
+
+#define ASYNC_CHECK_FATAL(expr, message) do { \
+	if (UNEXPECTED(expr)) { \
+		zend_error_noreturn(E_CORE_ERROR, message, __VA_ARGS__); \
+	} \
+} while (0)
+
+#endif
 
 /*
  * Queue macros require a "q" pointer with fields "first" and "last" of same ponter type as "v".

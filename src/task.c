@@ -444,6 +444,7 @@ ZEND_METHOD(Task, async)
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
 	uint32_t count;
+	uint32_t i;
 
 	zval *params;
 	zval obj;
@@ -453,6 +454,10 @@ ZEND_METHOD(Task, async)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_VARIADIC('+', params, count)
 	ZEND_PARSE_PARAMETERS_END();
+
+	for (i = 1; i <= count; i++) {
+		ASYNC_CHECK_ERROR(ARG_SHOULD_BE_SENT_BY_REF(fcc.function_handler, i), "Cannot pass async call argument %d by reference", (int) i);
+	}
 
 	fci.no_separation = 1;
 
@@ -482,6 +487,7 @@ ZEND_METHOD(Task, asyncWithContext)
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
 	uint32_t count;
+	uint32_t i;
 
 	zval *ctx;
 	zval *params;
@@ -493,6 +499,10 @@ ZEND_METHOD(Task, asyncWithContext)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_VARIADIC('+', params, count)
 	ZEND_PARSE_PARAMETERS_END();
+
+	for (i = 1; i <= count; i++) {
+		ASYNC_CHECK_ERROR(ARG_SHOULD_BE_SENT_BY_REF(fcc.function_handler, i), "Cannot pass async call argument %d by reference", (int) i);
+	}
 
 	fci.no_separation = 1;
 
