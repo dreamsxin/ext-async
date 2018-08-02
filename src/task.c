@@ -309,6 +309,25 @@ static void async_task_execute_inline(async_task *task, async_task *inner)
 	async_awaitable_trigger_continuation(&inner->continuation, &inner->result, success);
 }
 
+HashTable *async_task_get_debug_info(async_task *task, zend_bool include_result)
+{
+	HashTable *info;
+
+	info = async_info_init();
+
+	async_info_prop_cstr(info, "status", async_status_label(task->fiber.status));
+	async_info_prop_bool(info, "suspended", task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED);
+	async_info_prop_str(info, "file", task->fiber.file);
+	async_info_prop_long(info, "line", task->fiber.line);
+
+	if (include_result) {
+		async_info_prop(info, "result", &task->result);
+	}
+
+	return info;
+}
+
+
 async_task *async_task_object_create(zend_execute_data *call, async_task_scheduler *scheduler, async_context *context)
 {
 	async_task *task;
@@ -398,22 +417,12 @@ ZEND_METHOD(Task, __debugInfo)
 {
 	async_task *task;
 
-	HashTable *info;
-
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	task = (async_task *) Z_OBJ_P(getThis());
 
 	if (USED_RET()) {
-		info = async_info_init();
-
-		async_info_prop_cstr(info, "status", async_status_label(task->fiber.status));
-		async_info_prop_bool(info, "suspended", task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED);
-		async_info_prop_str(info, "file", task->fiber.file);
-		async_info_prop_long(info, "line", task->fiber.line);
-		async_info_prop(info, "result", &task->result);
-
-		RETURN_ARR(info);
+		RETURN_ARR(async_task_get_debug_info(task, 1));
 	}
 }
 

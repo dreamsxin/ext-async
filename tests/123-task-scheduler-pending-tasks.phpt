@@ -9,8 +9,8 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-TaskScheduler::run(function () {}, function (TaskScheduler $scheduler) {
-    var_dump(empty($scheduler->getPendingTasks()));
+TaskScheduler::run(function () {}, function (array $tasks) {
+    var_dump(empty($tasks));
 });
 
 TaskScheduler::run(function () {
@@ -19,11 +19,11 @@ TaskScheduler::run(function () {
     $t = Task::async(function () use ($defer) {
         Task::await($defer->awaitable());
     });
-}, function (TaskScheduler $scheduler) {
-    array_map(function (Task $t) {
-        var_dump($t->__debugInfo()['status']);
-        var_dump($t->__debugInfo()['suspended']);
-    }, $scheduler->getPendingTasks());
+}, function (array $tasks) {
+    array_map(function (array $info) {
+        var_dump($info['status']);
+        var_dump($info['suspended']);
+    }, $tasks);
 });
 
 --EXPECT--

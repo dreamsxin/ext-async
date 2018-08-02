@@ -72,18 +72,16 @@ final class Task implements Awaitable
 
 The task scheduler manages a queue of ready-to-run tasks and a (shared) event loop that provides support for timers and async IO. It will also keep track of suspended tasks to allow for proper cleanup on shutdown. There is an implicit default scheduler that will be used when `Task::async()` or `Task::asyncWithContext()` is used in PHP code that is not run using one of the public scheduler methods. It is neighter necessary (nor advisable) to create a task scheduler instance yourself. The only exception to that rule are unit tests, each test should use a dedicated task scheduler to ensure proper test isolation.
 
-You can use `run()` or `runWithContext()` to have the given callback be executed as root task within an isolated task scheduler. The run methods will return the value returned from your task callback or throw an error if your task callback throws. The scheduler will allways run all scheduled tasks to completion, even if the callback task you passed is completed before other tasks. The optional inspection callback will be called as soon as the root task (= the callback) is completed and receive the task scheduler instance as argument. You can use `getPendingTasks()` to inspect the remaining tasks that are not completed yet.
+You can use `run()` or `runWithContext()` to have the given callback be executed as root task within an isolated task scheduler. The run methods will return the value returned from your task callback or throw an error if your task callback throws. The scheduler will allways run all scheduled tasks to completion, even if the callback task you passed is completed before other tasks. The optional inspection callback will be called as soon as the root task (= the callback) is completed and receive an array containing information about all tasks that have not been completed yet.
 
 ```php
 namespace Concurrent;
 
 final class TaskScheduler
 {
-    public function getPendingTasks(): array { }
+    public static function run(callable $callback, ?callable $inspect = null): mixed { }
     
-    public static function run(callable $callback, ?callable $inspector = null): mixed { }
-    
-    public static function runWithContext(Context $context, callable $callback, ?callable $inspector = null): mixed { }
+    public static function runWithContext(Context $context, callable $callback, ?callable $inspect = null): mixed { }
 }
 ```
 

@@ -20,8 +20,8 @@ $result = TaskScheduler::run(function () {
     var_dump(2 * Task::await($t));
     
     return 777;
-}, function (TaskScheduler $scheduler) {
-    print_r($scheduler->getPendingTasks());
+}, function (array $tasks) {
+    print_r($tasks);
 });
 
 $timer = new Timer(500);
