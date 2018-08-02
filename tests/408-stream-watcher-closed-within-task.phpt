@@ -38,6 +38,13 @@ Task::async(function () use ($watcher) {
         var_dump($e->getMessage());
         var_dump($e->getPrevious()->getMessage());
     }
+    
+    try {
+        $watcher->awaitWritable();
+    } catch (\Throwable $e) {
+        var_dump($e->getMessage());
+        var_dump($e->getPrevious()->getMessage());
+    }
 });
 
 (new Timer(10))->awaitTimeout();
@@ -45,6 +52,8 @@ Task::async(function () use ($watcher) {
 $watcher->close(new \Error('FAIL!'));
 
 --EXPECT--
+string(26) "IO watcher has been closed"
+string(5) "FAIL!"
 string(26) "IO watcher has been closed"
 string(5) "FAIL!"
 string(26) "IO watcher has been closed"

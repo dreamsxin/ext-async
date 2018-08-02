@@ -310,6 +310,8 @@ ZEND_METHOD(StreamWatcher, awaitReadable)
 		return;
 	}
 
+	ZEND_ASSERT(zend_rsrc_list_get_rsrc_type(Z_RES_P(&watcher->resource)));
+
 	events = UV_READABLE | UV_DISCONNECT;
 
 	if (watcher->writes.first != NULL) {
@@ -375,6 +377,8 @@ ZEND_METHOD(StreamWatcher, awaitWritable)
 
 		return;
 	}
+
+	ZEND_ASSERT(zend_rsrc_list_get_rsrc_type(Z_RES_P(&watcher->resource)));
 
 	events = UV_WRITABLE | UV_DISCONNECT;
 

@@ -25,9 +25,17 @@ list ($a, $b) = pair();
 $w1 = new StreamWatcher($a);
 $w2 = new StreamWatcher($b);
 
+Task::async(function () use ($w2) {
+    $w2->awaitWritable();
+});
+
 $ctx = Context::current();
 
 Task::asyncWithContext($ctx->background(), function () use ($a, $w1, $ctx) {
+    $ctx->run(function () {
+        (new Timer(10))->awaitTimeout();
+    });
+    
     $w1->awaitWritable();
     fwrite($a, 'Hello');
     

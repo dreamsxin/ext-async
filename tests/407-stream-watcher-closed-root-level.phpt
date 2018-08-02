@@ -42,7 +42,16 @@ try {
     var_dump($e->getPrevious()->getMessage());
 }
 
+try {
+    $watcher->awaitWritable();
+} catch (\Throwable $e) {
+    var_dump($e->getMessage());
+    var_dump($e->getPrevious()->getMessage());
+}
+
 --EXPECT--
+string(26) "IO watcher has been closed"
+string(5) "FAIL!"
 string(26) "IO watcher has been closed"
 string(5) "FAIL!"
 string(26) "IO watcher has been closed"
