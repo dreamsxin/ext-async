@@ -538,7 +538,7 @@ ZEND_TSRMLS_CACHE_EXTERN()
     } \
 } while (0)
 
-#define ASYNC_CHECK_FATAL(expr, message) do { \
+#define ASYNC_CHECK_FATAL(expr, message, ...) do { \
 	if (UNEXPECTED(expr)) { \
 		zend_error_noreturn(E_CORE_ERROR, message, __VA_ARGS__); \
 	} \
