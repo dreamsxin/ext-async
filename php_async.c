@@ -196,13 +196,13 @@ static void async_gethostbyname_uv(char *name, zval *return_value, zend_execute_
 	req->data = q;
 
 	loop = async_task_scheduler_get_loop();
-	err = uv_getaddrinfo(loop, req, async_gethostbyname_cb, name, "80", NULL);
+	err = uv_getaddrinfo(loop, req, async_gethostbyname_cb, name, NULL, NULL);
 
 	if (err != 0) {
 		efree(req);
 		efree(q);
 
-		zend_throw_error(NULL, "Failed to start DNS request to resolve \"%s\"; %s", name, uv_strerror(err));
+		zend_throw_error(NULL, "Failed to start DNS request to resolve \"%s\": %s", name, uv_strerror(err));
 		return;
 	}
 
