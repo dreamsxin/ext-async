@@ -2,6 +2,10 @@
 
 namespace Concurrent;
 
+$host = 'www.google.com';
+
+var_dump($host, gethostbyname($host));
+
 $var = new ContextVar();
 
 var_dump($var->get());

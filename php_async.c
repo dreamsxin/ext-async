@@ -19,7 +19,10 @@
 #include "php_async.h"
 
 #include "async_fiber.h"
+#include "async_task.h"
+
 #include "ext/standard/info.h"
+#include "SAPI.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
@@ -134,10 +137,120 @@ static PHP_RSHUTDOWN_FUNCTION(async)
 	return SUCCESS;
 }
 
+
+static zend_string *async_gethostbyname(char *name)
+{
+	struct hostent *hp;
+	struct in_addr in;
+	char *address;
+
+	hp = php_network_gethostbyname(name);
+
+	if (!hp || !*(hp->h_addr_list)) {
+		return NULL;
+	}
+
+	memcpy(&in.s_addr, *(hp->h_addr_list), sizeof(in.s_addr));
+
+	address = inet_ntoa(in);
+	return zend_string_init(address, strlen(address), 0);
+}
+
+static void async_gethostbyname_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *res)
+{
+	async_awaitable_queue *q;
+	char name[64];
+
+	zval result;
+
+	if (res->ai_addrlen == 16) {
+		uv_ip4_name((struct sockaddr_in*) res->ai_addr, name, res->ai_addrlen);
+	} else {
+		uv_ip6_name((struct sockaddr_in6*) res->ai_addr, name, res->ai_addrlen);
+	}
+
+	ZVAL_STRING(&result, name);
+
+	uv_freeaddrinfo(res);
+
+	q = (async_awaitable_queue *) req->data;
+
+	async_awaitable_trigger_continuation(q, &result, 1);
+
+	zval_ptr_dtor(&result);
+}
+
+static void async_gethostbyname_uv(char *name, zval *return_value, zend_execute_data *execute_data)
+{
+	async_awaitable_queue *q;
+
+	uv_loop_t *loop;
+	uv_getaddrinfo_t *req;
+
+	int err;
+
+	q = emalloc(sizeof(async_awaitable_queue));
+	ZEND_SECURE_ZERO(q, sizeof(async_awaitable_queue));
+
+	req = emalloc(sizeof(uv_getaddrinfo_t));
+	req->data = q;
+
+	loop = async_task_scheduler_get_loop();
+	err = uv_getaddrinfo(loop, req, async_gethostbyname_cb, name, "80", NULL);
+
+	if (err != 0) {
+		efree(req);
+		efree(q);
+
+		zend_throw_error(NULL, "Failed to start DNS request to resolve \"%s\"; %s", name, uv_strerror(err));
+		return;
+	}
+
+	async_task_suspend(q, return_value, execute_data);
+
+	efree(req);
+	efree(q);
+}
+
+PHP_FUNCTION(gethostbyname)
+{
+	char *name;
+	size_t len;
+	zend_string *ip;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_STRING(name, len)
+	ZEND_PARSE_PARAMETERS_END();
+
+	ASYNC_CHECK_ERROR(len > MAXFQDNLEN, "Host name is too long, the limit is %d characters", MAXFQDNLEN);
+
+	if (0 == strcmp(sapi_module.name, "cli") || 0 == strcmp(sapi_module.name, "phpdbg")) {
+		async_gethostbyname_uv(name, return_value, execute_data);
+
+		return;
+	}
+
+	ip = async_gethostbyname(name);
+
+	ASYNC_CHECK_ERROR(ip == NULL, "Failed to resolve \"%s\" into an IP address", name);
+
+	RETURN_STR(ip);
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_async_gethostbyname, 0, 1, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+static zend_function_entry async_functions[] = {
+	ZEND_NS_FE("Concurrent", gethostbyname, arginfo_async_gethostbyname)
+	PHP_FE_END
+};
+
+
 zend_module_entry async_module_entry = {
 	STANDARD_MODULE_HEADER,
 	"async",
-	NULL,
+	async_functions,
 	PHP_MINIT(async),
 	PHP_MSHUTDOWN(async),
 	PHP_RINIT(async),

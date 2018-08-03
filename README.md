@@ -190,6 +190,16 @@ final class Fiber
 }
 ```
 
+### Functions
+
+An async version of `gethostbyname()` is provided to allow non-blocking DNS name resolution. This requires PHP to be run via `cli` or `phpdbg` SAPI, any other API will fallback to synchronous resolution for now (the function can still be used in these cases, but it will block until the name is resolved).
+
+```php
+namespace Concurrent;
+
+function gethostbyname(string $host): string { }
+```
+
 ## Async / Await Keyword Transformation
 
 The extension provides `Task::async()` and `Task::await()` static methods that are implemented in a way that allows for a very simple transformation to the keywords `async` and `await` which could be introduced into PHP some time in the future.
