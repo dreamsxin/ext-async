@@ -87,6 +87,7 @@ ASYNC_API extern zend_class_entry *async_context_var_ce;
 ASYNC_API extern zend_class_entry *async_deferred_ce;
 ASYNC_API extern zend_class_entry *async_deferred_awaitable_ce;
 ASYNC_API extern zend_class_entry *async_fiber_ce;
+ASYNC_API extern zend_class_entry *async_signal_watcher_ce;
 ASYNC_API extern zend_class_entry *async_stream_watcher_ce;
 ASYNC_API extern zend_class_entry *async_task_ce;
 ASYNC_API extern zend_class_entry *async_task_scheduler_ce;
@@ -97,6 +98,7 @@ void async_awaitable_ce_register();
 void async_context_ce_register();
 void async_deferred_ce_register();
 void async_fiber_ce_register();
+void async_signal_watcher_ce_register();
 void async_stream_watcher_ce_register();
 void async_task_ce_register();
 void async_task_scheduler_ce_register();
@@ -120,6 +122,7 @@ typedef struct _async_deferred_transform            async_deferred_transform;
 typedef struct _async_enable_cb                     async_enable_cb;
 typedef struct _async_enable_queue                  async_enable_queue;
 typedef struct _async_fiber                         async_fiber;
+typedef struct _async_signal_watcher                async_signal_watcher;
 typedef struct _async_stream_watcher                async_stream_watcher;
 typedef struct _async_task                          async_task;
 typedef struct _async_task_suspended                async_task_suspended;
@@ -150,6 +153,14 @@ extern const zend_uchar ASYNC_FIBER_STATUS_SUSPENDED;
 extern const zend_uchar ASYNC_FIBER_STATUS_RUNNING;
 extern const zend_uchar ASYNC_FIBER_STATUS_FINISHED;
 extern const zend_uchar ASYNC_FIBER_STATUS_FAILED;
+
+extern const int ASYNC_SIGNAL_SIGINT;
+extern const int ASYNC_SIGNAL_SIGHUP;
+extern const int ASYNC_SIGNAL_SIGQUIT;
+extern const int ASYNC_SIGNAL_SIGKILL;
+extern const int ASYNC_SIGNAL_SIGTERM;
+extern const int ASYNC_SIGNAL_SIGUSR1;
+extern const int ASYNC_SIGNAL_SIGUSR2;
 
 extern const zend_uchar ASYNC_TASK_OPERATION_NONE;
 extern const zend_uchar ASYNC_TASK_OPERATION_START;
@@ -286,6 +297,29 @@ struct _async_fiber {
 
 	zend_string *file;
 	size_t line;
+};
+
+struct _async_signal_watcher {
+	/* PHP object handle. */
+	zend_object std;
+
+	/* Error being set as the watcher was closed (undef by default). */
+	zval error;
+
+	int signum;
+
+	uv_signal_t signal;
+
+	async_awaitable_queue observers;
+
+	zend_uchar ref_count;
+	zend_uchar unref_count;
+
+	zend_bool running;
+	zend_bool new_running;
+
+	async_task_scheduler *scheduler;
+	async_enable_cb enable;
 };
 
 struct _async_stream_watcher {

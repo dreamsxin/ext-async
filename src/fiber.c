@@ -23,9 +23,6 @@
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
-#define REGISTER_FIBER_CLASS_CONST_LONG(const_name, value) \
-	zend_declare_class_constant_long(async_fiber_ce, const_name, sizeof(const_name)-1, (zend_long)value);
-
 zend_class_entry *async_fiber_ce;
 
 const zend_uchar ASYNC_FIBER_TYPE_DEFAULT = 0;
@@ -41,6 +38,9 @@ static zend_object_handlers async_fiber_handlers;
 static zend_op_array fiber_run_func;
 static zend_try_catch_element fiber_terminate_try_catch_array = { 0, 1, 0, 0 };
 static zend_op fiber_run_op[2];
+
+#define ASYNC_FIBER_CONST(const_name, value) \
+	zend_declare_class_constant_long(async_fiber_ce, const_name, sizeof(const_name)-1, (zend_long)value);
 
 
 void async_fiber_init_metadata(async_fiber *fiber, zend_execute_data *call)
@@ -539,11 +539,11 @@ void async_fiber_ce_register()
 	async_fiber_handlers.free_obj = async_fiber_object_destroy;
 	async_fiber_handlers.clone_obj = NULL;
 
-	REGISTER_FIBER_CLASS_CONST_LONG("STATUS_INIT", ASYNC_FIBER_STATUS_INIT);
-	REGISTER_FIBER_CLASS_CONST_LONG("STATUS_SUSPENDED", ASYNC_FIBER_STATUS_SUSPENDED);
-	REGISTER_FIBER_CLASS_CONST_LONG("STATUS_RUNNING", ASYNC_FIBER_STATUS_RUNNING);
-	REGISTER_FIBER_CLASS_CONST_LONG("STATUS_FINISHED", ASYNC_FIBER_STATUS_FINISHED);
-	REGISTER_FIBER_CLASS_CONST_LONG("STATUS_FAILED", ASYNC_FIBER_STATUS_FAILED);
+	ASYNC_FIBER_CONST("STATUS_INIT", ASYNC_FIBER_STATUS_INIT);
+	ASYNC_FIBER_CONST("STATUS_SUSPENDED", ASYNC_FIBER_STATUS_SUSPENDED);
+	ASYNC_FIBER_CONST("STATUS_RUNNING", ASYNC_FIBER_STATUS_RUNNING);
+	ASYNC_FIBER_CONST("STATUS_FINISHED", ASYNC_FIBER_STATUS_FINISHED);
+	ASYNC_FIBER_CONST("STATUS_FAILED", ASYNC_FIBER_STATUS_FAILED);
 }
 
 void async_fiber_ce_unregister()

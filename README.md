@@ -153,6 +153,33 @@ final class Watcher
 }
 ```
 
+### SignalWatcher
+
+A `SignalWatcher` observes UNIX signals (limited support on Windows). The watcher should be closed when it is no longer needed to free internal resources. The current task will be suspended during calls to `awaitSignal()` and continue once the signal has been received. You can use `isSupported()` to check if the passed signal can be observed. Windows systems only support `SIGHUP` (console window closed) and `SIGINT` (CTRL + C) handling.
+
+```php
+namespace Concurrent;
+
+final class SignalWatcher
+{
+    public const SIGHUP;
+    public const SIGINT;
+    public const SIGQUIT;
+    public const SIGKILL;
+    public const SIGTERM;
+    public const SIGUSR1;
+    public const SIGUSR2;
+
+    public function __construct(int $signum) { }
+    
+    public function close(?\Throwable $e = null): void { }
+    
+    public function awaitSignal(): void { }
+    
+    public static function isSupported(int $signum): bool { }
+}
+```
+
 ### Fiber
 
 A lower-level API for concurrent callback execution is available through the `Fiber` API. The underlying stack-switching is the same as in the `Task` implementation but fibers do not come with a scheduler or a higher level abstraction of continuations. A fiber must be started and resumed by the caller in PHP userland. Calling `Fiber::yield()` will suspend the fiber and return the yielded value to `start()`, `resume()` or `throw()`. The `status()` method is needed to check if the fiber has been run to completion yet.
@@ -162,15 +189,11 @@ namespace Concurrent;
 
 final class Fiber
 {
-    public const STATUS_INIT = 0;
-    
-    public const STATUS_SUSPENDED = 1;
-    
-    public const STATUS_RUNNING = 2;
-    
-    public const STATUS_FINISHED = 64;
-    
-    public const STATUS_FAILED = 65;
+    public const STATUS_INIT;
+    public const STATUS_SUSPENDED;
+    public const STATUS_RUNNING;
+    public const STATUS_FINISHED;
+    public const STATUS_FAILED;
     
     public function __construct(callable $callback, ?int $stack_size = null) { }
     

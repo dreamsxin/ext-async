@@ -29,6 +29,30 @@ ZEND_DECLARE_MODULE_GLOBALS(async)
 static void async_execute_ex(zend_execute_data *exec);
 static void (*orig_execute_ex)(zend_execute_data *exec);
 
+const int ASYNC_SIGNAL_SIGHUP = 1;
+const int ASYNC_SIGNAL_SIGINT = 2;
+
+#ifdef PHP_WIN32
+const int ASYNC_SIGNAL_SIGQUIT = -1;
+const int ASYNC_SIGNAL_SIGKILL = -1;
+const int ASYNC_SIGNAL_SIGTERM = -1;
+#else
+const int ASYNC_SIGNAL_SIGQUIT = 3;
+const int ASYNC_SIGNAL_SIGKILL = 9;
+const int ASYNC_SIGNAL_SIGTERM = 15;
+#endif
+
+#ifdef SIGUSR1
+const int ASYNC_SIGNAL_SIGUSR1 = SIGUSR1;
+#else
+const int ASYNC_SIGNAL_SIGUSR1 = -1;
+#endif
+
+#ifdef SIGUSR2
+const int ASYNC_SIGNAL_SIGUSR2 = SIGUSR2;
+#else
+const int ASYNC_SIGNAL_SIGUSR2 = -1;
+#endif
 
 /* Custom executor being used to run the task scheduler before shutdown functions. */
 static void async_execute_ex(zend_execute_data *exec)
@@ -78,6 +102,7 @@ PHP_MINIT_FUNCTION(async)
 	async_context_ce_register();
 	async_deferred_ce_register();
 	async_fiber_ce_register();
+	async_signal_watcher_ce_register();
 	async_stream_watcher_ce_register();
 	async_task_ce_register();
 	async_task_scheduler_ce_register();
@@ -212,7 +237,7 @@ static void async_gethostbyname_uv(char *name, zval *return_value, zend_execute_
 	efree(q);
 }
 
-PHP_FUNCTION(gethostbyname)
+static PHP_FUNCTION(gethostbyname)
 {
 	char *name;
 	size_t len;
