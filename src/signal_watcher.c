@@ -165,6 +165,8 @@ ZEND_METHOD(SignalWatcher, __construct)
 	    Z_PARAM_LONG(signum)
 	ZEND_PARSE_PARAMETERS_END();
 
+	ASYNC_CHECK_ERROR(!async_cli, "Signal watchers require PHP running in CLI mode");
+
 	watcher = (async_signal_watcher *) Z_OBJ_P(getThis());
 
 	ASYNC_CHECK_ERROR(signum < 1, "Invalid signal number: %d", (int) signum);
@@ -283,6 +285,10 @@ ZEND_METHOD(SignalWatcher, isSupported)
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_LONG(tmp)
 	ZEND_PARSE_PARAMETERS_END();
+
+	if (!async_cli) {
+		RETURN_FALSE;
+	}
 
 	signum = (int) tmp;
 

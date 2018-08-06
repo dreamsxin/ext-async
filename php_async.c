@@ -26,6 +26,8 @@
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
+zend_bool async_cli;
+
 static void async_execute_ex(zend_execute_data *exec);
 static void (*orig_execute_ex)(zend_execute_data *exec);
 
@@ -98,6 +100,12 @@ static PHP_GINIT_FUNCTION(async)
 
 PHP_MINIT_FUNCTION(async)
 {
+	async_cli = 0;
+
+	if (0 == strcmp(sapi_module.name, "cli") || 0 == strcmp(sapi_module.name, "phpdbg")) {
+		async_cli = 1;
+	}
+
 	async_awaitable_ce_register();
 	async_context_ce_register();
 	async_deferred_ce_register();
@@ -249,7 +257,7 @@ static PHP_FUNCTION(gethostbyname)
 
 	ASYNC_CHECK_ERROR(len > MAXFQDNLEN, "Host name is too long, the limit is %d characters", MAXFQDNLEN);
 
-	if (0 == strcmp(sapi_module.name, "cli") || 0 == strcmp(sapi_module.name, "phpdbg")) {
+	if (async_cli) {
 		async_gethostbyname_uv(name, return_value, execute_data);
 
 		return;

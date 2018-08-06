@@ -80,6 +80,7 @@ typedef struct {
 #define ASYNC_OP_RESOLVED 64
 #define ASYNC_OP_FAILED 65
 
+ASYNC_API extern zend_bool async_cli;
 
 ASYNC_API extern zend_class_entry *async_awaitable_ce;
 ASYNC_API extern zend_class_entry *async_context_ce;
