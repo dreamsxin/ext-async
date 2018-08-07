@@ -98,6 +98,10 @@ final class Context
     
     public function run(callable $callback, ...$args): mixed { }
     
+    public function isCancelled(): bool { }
+    
+    public function throwIfCancelled(): void { }
+    
     public static function current(): Context { }
     
     public static function background(): Context { }

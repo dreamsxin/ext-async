@@ -19,7 +19,16 @@ Task::asyncWithContext($handler->context(), function () {
     });
     
     var_dump('AWAIT DEFERRED');
+    var_dump(Context::current()->isCancelled());
+    
     var_dump(Task::await($defer->awaitable()));
+    var_dump(Context::current()->isCancelled());
+    
+    try {
+        Context::current()->throwIfCancelled();
+    } catch (\Throwable $e) {
+        var_dump($e->getMessage());
+    }
 });
 
 var_dump('START TIMER');
@@ -38,7 +47,10 @@ var_dump('DONE');
 --EXPECT--
 string(11) "START TIMER"
 string(14) "AWAIT DEFERRED"
+bool(false)
 string(10) "=> CANCEL!"
 string(26) "Context has been cancelled"
 int(777)
+bool(true)
+string(26) "Context has been cancelled"
 string(4) "DONE"

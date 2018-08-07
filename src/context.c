@@ -144,6 +144,7 @@ ZEND_METHOD(Context, run)
 {
 	async_context *context;
 	async_context *prev;
+
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
 	uint32_t count;
@@ -180,6 +181,38 @@ ZEND_METHOD(Context, run)
 	}
 
 	RETURN_ZVAL(&result, 1, 1);
+}
+
+ZEND_METHOD(Context, isCancelled)
+{
+	async_context *context;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	context = (async_context *) Z_OBJ_P(getThis());
+
+	if (context->cancel == NULL || Z_TYPE_P(&context->cancel->error) == IS_UNDEF) {
+		RETURN_FALSE;
+	}
+
+	RETURN_TRUE;
+}
+
+ZEND_METHOD(Context, throwIfCancelled)
+{
+	async_context *context;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	context = (async_context *) Z_OBJ_P(getThis());
+
+	if (context->cancel && Z_TYPE_P(&context->cancel->error) != IS_UNDEF) {
+		Z_ADDREF_P(&context->cancel->error);
+
+		execute_data->opline--;
+		zend_throw_exception_internal(&context->cancel->error);
+		execute_data->opline++;
+	}
 }
 
 ZEND_METHOD(Context, current)
@@ -228,6 +261,12 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_context_run, 0, 0, 1)
 	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_context_is_cancelled, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO(arginfo_context_throw_if_cancelled, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_current, 0, 0, Concurrent\\Context, 0)
 ZEND_END_ARG_INFO()
 
@@ -238,6 +277,8 @@ static const zend_function_entry async_context_functions[] = {
 	ZEND_ME(Context, __construct, arginfo_context_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
 	ZEND_ME(Context, with, arginfo_context_with, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, run, arginfo_context_run, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, isCancelled, arginfo_context_is_cancelled, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, throwIfCancelled, arginfo_context_throw_if_cancelled, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, current, arginfo_context_current, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Context, background, arginfo_context_background, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_FE_END
