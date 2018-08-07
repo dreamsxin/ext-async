@@ -175,7 +175,7 @@ static void suspend_continuation(void *obj, zval *data, zval *result, zend_bool 
 	async_task_scheduler_stop_loop(suspended->scheduler);
 }
 
-static void cancel_suspend(void *obj, zval *error)
+static void cancel_suspend(void *obj, zval *error, async_cancel_cb *cb)
 {
 	async_task *task;
 
@@ -186,6 +186,8 @@ static void cancel_suspend(void *obj, zval *error)
 	task->fiber.value = NULL;
 
 	async_task_scheduler_enqueue(task);
+
+	efree(cb);
 }
 
 void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool cancellable)
@@ -289,6 +291,8 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 	if (cancellable && context->cancel != NULL) {
 		if (task->suspended == NULL) {
 			ASYNC_Q_DETACH(&context->cancel->callbacks, cancel);
+
+			efree(cancel);
 		}
 
 		OBJ_RELEASE(&context->std);

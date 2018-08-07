@@ -31,7 +31,7 @@ static zend_object_handlers async_deferred_handlers;
 static zend_object_handlers async_deferred_awaitable_handlers;
 
 
-#define ASYNC_DEFERRE_CLEANUP_CANCEL(defer) do { \
+#define ASYNC_DEFERRED_CLEANUP_CANCEL(defer) do { \
 	if (defer->context != NULL) { \
 			if (defer->cancel != NULL) { \
 				ASYNC_Q_DETACH(&defer->context->cancel->callbacks, defer->cancel); \
@@ -44,7 +44,7 @@ static zend_object_handlers async_deferred_awaitable_handlers;
 } while (0);
 
 
-static void cancel_defer(void *obj, zval* error)
+static void cancel_defer(void *obj, zval* error, async_cancel_cb *cb)
 {
 	async_deferred *defer;
 
@@ -79,6 +79,8 @@ static void cancel_defer(void *obj, zval* error)
 	}
 
 	zval_ptr_dtor(&defer->fci.function_name);
+
+	efree(cb);
 
 	ASYNC_CHECK_FATAL(UNEXPECTED(EG(exception)), "Must not throw an error from cancellation handler");
 }
@@ -160,7 +162,7 @@ static void combine_continuation(void *obj, zval *data, zval *result, zend_bool 
 			ZVAL_OBJ(&combined->defer->result, EG(exception));
 			EG(exception) = NULL;
 
-			ASYNC_DEFERRE_CLEANUP_CANCEL(combined->defer);
+			ASYNC_DEFERRED_CLEANUP_CANCEL(combined->defer);
 
 			async_awaitable_trigger_continuation(&combined->defer->continuation, &combined->defer->result, 0);
 		} else {
@@ -179,7 +181,7 @@ static void combine_continuation(void *obj, zval *data, zval *result, zend_bool 
 			ZVAL_OBJ(&combined->defer->result, EG(exception));
 			EG(exception) = NULL;
 
-			ASYNC_DEFERRE_CLEANUP_CANCEL(combined->defer);
+			ASYNC_DEFERRED_CLEANUP_CANCEL(combined->defer);
 
 			async_awaitable_trigger_continuation(&combined->defer->continuation, &combined->defer->result, 0);
 		}
@@ -225,7 +227,7 @@ static void transform_continuation(void *obj, zval *data, zval *result, zend_boo
 	zval_ptr_dtor(&args[0]);
 	zval_ptr_dtor(&args[1]);
 
-	ASYNC_DEFERRE_CLEANUP_CANCEL(trans->defer);
+	ASYNC_DEFERRED_CLEANUP_CANCEL(trans->defer);
 
 	if (UNEXPECTED(EG(exception))) {
 		trans->defer->status = ASYNC_DEFERRED_STATUS_FAILED;
@@ -347,7 +349,7 @@ static void async_deferred_object_destroy(zend_object *object)
 
 	zval_ptr_dtor(&defer->result);
 
-	ASYNC_DEFERRE_CLEANUP_CANCEL(defer);
+	ASYNC_DEFERRED_CLEANUP_CANCEL(defer);
 
 	zend_object_std_dtor(&defer->std);
 }
@@ -368,15 +370,7 @@ ZEND_METHOD(Deferred, __construct)
 	if (ZEND_NUM_ARGS() > 0) {
 		context = async_context_get();
 
-		do {
-			if (context->cancel != NULL) {
-				break;
-			}
-
-			context = context->parent;
-		} while (context != NULL);
-
-		if (context != NULL) {
+		if (context->cancel != NULL) {
 			cancel = emalloc(sizeof(async_cancel_cb));
 			ZEND_SECURE_ZERO(cancel, sizeof(async_cancel_cb));
 
@@ -461,7 +455,7 @@ ZEND_METHOD(Deferred, resolve)
 
 	defer->status = ASYNC_DEFERRED_STATUS_RESOLVED;
 
-	ASYNC_DEFERRE_CLEANUP_CANCEL(defer);
+	ASYNC_DEFERRED_CLEANUP_CANCEL(defer);
 
 	async_awaitable_trigger_continuation(&defer->continuation, &defer->result, 1);
 }
@@ -486,7 +480,7 @@ ZEND_METHOD(Deferred, fail)
 
 	defer->status = ASYNC_DEFERRED_STATUS_FAILED;
 
-	ASYNC_DEFERRE_CLEANUP_CANCEL(defer);
+	ASYNC_DEFERRED_CLEANUP_CANCEL(defer);
 
 	async_awaitable_trigger_continuation(&defer->continuation, &defer->result, 0);
 }

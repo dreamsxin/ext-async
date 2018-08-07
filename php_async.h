@@ -140,7 +140,7 @@ typedef struct _async_timer                         async_timer;
 typedef void* async_fiber_context;
 
 typedef void (* async_awaitable_func)(void *obj, zval *data, zval *result, zend_bool success);
-typedef void (* async_cancel_func)(void *obj, zval *error);
+typedef void (* async_cancel_func)(void *obj, zval *error, async_cancel_cb *cb);
 
 typedef void (* async_fiber_func)();
 typedef void (* async_fiber_run_func)(async_fiber *fiber);
@@ -228,8 +228,13 @@ struct _async_cancellation_handler {
 	/* Cancellable context instance. */
 	async_context *context;
 
+	/* Error that caused cancellation, UNDEF by default. */
 	zval error;
 
+	/* Chain handler that connects the cancel handler to the parent handler. */
+	async_cancel_cb chain;
+
+	/* Linked list of cancellation callbacks. */
 	async_cancel_queue callbacks;
 };
 

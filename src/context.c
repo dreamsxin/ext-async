@@ -359,6 +359,22 @@ static const zend_function_entry async_context_var_functions[] = {
 };
 
 
+static void chain_handler(void *obj, zval *error, async_cancel_cb *cb)
+{
+	async_cancellation_handler *handler;
+	async_cancel_cb *cancel;
+
+	handler = (async_cancellation_handler *) obj;
+
+	ZVAL_COPY(&handler->error, error);
+
+	while (handler->callbacks.first != NULL) {
+		ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);
+
+		cancel->func(cancel->object, &handler->error, cancel);
+	}
+}
+
 static zend_object *async_cancellation_handler_object_create(zend_class_entry *ce)
 {
 	async_cancellation_handler *handler;
@@ -377,18 +393,23 @@ static zend_object *async_cancellation_handler_object_create(zend_class_entry *c
 static void async_cancellation_handler_object_destroy(zend_object *object)
 {
 	async_cancellation_handler *handler;
-	async_cancel_cb *cancel;
+	async_context *parent;
 
 	handler = (async_cancellation_handler *) object;
 
-	if (handler->context != NULL) {
-		while (handler->callbacks.first != NULL) {
-			ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);
+	ZEND_ASSERT(handler->callbacks.first == NULL);
 
-			efree(cancel);
+	if (handler->context != NULL) {
+		if (handler->context->parent != NULL) {
+			parent = handler->context->parent;
+
+			if (parent->cancel != NULL) {
+				ASYNC_Q_DETACH(&parent->cancel->callbacks, &handler->chain);
+			}
+
+			OBJ_RELEASE(&parent->std);
 		}
 
-		OBJ_RELEASE(&handler->context->parent->std);
 		OBJ_RELEASE(&handler->context->std);
 	}
 
@@ -428,6 +449,20 @@ ZEND_METHOD(CancellationHandler, __construct)
 
 	GC_ADDREF(&prev->std);
 	GC_ADDREF(&handler->std);
+
+	// Connect cancellation to parent cancellation handler.
+	if (prev->cancel != NULL) {
+		if (Z_TYPE_P(&prev->cancel->error) != IS_UNDEF) {
+			ZVAL_COPY(&handler->error, &prev->cancel->error);
+
+			return;
+		}
+
+		handler->chain.object = handler;
+		handler->chain.func = chain_handler;
+
+		ASYNC_Q_ENQUEUE(&prev->cancel->callbacks, &handler->chain);
+	}
 }
 
 ZEND_METHOD(CancellationHandler, context)
@@ -461,6 +496,10 @@ ZEND_METHOD(CancellationHandler, cancel)
 
 	handler = (async_cancellation_handler *) Z_OBJ_P(getThis());
 
+	if (Z_TYPE_P(&handler->error) != IS_UNDEF) {
+		return;
+	}
+
 	zend_throw_error(NULL, "Context has been cancelled");
 
 	ZVAL_OBJ(&handler->error, EG(exception));
@@ -474,9 +513,7 @@ ZEND_METHOD(CancellationHandler, cancel)
 	while (handler->callbacks.first != NULL) {
 		ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);
 
-		cancel->func(cancel->object, &handler->error);
-
-		efree(cancel);
+		cancel->func(cancel->object, &handler->error, cancel);
 	}
 }
 
