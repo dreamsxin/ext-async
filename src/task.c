@@ -175,13 +175,28 @@ static void suspend_continuation(void *obj, zval *data, zval *result, zend_bool 
 	async_task_scheduler_stop_loop(suspended->scheduler);
 }
 
-void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data)
+static void cancel_suspend(void *obj, zval *error)
+{
+	async_task *task;
+
+	task = (async_task *) obj;
+
+	ZVAL_COPY(&task->error, error);
+
+	task->fiber.value = NULL;
+
+	async_task_scheduler_enqueue(task);
+}
+
+void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool cancellable)
 {
 	async_fiber *fiber;
 	async_task *task;
 	async_task_scheduler *scheduler;
 	async_awaitable_cb *cont;
 	async_context *context;
+	async_context *ctx;
+	async_cancel_cb *cancel;
 	async_task_suspended info;
 	size_t stack_page_size;
 
@@ -235,18 +250,64 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 
 	ASYNC_CHECK_ERROR(!ASYNC_G(current_scheduler)->dispatching, "Cannot await while the task scheduler is not dispatching tasks");
 
+	context = ASYNC_G(current_context);
+
+	if (cancellable) {
+		ctx = context;
+
+		do {
+			if (ctx->cancel != NULL) {
+				break;
+			}
+
+			ctx = ctx->parent;
+		} while (ctx != NULL);
+
+		if (ctx != NULL) {
+			// Context is already cancelled.
+			if (Z_TYPE_P(&ctx->cancel->error) != IS_UNDEF) {
+				Z_ADDREF_P(&ctx->cancel->error);
+
+				execute_data->opline--;
+				zend_throw_exception_internal(&ctx->cancel->error);
+				execute_data->opline++;
+
+				return;
+			}
+
+			cancel = emalloc(sizeof(async_cancel_cb));
+			ZEND_SECURE_ZERO(cancel, sizeof(async_cancel_cb));
+
+			cancel->object = task;
+			cancel->func = cancel_suspend;
+
+			ASYNC_Q_ENQUEUE(&ctx->cancel->callbacks, cancel);
+
+			GC_ADDREF(&ctx->std);
+		}
+	} else {
+		ctx = NULL;
+	}
+
 	task->suspended = async_awaitable_register_continuation(q, task, NULL, task_continuation);
 
 	task->fiber.value = USED_RET() ? return_value : NULL;
 	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
-
-	context = ASYNC_G(current_context);
 
 	ASYNC_FIBER_BACKUP_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
 	ASYNC_CHECK_FATAL(!async_fiber_yield(task->fiber.context), "Failed to yield from fiber");
 	ASYNC_FIBER_RESTORE_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
 
 	ASYNC_G(current_context) = context;
+
+	// Dispose of cancel handler if task continued without cancellation.
+	if (ctx != NULL) {
+		if (task->suspended == NULL) {
+			ASYNC_Q_DETACH(&ctx->cancel->callbacks, cancel);
+		}
+
+		OBJ_RELEASE(&ctx->std);
+	}
 
 	// Dispose of continuation if task continues before continuation fired.
 	if (task->suspended != NULL) {

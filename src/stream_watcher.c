@@ -154,7 +154,7 @@ static inline void suspend(async_stream_watcher *watcher, async_awaitable_queue 
 		}
 	}
 
-	async_task_suspend(q, return_value, execute_data);
+	async_task_suspend(q, return_value, execute_data, 1);
 
 	if (context->background) {
 		watcher->unref_count--;

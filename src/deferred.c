@@ -44,7 +44,7 @@ static zend_object_handlers async_deferred_awaitable_handlers;
 } while (0);
 
 
-static void cancel_defer(void *obj, zval* error, async_cancel_cb *cancel)
+static void cancel_defer(void *obj, zval* error)
 {
 	async_deferred *defer;
 
@@ -62,12 +62,12 @@ static void cancel_defer(void *obj, zval* error, async_cancel_cb *cancel)
 
 	ZVAL_COPY(&args[1], error);
 
-	cancel->fci.param_count = 2;
-	cancel->fci.params = args;
-	cancel->fci.retval = &retval;
-	cancel->fci.no_separation = 1;
+	defer->fci.param_count = 2;
+	defer->fci.params = args;
+	defer->fci.retval = &retval;
+	defer->fci.no_separation = 1;
 
-	zend_call_function(&cancel->fci, &cancel->fcc);
+	zend_call_function(&defer->fci, &defer->fcc);
 
 	zval_ptr_dtor(&args[0]);
 	zval_ptr_dtor(&args[1]);
@@ -78,7 +78,7 @@ static void cancel_defer(void *obj, zval* error, async_cancel_cb *cancel)
 		defer->context = NULL;
 	}
 
-	zval_ptr_dtor(&cancel->fci.function_name);
+	zval_ptr_dtor(&defer->fci.function_name);
 
 	ASYNC_CHECK_FATAL(UNEXPECTED(EG(exception)), "Must not throw an error from cancellation handler");
 }
@@ -358,16 +358,14 @@ ZEND_METHOD(Deferred, __construct)
 	async_context *context;
 	async_cancel_cb *cancel;
 
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
+	defer = (async_deferred *) Z_OBJ_P(getThis());
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
+		Z_PARAM_FUNC_EX(defer->fci, defer->fcc, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if (ZEND_NUM_ARGS() > 0) {
-		defer = (async_deferred *) Z_OBJ_P(getThis());
 		context = async_context_get();
 
 		do {
@@ -384,10 +382,8 @@ ZEND_METHOD(Deferred, __construct)
 
 			cancel->object = defer;
 			cancel->func = cancel_defer;
-			cancel->fci = fci;
-			cancel->fcc = fcc;
 
-			Z_TRY_ADDREF_P(&fci.function_name);
+			Z_TRY_ADDREF_P(&defer->fci.function_name);
 
 			defer->context = context;
 

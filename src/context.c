@@ -342,8 +342,6 @@ static void async_cancellation_handler_object_destroy(zend_object *object)
 		while (handler->callbacks.first != NULL) {
 			ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);
 
-			zval_ptr_dtor(&cancel->fci.function_name);
-
 			efree(cancel);
 		}
 
@@ -363,12 +361,20 @@ ZEND_METHOD(CancellationHandler, __construct)
 
 	zval *val;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+	val = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
 		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
 
 	handler = (async_cancellation_handler *) Z_OBJ_P(getThis());
-	prev = (async_context *) Z_OBJ_P(val);
+
+	if (val == NULL || Z_TYPE_P(val) == IS_NULL) {
+		prev = async_context_get();
+	} else {
+		prev = (async_context *) Z_OBJ_P(val);
+	}
 
 	handler->context = async_context_object_create(NULL, NULL);
 	handler->context->parent = prev;
@@ -422,14 +428,14 @@ ZEND_METHOD(CancellationHandler, cancel)
 	while (handler->callbacks.first != NULL) {
 		ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);
 
-		cancel->func(cancel->object, &handler->error, cancel);
+		cancel->func(cancel->object, &handler->error);
 
 		efree(cancel);
 	}
 }
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_cancellation_handler_ctor, 0, 0, 1)
-	ZEND_ARG_OBJ_INFO(0, context, Concurrent\\Context, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_cancellation_handler_ctor, 0, 0, 0)
+	ZEND_ARG_OBJ_INFO(0, context, Concurrent\\Context, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO(arginfo_cancellation_handler_context, 0)

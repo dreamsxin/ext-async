@@ -96,7 +96,7 @@ static inline void suspend(async_signal_watcher *watcher, zval *return_value, ze
 		}
 	}
 
-	async_task_suspend(&watcher->observers, return_value, execute_data);
+	async_task_suspend(&watcher->observers, return_value, execute_data, 1);
 
 	if (context->background) {
 		watcher->unref_count--;

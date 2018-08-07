@@ -140,7 +140,7 @@ typedef struct _async_timer                         async_timer;
 typedef void* async_fiber_context;
 
 typedef void (* async_awaitable_func)(void *obj, zval *data, zval *result, zend_bool success);
-typedef void (* async_cancel_func)(void *obj, zval *error, async_cancel_cb *cancel);
+typedef void (* async_cancel_func)(void *obj, zval *error);
 
 typedef void (* async_fiber_func)();
 typedef void (* async_fiber_run_func)(async_fiber *fiber);
@@ -198,8 +198,6 @@ struct _async_awaitable_queue {
 struct _async_cancel_cb {
 	void *object;
 	async_cancel_func func;
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
 	async_cancel_cb *prev;
 	async_cancel_cb *next;
 };
@@ -273,6 +271,9 @@ struct _async_deferred {
 	async_context *context;
 
 	async_cancel_cb *cancel;
+
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
 
 	/* Linked list of registered continuation callbacks. */
 	async_awaitable_queue continuation;
@@ -528,7 +529,7 @@ ASYNC_API void async_awaitable_trigger_continuation(async_awaitable_queue *q, zv
 
 ASYNC_API async_context *async_context_get();
 
-ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data);
+ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool cancellable);
 
 ASYNC_API uv_loop_t *async_task_scheduler_get_loop();
 ASYNC_API async_task_scheduler *async_task_scheduler_get();

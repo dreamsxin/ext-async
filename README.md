@@ -117,6 +117,23 @@ final class ContextVar
 }
 ```
 
+### CancellationHandler
+
+You can use a `CancellationHandler` to inherit a cancellable `Context` from any context. The cancellation handler uses the context passed to the constructor (or the current context when no context is passed) and provides a derived context with cancellation handling via `context()`. A call to `cancel()` will cancel the provided context, the optional error argument will registered as previous error with the cancellation exception.
+
+```php
+namespace Concurrent;
+
+final class CancellationHandler
+{
+    public function __construct(?Context $context = null) { }
+    
+    public function context(): Context { }
+    
+    public function cancel(?\Throwable $e = null): void { }
+}
+```
+
 ### Timer
 
 The `Timer` class is used to schedule timers with the integrated event loop. Timers do not make use of callbacks, instead they will suspend the current task during `awaitTimeout()` and continue when the next timeout is exceeded. The first call to `awaitTimeout()` will start the timer. If additional tasks await an active the timer they will share the same timeout (which could be less than the value passed to the constructor). A `Timer` can be closed by calling `close()` which will fail all pending timeout subscriptions and prevent any further operations.
