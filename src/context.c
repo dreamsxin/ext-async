@@ -129,10 +129,11 @@ ZEND_METHOD(Context, with)
 	context = async_context_object_create(var, value);
 	context->parent = current;
 
-	if (context->parent != NULL) {
-		context->background = context->parent->background;
+	if (current != NULL) {
+		context->background = current->background;
+		context->cancel = current->cancel;
 
-		GC_ADDREF(&context->parent->std);
+		GC_ADDREF(&current->std);
 	}
 
 	ZVAL_OBJ(&obj, &context->std);
@@ -239,6 +240,7 @@ ZEND_METHOD(Context, background)
 
 	context = async_context_object_create(NULL, NULL);
 	context->parent = current;
+	context->cancel = current->cancel;
 	context->background = 1;
 
 	GC_ADDREF(&current->std);
@@ -398,6 +400,7 @@ static void async_cancellation_handler_object_destroy(zend_object *object)
 ZEND_METHOD(CancellationHandler, __construct)
 {
 	async_cancellation_handler *handler;
+	async_context *context;
 	async_context *prev;
 
 	zval *val;
@@ -417,9 +420,11 @@ ZEND_METHOD(CancellationHandler, __construct)
 		prev = (async_context *) Z_OBJ_P(val);
 	}
 
-	handler->context = async_context_object_create(NULL, NULL);
-	handler->context->parent = prev;
-	handler->context->cancel = handler;
+	context = async_context_object_create(NULL, NULL);
+	context->parent = prev;
+	context->cancel = handler;
+
+	handler->context = context;
 
 	GC_ADDREF(&prev->std);
 	GC_ADDREF(&handler->std);
