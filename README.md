@@ -94,13 +94,17 @@ namespace Concurrent;
 
 final class Context
 {
-    public function with(ContextVar $var, $value): Context { }
-    
-    public function run(callable $callback, ...$args): mixed { }
-    
     public function isCancelled(): bool { }
     
     public function throwIfCancelled(): void { }
+    
+    public function with(ContextVar $var, $value): Context { }
+    
+    public function withTimeout(int $milliseconds): Context { }
+    
+    public function shield(): Context { }
+    
+    public function run(callable $callback, ...$args): mixed { }
     
     public static function current(): Context { }
     

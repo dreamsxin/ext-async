@@ -228,6 +228,12 @@ struct _async_cancellation_handler {
 	/* Cancellable context instance. */
 	async_context *context;
 
+	/* Task scheduler instance (only != NULL if timeout is active). */
+	async_task_scheduler *scheduler;
+
+	/* Timeout instance (watcher is never referenced within libuv). */
+	uv_timer_t timer;
+
 	/* Error that caused cancellation, UNDEF by default. */
 	zval error;
 

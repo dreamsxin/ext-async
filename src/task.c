@@ -132,6 +132,10 @@ static void task_continuation(void *obj, zval *data, zval *result, zend_bool suc
 
 	task->suspended = NULL;
 
+	if (task->operation != ASYNC_TASK_OPERATION_NONE) {
+		return;
+	}
+
 	if (result == NULL || task->fiber.status != ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->fiber.status = ASYNC_FIBER_STATUS_FAILED;
 	} else if (success) {
@@ -180,6 +184,10 @@ static void cancel_suspend(void *obj, zval *error)
 	async_task *task;
 
 	task = (async_task *) obj;
+
+	if (task->operation != ASYNC_TASK_OPERATION_NONE) {
+		return;
+	}
 
 	ZVAL_COPY(&task->error, error);
 
