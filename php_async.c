@@ -106,6 +106,9 @@ PHP_MINIT_FUNCTION(async)
 		async_cli = 1;
 	}
 
+	// Use PHP's memory manager within libuv.
+	uv_replace_allocator((uv_malloc_func) _emalloc, (uv_realloc_func) _erealloc, (uv_calloc_func) _ecalloc, (uv_free_func) _efree);
+
 	async_awaitable_ce_register();
 	async_context_ce_register();
 	async_deferred_ce_register();
