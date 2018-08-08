@@ -140,7 +140,7 @@ typedef struct _async_timer                         async_timer;
 typedef void* async_fiber_context;
 
 typedef void (* async_awaitable_func)(void *obj, zval *data, zval *result, zend_bool success);
-typedef void (* async_cancel_func)(void *obj, zval *error, async_cancel_cb *cb);
+typedef void (* async_cancel_func)(void *obj, zval *error);
 
 typedef void (* async_fiber_func)();
 typedef void (* async_fiber_run_func)(async_fiber *fiber);
@@ -275,8 +275,10 @@ struct _async_deferred {
 	/* Context instance (only needed if cancellation is available). */
 	async_context *context;
 
-	async_cancel_cb *cancel;
+	/* Inlined cancellation handler (saves additional memory allocation). */
+	async_cancel_cb cancel;
 
+	/* Function call info & cache of the cancel callback. */
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
 

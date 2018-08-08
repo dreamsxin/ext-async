@@ -175,7 +175,7 @@ static void suspend_continuation(void *obj, zval *data, zval *result, zend_bool 
 	async_task_scheduler_stop_loop(suspended->scheduler);
 }
 
-static void cancel_suspend(void *obj, zval *error, async_cancel_cb *cb)
+static void cancel_suspend(void *obj, zval *error)
 {
 	async_task *task;
 

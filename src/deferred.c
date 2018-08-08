@@ -33,10 +33,9 @@ static zend_object_handlers async_deferred_awaitable_handlers;
 
 #define ASYNC_DEFERRED_CLEANUP_CANCEL(defer) do { \
 	if (defer->context != NULL) { \
-			if (defer->cancel != NULL) { \
-				ASYNC_Q_DETACH(&defer->context->cancel->callbacks, defer->cancel); \
-				efree(defer->cancel); \
-				defer->cancel = NULL; \
+			if (defer->cancel.object != NULL) { \
+				ASYNC_Q_DETACH(&defer->context->cancel->callbacks, &defer->cancel); \
+				defer->cancel.object = NULL; \
 			} \
 			OBJ_RELEASE(&defer->context->std); \
 			defer->context = NULL; \
@@ -44,7 +43,7 @@ static zend_object_handlers async_deferred_awaitable_handlers;
 } while (0);
 
 
-static void cancel_defer(void *obj, zval* error, async_cancel_cb *cb)
+static void cancel_defer(void *obj, zval* error)
 {
 	async_deferred *defer;
 
@@ -55,7 +54,7 @@ static void cancel_defer(void *obj, zval* error, async_cancel_cb *cb)
 
 	ZEND_ASSERT(defer != NULL);
 
-	defer->cancel = NULL;
+	defer->cancel.object = NULL;
 
 	ZVAL_OBJ(&args[0], &defer->std);
 	GC_ADDREF(&defer->std);
@@ -79,8 +78,6 @@ static void cancel_defer(void *obj, zval* error, async_cancel_cb *cb)
 	}
 
 	zval_ptr_dtor(&defer->fci.function_name);
-
-	efree(cb);
 
 	ASYNC_CHECK_FATAL(UNEXPECTED(EG(exception)), "Must not throw an error from cancellation handler");
 }
@@ -358,7 +355,6 @@ ZEND_METHOD(Deferred, __construct)
 {
 	async_deferred *defer;
 	async_context *context;
-	async_cancel_cb *cancel;
 
 	defer = (async_deferred *) Z_OBJ_P(getThis());
 
@@ -371,11 +367,8 @@ ZEND_METHOD(Deferred, __construct)
 		context = async_context_get();
 
 		if (context->cancel != NULL) {
-			cancel = emalloc(sizeof(async_cancel_cb));
-			ZEND_SECURE_ZERO(cancel, sizeof(async_cancel_cb));
-
-			cancel->object = defer;
-			cancel->func = cancel_defer;
+			defer->cancel.object = defer;
+			defer->cancel.func = cancel_defer;
 
 			Z_TRY_ADDREF_P(&defer->fci.function_name);
 
@@ -383,7 +376,7 @@ ZEND_METHOD(Deferred, __construct)
 
 			GC_ADDREF(&context->std);
 
-			ASYNC_Q_ENQUEUE(&context->cancel->callbacks, cancel);
+			ASYNC_Q_ENQUEUE(&context->cancel->callbacks, &defer->cancel);
 		}
 	}
 }

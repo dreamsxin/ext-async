@@ -359,7 +359,7 @@ static const zend_function_entry async_context_var_functions[] = {
 };
 
 
-static void chain_handler(void *obj, zval *error, async_cancel_cb *cb)
+static void chain_handler(void *obj, zval *error)
 {
 	async_cancellation_handler *handler;
 	async_cancel_cb *cancel;
@@ -371,7 +371,7 @@ static void chain_handler(void *obj, zval *error, async_cancel_cb *cb)
 	while (handler->callbacks.first != NULL) {
 		ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);
 
-		cancel->func(cancel->object, &handler->error, cancel);
+		cancel->func(cancel->object, &handler->error);
 	}
 }
 
@@ -513,7 +513,7 @@ ZEND_METHOD(CancellationHandler, cancel)
 	while (handler->callbacks.first != NULL) {
 		ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);
 
-		cancel->func(cancel->object, &handler->error, cancel);
+		cancel->func(cancel->object, &handler->error);
 	}
 }
 
