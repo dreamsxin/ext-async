@@ -253,8 +253,8 @@ static async_deferred_awaitable *async_deferred_awaitable_object_create(async_de
 {
 	async_deferred_awaitable *awaitable;
 
-	awaitable = emalloc(sizeof(async_deferred));
-	ZEND_SECURE_ZERO(awaitable, sizeof(async_deferred));
+	awaitable = emalloc(sizeof(async_deferred_awaitable));
+	ZEND_SECURE_ZERO(awaitable, sizeof(async_deferred_awaitable));
 
 	zend_object_std_init(&awaitable->std, async_deferred_awaitable_ce);
 	awaitable->std.handlers = &async_deferred_awaitable_handlers;
