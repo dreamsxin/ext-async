@@ -114,6 +114,10 @@ void async_task_scheduler_shutdown();
 
 typedef struct _async_awaitable_cb                  async_awaitable_cb;
 typedef struct _async_awaitable_queue               async_awaitable_queue;
+typedef struct _async_cancel_cb                     async_cancel_cb;
+typedef struct _async_cancel_queue                  async_cancel_queue;
+typedef struct _async_cancellation_handler          async_cancellation_handler;
+typedef struct _async_cancellation_handler          async_cancellation_handler;
 typedef struct _async_context                       async_context;
 typedef struct _async_context_var                   async_context_var;
 typedef struct _async_deferred                      async_deferred;
@@ -136,6 +140,7 @@ typedef struct _async_timer                         async_timer;
 typedef void* async_fiber_context;
 
 typedef void (* async_awaitable_func)(void *obj, zval *data, zval *result, zend_bool success);
+typedef void (* async_cancel_func)(void *obj, zval *error);
 
 typedef void (* async_fiber_func)();
 typedef void (* async_fiber_run_func)(async_fiber *fiber);
@@ -190,6 +195,18 @@ struct _async_awaitable_queue {
 	async_awaitable_cb *last;
 };
 
+struct _async_cancel_cb {
+	void *object;
+	async_cancel_func func;
+	async_cancel_cb *prev;
+	async_cancel_cb *next;
+};
+
+struct _async_cancel_queue {
+	async_cancel_cb *first;
+	async_cancel_cb *last;
+};
+
 struct _async_enable_cb {
 	zend_bool active;
 	void *object;
@@ -203,6 +220,29 @@ struct _async_enable_queue {
 	async_enable_cb *last;
 };
 
+
+struct _async_cancellation_handler {
+	/* PHP object handle. */
+	zend_object std;
+
+	/* Cancellable context instance. */
+	async_context *context;
+
+	/* Task scheduler instance (only != NULL if timeout is active). */
+	async_task_scheduler *scheduler;
+
+	/* Timeout instance (watcher is never referenced within libuv). */
+	uv_timer_t timer;
+
+	/* Error that caused cancellation, UNDEF by default. */
+	zval error;
+
+	/* Chain handler that connects the cancel handler to the parent handler. */
+	async_cancel_cb chain;
+
+	/* Linked list of cancellation callbacks. */
+	async_cancel_queue callbacks;
+};
 
 struct _async_context {
 	/* PHP object handle. */
@@ -219,6 +259,8 @@ struct _async_context {
 
 	/* Value of the context var, defaults to zval NULL. */
 	zval value;
+
+	async_cancellation_handler *cancel;
 };
 
 struct _async_context_var {
@@ -235,6 +277,16 @@ struct _async_deferred {
 
 	/* Result (or error) value in case of resolved deferred. */
 	zval result;
+
+	/* Context instance (only needed if cancellation is available). */
+	async_context *context;
+
+	/* Inlined cancellation handler (saves additional memory allocation). */
+	async_cancel_cb cancel;
+
+	/* Function call info & cache of the cancel callback. */
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
 
 	/* Linked list of registered continuation callbacks. */
 	async_awaitable_queue continuation;
@@ -386,6 +438,9 @@ struct _async_task {
 	/* Current suspension point of the task. */
 	async_awaitable_cb *suspended;
 
+	/* Cancellation callback (inlined to avoid additional memory allocation). */
+	async_cancel_cb cancel;
+
 	/* Linked list of registered continuation callbacks. */
 	async_awaitable_queue continuation;
 };
@@ -490,7 +545,7 @@ ASYNC_API void async_awaitable_trigger_continuation(async_awaitable_queue *q, zv
 
 ASYNC_API async_context *async_context_get();
 
-ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data);
+ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool cancellable);
 
 ASYNC_API uv_loop_t *async_task_scheduler_get_loop();
 ASYNC_API async_task_scheduler *async_task_scheduler_get();

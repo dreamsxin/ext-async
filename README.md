@@ -11,7 +11,7 @@ The async extension exposes a public API that can be used to create, run and int
 
 ### Awaitable
 
-This interface cannot be implemented directly by userland classes, implementations are provided by `Deferred` and `Task`.
+This interface cannot be implemented directly by userland classes, implementations are provided by `Deferred::awaitable()` and `Task`. `Awaitable` is exposed as a union type to enable proper type hinting.
 
 ```php
 namespace Concurrent;
@@ -23,11 +23,15 @@ interface Awaitable { }
 
 A deferred is a placeholder for an async operation that can be succeeded or failed from userland. It can be used to implement combinator function that operate on multiple `Awaitable` and expose a single `Awaitable` as result. The value returned from `awaitable()` is meant to be consumed by other tasks (or deferreds). The `Deferred` object itself must be kept private to the async operation because it can eighter succeed or fail the awaitable.
 
+Each `Deferred` may specify a cancellation callback as constructor argument. The callback will be triggered when the current `Context` is cancelled. It receives the `Deferred` object as first argument and the cancellation error as second argument. You must not throw an error from the callback, doing so will trigger a fatal error and terminate the script.
+
 ```php
 namespace Concurrent;
 
 final class Deferred
 {
+    public function __construct(callable $cancel = null) { }
+    
     public function awaitable(): Awaitable { }
     
     public function resolve($val = null): void { }
@@ -94,7 +98,15 @@ namespace Concurrent;
 
 final class Context
 {
+    public function isCancelled(): bool { }
+    
+    public function throwIfCancelled(): void { }
+    
     public function with(ContextVar $var, $value): Context { }
+    
+    public function withTimeout(int $milliseconds): Context { }
+    
+    public function shield(): Context { }
     
     public function run(callable $callback, ...$args): mixed { }
     
@@ -114,6 +126,23 @@ namespace Concurrent;
 final class ContextVar
 {
     public function get(?Context $context = null) { }
+}
+```
+
+### CancellationHandler
+
+You can use a `CancellationHandler` to inherit a cancellable `Context` from any context. The cancellation handler uses the context passed to the constructor (or the current context when no context is passed) and provides a derived context with cancellation handling via `context()`. A call to `cancel()` will cancel the provided context, the optional error argument will registered as previous error with the cancellation exception.
+
+```php
+namespace Concurrent;
+
+final class CancellationHandler
+{
+    public function __construct(?Context $context = null) { }
+    
+    public function context(): Context { }
+    
+    public function cancel(?\Throwable $e = null): void { }
 }
 ```
 

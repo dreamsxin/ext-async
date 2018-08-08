@@ -160,6 +160,7 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 	scheduler = task->scheduler;
 
 	ZEND_ASSERT(scheduler != NULL);
+	ZEND_ASSERT(task->operation == ASYNC_TASK_OPERATION_NONE);
 
 	if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {
 		task->operation = ASYNC_TASK_OPERATION_START;

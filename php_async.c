@@ -239,7 +239,7 @@ static void async_gethostbyname_uv(char *name, zval *return_value, zend_execute_
 		return;
 	}
 
-	async_task_suspend(q, return_value, execute_data);
+	async_task_suspend(q, return_value, execute_data, 0);
 
 	efree(req);
 	efree(q);
