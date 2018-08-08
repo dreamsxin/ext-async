@@ -186,8 +186,6 @@ static void cancel_suspend(void *obj, zval *error, async_cancel_cb *cb)
 	task->fiber.value = NULL;
 
 	async_task_scheduler_enqueue(task);
-
-	efree(cb);
 }
 
 void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool cancellable)
@@ -197,7 +195,6 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 	async_task_scheduler *scheduler;
 	async_awaitable_cb *cont;
 	async_context *context;
-	async_cancel_cb *cancel;
 	async_task_suspended info;
 	size_t stack_page_size;
 
@@ -265,13 +262,7 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 			return;
 		}
 
-		cancel = emalloc(sizeof(async_cancel_cb));
-		ZEND_SECURE_ZERO(cancel, sizeof(async_cancel_cb));
-
-		cancel->object = task;
-		cancel->func = cancel_suspend;
-
-		ASYNC_Q_ENQUEUE(&context->cancel->callbacks, cancel);
+		ASYNC_Q_ENQUEUE(&context->cancel->callbacks, &task->cancel);
 
 		GC_ADDREF(&context->std);
 	}
@@ -290,9 +281,7 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 	// Dispose of cancel handler if task continued without cancellation.
 	if (cancellable && context->cancel != NULL) {
 		if (task->suspended == NULL) {
-			ASYNC_Q_DETACH(&context->cancel->callbacks, cancel);
-
-			efree(cancel);
+			ASYNC_Q_DETACH(&context->cancel->callbacks, &task->cancel);
 		}
 
 		OBJ_RELEASE(&context->std);
@@ -408,6 +397,9 @@ async_task *async_task_object_create(zend_execute_data *call, async_task_schedul
 
 	GC_ADDREF(&scheduler->std);
 	GC_ADDREF(&context->std);
+
+	task->cancel.object = task;
+	task->cancel.func = cancel_suspend;
 
 	zend_object_std_init(&task->fiber.std, async_task_ce);
 	task->fiber.std.handlers = &async_task_handlers;

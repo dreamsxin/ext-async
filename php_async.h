@@ -430,6 +430,9 @@ struct _async_task {
 	/* Current suspension point of the task. */
 	async_awaitable_cb *suspended;
 
+	/* Cancellation callback (inlined to avoid additional memory allocation). */
+	async_cancel_cb cancel;
+
 	/* Linked list of registered continuation callbacks. */
 	async_awaitable_queue continuation;
 };
