@@ -11,7 +11,7 @@ namespace Concurrent;
 
 $handler = new CancellationHandler();
 
-Task::asyncWithContext($handler->context(), function () {
+Task::asyncWithContext($handler->context(), function (CancellationToken $token) {
     $defer = new Deferred(function (Deferred $defer, \Throwable $e) {
         var_dump($e->getMessage());
         
@@ -19,17 +19,17 @@ Task::asyncWithContext($handler->context(), function () {
     });
     
     var_dump('AWAIT DEFERRED');
-    var_dump(Context::current()->isCancelled());
+    var_dump($token->isCancelled());
     
     var_dump(Task::await($defer->awaitable()));
-    var_dump(Context::current()->isCancelled());
+    var_dump($token->isCancelled());
     
     try {
-        Context::current()->throwIfCancelled();
+        $token->throwIfCancelled();
     } catch (\Throwable $e) {
         var_dump($e->getMessage());
     }
-});
+}, $handler->context()->token());
 
 var_dump('START TIMER');
 

@@ -117,7 +117,7 @@ typedef struct _async_awaitable_queue               async_awaitable_queue;
 typedef struct _async_cancel_cb                     async_cancel_cb;
 typedef struct _async_cancel_queue                  async_cancel_queue;
 typedef struct _async_cancellation_handler          async_cancellation_handler;
-typedef struct _async_cancellation_handler          async_cancellation_handler;
+typedef struct _async_cancellation_token            async_cancellation_token;
 typedef struct _async_context                       async_context;
 typedef struct _async_context_var                   async_context_var;
 typedef struct _async_deferred                      async_deferred;
@@ -242,6 +242,14 @@ struct _async_cancellation_handler {
 
 	/* Linked list of cancellation callbacks. */
 	async_cancel_queue callbacks;
+};
+
+struct _async_cancellation_token {
+	/* PHP object handle. */
+	zend_object std;
+
+	/* The context being observed for cancellation. */
+	async_context *context;
 };
 
 struct _async_context {

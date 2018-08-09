@@ -367,16 +367,20 @@ ZEND_METHOD(Deferred, __construct)
 		context = async_context_get();
 
 		if (context->cancel != NULL) {
-			defer->cancel.object = defer;
-			defer->cancel.func = cancel_defer;
+			if (Z_TYPE_P(&context->cancel->error) != IS_UNDEF) {
+				cancel_defer(defer, &context->cancel->error);
+			} else {
+				defer->cancel.object = defer;
+				defer->cancel.func = cancel_defer;
 
-			Z_TRY_ADDREF_P(&defer->fci.function_name);
+				Z_TRY_ADDREF_P(&defer->fci.function_name);
 
-			defer->context = context;
+				defer->context = context;
 
-			GC_ADDREF(&context->std);
+				GC_ADDREF(&context->std);
 
-			ASYNC_Q_ENQUEUE(&context->cancel->callbacks, &defer->cancel);
+				ASYNC_Q_ENQUEUE(&context->cancel->callbacks, &defer->cancel);
+			}
 		}
 	}
 }

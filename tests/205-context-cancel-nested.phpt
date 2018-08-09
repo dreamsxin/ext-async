@@ -29,16 +29,16 @@ Task::asyncWithContext($h2->context(), function () {
     }
 });
 
-Task::asyncWithContext($h3->context(), function () {
+Task::asyncWithContext($h3->context(), function (CancellationToken $token) {
     var_dump('START UNRELATED');
     
     (new Timer(200))->awaitTimeout();
     
-    Context::current()->throwIfCancelled();
+    $token->throwIfCancelled();
     
-    var_dump(Context::current()->isCancelled());
+    var_dump($token->isCancelled());
     var_dump('DONE UNRELATED');
-});
+}, $h3->context()->token());
 
 var_dump('START TIMER');
 

@@ -98,10 +98,6 @@ namespace Concurrent;
 
 final class Context
 {
-    public function isCancelled(): bool { }
-    
-    public function throwIfCancelled(): void { }
-    
     public function isBackground(): bool { }
     
     public function with(ContextVar $var, $value): Context { }
@@ -109,6 +105,8 @@ final class Context
     public function withTimeout(int $milliseconds): Context { }
     
     public function shield(): Context { }
+    
+    public function token(): CancellationToken { }
     
     public function background(): Context { }
     
@@ -145,6 +143,21 @@ final class CancellationHandler
     public function context(): Context { }
     
     public function cancel(?\Throwable $e = null): void { }
+}
+```
+
+### CancellationToken
+
+You can grab a `CancellationToken` from a `Context` to check if the context has been cancelled. This is useful in combination with `Context::shield()` to perform cancellation checks at specific times (a shielded context is not part of transitive cancellation, that is it will not be cancelled if the parent context is cancelled).
+
+```php
+namespace Concurrent;
+
+final class CancellationToken
+{
+    public function isCancelled(): bool { }
+    
+    public function throwIfCancelled(): void { }
 }
 ```
 
