@@ -165,7 +165,7 @@ final class Timer
 
 ### StreamWatcher
 
-A `StreamWatcher` observes a PHP stream or socket for readability or writability. Only a single stream watcher is allowed for any PHP resource. The watcher should be closed when it is no longer needed to free internal resources. The `StreamWatcher` will suspend the current task during `awaitReadable()` and `awaitWritable()` and continue once the watched stream becomes readable or is closed by the remote peer. A `StreamWatcher` can be closed by calling `close()` which will fail all pending read & write subscriptions and prevent any further operations.
+A `StreamWatcher` observes a PHP stream or socket for readability or writability. Only a single stream watcher is allowed for any PHP resource. The watcher should be closed when it is no longer needed to free internal resources. The `StreamWatcher` will suspend the current task during `awaitReadable()` and `awaitWritable()` and continue once the watched stream becomes readable or is closed by the remote peer. A `StreamWatcher` can be used simultaneously (by multiple tasks) to await both read and write events, all tasks will be continued (in the same order as they entered await) once the stream is readable / writable. A `StreamWatcher` can be closed by calling `close()` which will fail all pending read & write subscriptions and prevent any further operations.
 
 ```php
 namespace Concurrent;
@@ -184,7 +184,7 @@ final class Watcher
 
 ### SignalWatcher
 
-A `SignalWatcher` observes UNIX signals (limited support on Windows). The watcher should be closed when it is no longer needed to free internal resources. The current task will be suspended during calls to `awaitSignal()` and continue once the signal has been received. You can use `isSupported()` to check if the passed signal can be observed. Windows systems only support `SIGHUP` (console window closed) and `SIGINT` (CTRL + C) handling.
+A `SignalWatcher` observes UNIX signals (limited support on Windows). The watcher should be closed when it is no longer needed to free internal resources. The current task will be suspended during calls to `awaitSignal()` and continue once the signal has been received. Multiple tasks can await a signal at the same time, all of them will be continued when the signal has been received. You can use `isSupported()` to check if the passed signal can be observed. Windows systems only support `SIGHUP` (console window closed) and `SIGINT` (CTRL + C) handling.
 
 ```php
 namespace Concurrent;
