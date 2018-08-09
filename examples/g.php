@@ -20,7 +20,7 @@ Task::async(function () use ($b, $watcher) {
     var_dump(stream_get_contents($b, 0xFFFF));
 });
 
-Task::asyncWithContext(Context::background(), function () use ($a, $b, $watcher) {
+Task::asyncWithContext(Context::current()->background(), function () use ($a, $b, $watcher) {
     try {
         while (true) {
             $watcher->awaitReadable();

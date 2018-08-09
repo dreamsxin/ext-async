@@ -102,17 +102,19 @@ final class Context
     
     public function throwIfCancelled(): void { }
     
+    public function isBackground(): bool { }
+    
     public function with(ContextVar $var, $value): Context { }
     
     public function withTimeout(int $milliseconds): Context { }
     
     public function shield(): Context { }
     
+    public function background(): Context { }
+    
     public function run(callable $callback, ...$args): mixed { }
     
     public static function current(): Context { }
-    
-    public static function background(): Context { }
 }
 ```
 

@@ -389,6 +389,17 @@ ZEND_METHOD(Context, current)
 	RETURN_ZVAL(&obj, 1, 0);
 }
 
+ZEND_METHOD(Context, isBackground)
+{
+	async_context *context;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	context = (async_context *) Z_OBJ_P(getThis());
+
+	RETURN_BOOL(context->background);
+}
+
 ZEND_METHOD(Context, background)
 {
 	async_context *context;
@@ -398,7 +409,7 @@ ZEND_METHOD(Context, background)
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	current = async_context_get();
+	current = (async_context *) Z_OBJ_P(getThis());
 
 	context = async_context_object_create(NULL, NULL);
 	context->parent = current;
@@ -438,6 +449,9 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO(arginfo_context_throw_if_cancelled, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_context_is_background, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_current, 0, 0, Concurrent\\Context, 0)
 ZEND_END_ARG_INFO()
 
@@ -446,14 +460,15 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_context_functions[] = {
 	ZEND_ME(Context, __construct, arginfo_context_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
+	ZEND_ME(Context, isCancelled, arginfo_context_is_cancelled, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, throwIfCancelled, arginfo_context_throw_if_cancelled, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, isBackground, arginfo_context_is_background, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, with, arginfo_context_with, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, withTimeout, arginfo_context_with_timeout, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, shield, arginfo_context_shield, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, background, arginfo_context_background, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, run, arginfo_context_run, ZEND_ACC_PUBLIC)
-	ZEND_ME(Context, isCancelled, arginfo_context_is_cancelled, ZEND_ACC_PUBLIC)
-	ZEND_ME(Context, throwIfCancelled, arginfo_context_throw_if_cancelled, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, current, arginfo_context_current, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Context, background, arginfo_context_background, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_FE_END
 };
 

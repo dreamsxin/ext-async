@@ -13,6 +13,7 @@ Task::asyncWithContext(Context::current()->background(), function () {
     $timer = new Timer(50);
 
     var_dump('START');
+    var_dump(Context::current()->isBackground());
 
     try {
         for ($i = 0; $i < 3; $i++) {
@@ -23,6 +24,10 @@ Task::asyncWithContext(Context::current()->background(), function () {
     }
 });
 
+var_dump(Context::current()->isBackground());
+
 --EXPECT--
+bool(false)
 string(5) "START"
+bool(true)
 string(23) "Task has been destroyed"
