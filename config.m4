@@ -20,6 +20,7 @@ if test "$PHP_ASYNC" != "no"; then
     src/context.c \
     src/deferred.c \
     src/helper.c \
+    src/process.c \
     src/signal_watcher.c \
     src/stream.c \
     src/stream_watcher.c \

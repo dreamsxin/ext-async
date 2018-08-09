@@ -104,6 +104,7 @@ void async_awaitable_ce_register();
 void async_context_ce_register();
 void async_deferred_ce_register();
 void async_fiber_ce_register();
+void async_process_ce_register();
 void async_signal_watcher_ce_register();
 void async_stream_ce_register();
 void async_stream_watcher_ce_register();
@@ -133,6 +134,7 @@ typedef struct _async_deferred_transform            async_deferred_transform;
 typedef struct _async_enable_cb                     async_enable_cb;
 typedef struct _async_enable_queue                  async_enable_queue;
 typedef struct _async_fiber                         async_fiber;
+typedef struct _async_process_builder               async_process_builder;
 typedef struct _async_signal_watcher                async_signal_watcher;
 typedef struct _async_stream_watcher                async_stream_watcher;
 typedef struct _async_task                          async_task;
@@ -165,6 +167,10 @@ extern const zend_uchar ASYNC_FIBER_STATUS_SUSPENDED;
 extern const zend_uchar ASYNC_FIBER_STATUS_RUNNING;
 extern const zend_uchar ASYNC_FIBER_STATUS_FINISHED;
 extern const zend_uchar ASYNC_FIBER_STATUS_FAILED;
+
+extern const zend_uchar ASYNC_PROCESS_STDIO_IGNORE;
+extern const zend_uchar ASYNC_PROCESS_STDIO_INHERIT;
+extern const zend_uchar ASYNC_PROCESS_STDIO_PIPE;
 
 extern const int ASYNC_SIGNAL_SIGINT;
 extern const int ASYNC_SIGNAL_SIGHUP;
@@ -364,6 +370,15 @@ struct _async_fiber {
 
 	zend_string *file;
 	size_t line;
+};
+
+struct _async_process_builder {
+	/* Fiber PHP object handle. */
+	zend_object std;
+
+	char *command;
+
+	uv_stdio_container_t stdio[3];
 };
 
 struct _async_signal_watcher {
