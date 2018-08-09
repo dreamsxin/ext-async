@@ -21,6 +21,7 @@ if test "$PHP_ASYNC" != "no"; then
     src/deferred.c \
     src/helper.c \
     src/signal_watcher.c \
+    src/stream.c \
     src/stream_watcher.c \
     src/task.c \
     src/task_scheduler.c \

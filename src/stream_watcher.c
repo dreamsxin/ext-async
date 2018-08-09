@@ -154,7 +154,7 @@ static inline void suspend(async_stream_watcher *watcher, async_awaitable_queue 
 		}
 	}
 
-	async_task_suspend(q, return_value, execute_data, 1);
+	async_task_suspend(q, NULL, execute_data, 1);
 
 	if (context->background) {
 		watcher->unref_count--;
@@ -431,14 +431,14 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_stream_watcher_ctor, 0, 0, 1)
 	ZEND_ARG_INFO(0, resource)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_stream_watcher_close, 0, 0, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_stream_watcher_close, 0, 0, IS_VOID, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_stream_watcher_await_readable, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_stream_watcher_await_readable, 0, 0, IS_VOID, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_stream_watcher_await_writable, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_stream_watcher_await_writable, 0, 0, IS_VOID, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_stream_watcher_functions[] = {

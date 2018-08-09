@@ -87,12 +87,17 @@ ASYNC_API extern zend_class_entry *async_context_ce;
 ASYNC_API extern zend_class_entry *async_context_var_ce;
 ASYNC_API extern zend_class_entry *async_deferred_ce;
 ASYNC_API extern zend_class_entry *async_deferred_awaitable_ce;
+ASYNC_API extern zend_class_entry *async_duplex_stream_ce;
 ASYNC_API extern zend_class_entry *async_fiber_ce;
+ASYNC_API extern zend_class_entry *async_readable_stream_ce;
+ASYNC_API extern zend_class_entry *async_stream_closed_exception_ce;
+ASYNC_API extern zend_class_entry *async_stream_exception_ce;
 ASYNC_API extern zend_class_entry *async_signal_watcher_ce;
 ASYNC_API extern zend_class_entry *async_stream_watcher_ce;
 ASYNC_API extern zend_class_entry *async_task_ce;
 ASYNC_API extern zend_class_entry *async_task_scheduler_ce;
 ASYNC_API extern zend_class_entry *async_timer_ce;
+ASYNC_API extern zend_class_entry *async_writable_stream_ce;
 
 
 void async_awaitable_ce_register();
@@ -100,6 +105,7 @@ void async_context_ce_register();
 void async_deferred_ce_register();
 void async_fiber_ce_register();
 void async_signal_watcher_ce_register();
+void async_stream_ce_register();
 void async_stream_watcher_ce_register();
 void async_task_ce_register();
 void async_task_scheduler_ce_register();

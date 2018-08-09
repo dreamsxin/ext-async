@@ -93,7 +93,7 @@ static inline void suspend(async_timer *timer, zval *return_value, zend_execute_
 		}
 	}
 
-	async_task_suspend(&timer->timeouts, return_value, execute_data, 1);
+	async_task_suspend(&timer->timeouts, NULL, execute_data, 1);
 
 	if (context->background) {
 		timer->unref_count--;
@@ -280,11 +280,11 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_ctor, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, milliseconds, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_close, 0, 0, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_timer_close, 0, 0, IS_VOID, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_timer_await_timeout, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_timer_await_timeout, 0, 0, IS_VOID, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_timer_functions[] = {
