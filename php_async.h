@@ -135,6 +135,7 @@ typedef struct _async_enable_cb                     async_enable_cb;
 typedef struct _async_enable_queue                  async_enable_queue;
 typedef struct _async_fiber                         async_fiber;
 typedef struct _async_process_builder               async_process_builder;
+typedef struct _async_process                       async_process;
 typedef struct _async_signal_watcher                async_signal_watcher;
 typedef struct _async_stream_watcher                async_stream_watcher;
 typedef struct _async_task                          async_task;
@@ -167,6 +168,10 @@ extern const zend_uchar ASYNC_FIBER_STATUS_SUSPENDED;
 extern const zend_uchar ASYNC_FIBER_STATUS_RUNNING;
 extern const zend_uchar ASYNC_FIBER_STATUS_FINISHED;
 extern const zend_uchar ASYNC_FIBER_STATUS_FAILED;
+
+extern const zend_uchar ASYNC_PROCESS_STDIN;
+extern const zend_uchar ASYNC_PROCESS_STDOUT;
+extern const zend_uchar ASYNC_PROCESS_STDERR;
 
 extern const zend_uchar ASYNC_PROCESS_STDIO_IGNORE;
 extern const zend_uchar ASYNC_PROCESS_STDIO_INHERIT;
@@ -376,9 +381,31 @@ struct _async_process_builder {
 	/* Fiber PHP object handle. */
 	zend_object std;
 
+	/* Command to be executed (without arguments). */
 	char *command;
 
+	/* STDIO pipe definitions for STDIN, STDOUT and STDERR. */
 	uv_stdio_container_t stdio[3];
+};
+
+struct _async_process {
+	/* Fiber PHP object handle. */
+	zend_object std;
+
+	/* Process handle providing access to the running process instance. */
+	uv_process_t handle;
+
+	/* Process configuration, provided by process builder. */
+	uv_process_options_t options;
+
+	/* Process ID, will be 0 if the process has finished execution. */
+	zval pid;
+
+	/* Exit code returned by the process, will be -1 if the process has not terminated yet. */
+	zval exit_code;
+
+	/* Exit code / process termination observers. */
+	async_awaitable_queue observers;
 };
 
 struct _async_signal_watcher {
