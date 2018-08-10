@@ -100,6 +100,7 @@ ASYNC_API extern zend_class_entry *async_stream_watcher_ce;
 ASYNC_API extern zend_class_entry *async_task_ce;
 ASYNC_API extern zend_class_entry *async_task_scheduler_ce;
 ASYNC_API extern zend_class_entry *async_timer_ce;
+ASYNC_API extern zend_class_entry *async_writable_pipe_ce;
 ASYNC_API extern zend_class_entry *async_writable_stream_ce;
 
 
@@ -149,6 +150,7 @@ typedef struct _async_task_scheduler_stack          async_task_scheduler_stack;
 typedef struct _async_task_scheduler_stack_entry    async_task_scheduler_stack_entry;
 typedef struct _async_task_queue                    async_task_queue;
 typedef struct _async_timer                         async_timer;
+typedef struct _async_writable_pipe                 async_writable_pipe;
 
 typedef void* async_fiber_context;
 
@@ -408,6 +410,7 @@ struct _async_process {
 	/* Exit code returned by the process, will be -1 if the process has not terminated yet. */
 	zval exit_code;
 
+	async_writable_pipe *stdin;
 	async_readable_pipe *stdout;
 	async_readable_pipe *stderr;
 
@@ -613,6 +616,19 @@ struct _async_timer {
 
 	async_task_scheduler *scheduler;
 	async_enable_cb enable;
+};
+
+struct _async_writable_pipe {
+	/* Fiber PHP object handle. */
+	zend_object std;
+
+	async_process *process;
+
+	zval error;
+
+	uv_pipe_t handle;
+
+	async_awaitable_queue writes;
 };
 
 
