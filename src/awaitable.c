@@ -51,6 +51,20 @@ void async_awaitable_dispose_continuation(async_awaitable_queue *q, async_awaita
 	efree(cb);
 }
 
+void async_awaitable_trigger_next_continuation(async_awaitable_queue *q, zval *result, zend_bool success)
+{
+	async_awaitable_cb *cb;
+
+	if (q->first != NULL) {
+		ASYNC_Q_DEQUEUE(q, cb);
+
+		cb->func(cb->object, &cb->data, result, success);
+		zval_ptr_dtor(&cb->data);
+
+		efree(cb);
+	}
+}
+
 void async_awaitable_trigger_continuation(async_awaitable_queue *q, zval *result, zend_bool success)
 {
 	async_awaitable_cb *cb;

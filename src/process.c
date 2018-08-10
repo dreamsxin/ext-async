@@ -24,9 +24,11 @@
 
 zend_class_entry *async_process_builder_ce;
 zend_class_entry *async_process_ce;
+zend_class_entry *async_readable_pipe_ce;
 
 static zend_object_handlers async_process_builder_handlers;
 static zend_object_handlers async_process_handlers;
+static zend_object_handlers async_readable_pipe_handlers;
 
 const zend_uchar ASYNC_PROCESS_STDIN = 0;
 const zend_uchar ASYNC_PROCESS_STDOUT = 1;
@@ -40,6 +42,7 @@ const zend_uchar ASYNC_PROCESS_STDIO_PIPE = 2;
 	zend_declare_class_constant_long(async_process_builder_ce, const_name, sizeof(const_name)-1, (zend_long)value);
 
 static async_process *async_process_object_create();
+static async_readable_pipe *async_readable_pipe_object_create(async_process *process, int i);
 
 
 static void configure_stdio(async_process_builder *builder, int i, zend_long mode, zend_long fd, zend_execute_data *execute_data)
@@ -94,6 +97,14 @@ static void async_process_closed(uv_handle_t *handle)
 	async_process *proc;
 
 	proc = (async_process *) handle->data;
+
+	if (proc->stdout != NULL) {
+		OBJ_RELEASE(&proc->stdout->std);
+	}
+
+	if (proc->stderr != NULL) {
+		OBJ_RELEASE(&proc->stderr->std);
+	}
 
 	OBJ_RELEASE(&proc->std);
 }
@@ -246,7 +257,7 @@ ZEND_METHOD(ProcessBuilder, execute)
 	if (code != 0) {
 		zend_throw_error(NULL, "Failed to launch process \"%s\": %s", builder->command, uv_strerror(code));
 	} else {
-		async_task_suspend(&proc->observers, return_value, execute_data, 0);
+		async_task_suspend(&proc->observers, return_value, execute_data, 0, NULL);
 	}
 
 	OBJ_RELEASE(&proc->std);
@@ -272,6 +283,14 @@ ZEND_METHOD(ProcessBuilder, start)
 	proc = async_process_object_create();
 
 	prepare_process(builder, proc, params, count, return_value, execute_data);
+
+	if (proc->options.stdio[1].flags & UV_CREATE_PIPE) {
+		proc->stdout = async_readable_pipe_object_create(proc, 1);
+	}
+
+	if (proc->options.stdio[2].flags & UV_CREATE_PIPE) {
+		proc->stderr = async_readable_pipe_object_create(proc, 2);
+	}
 
 	code = uv_spawn(async_task_scheduler_get_loop(), &proc->handle, &proc->options);
 
@@ -314,7 +333,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_builder_execute, 0, 0, I
 	ZEND_ARG_VARIADIC_TYPE_INFO(0, arguments, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_builder_start, 0, 0, Concurrent\\Process, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_builder_start, 0, 0, Concurrent\\Process\\Process, 0)
 	ZEND_ARG_VARIADIC_TYPE_INFO(0, arguments, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
@@ -327,7 +346,6 @@ static const zend_function_entry async_process_builder_functions[] = {
 	ZEND_ME(ProcessBuilder, start, arginfo_process_builder_start, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
-
 
 static async_process *async_process_object_create()
 {
@@ -415,6 +433,44 @@ ZEND_METHOD(Process, pid)
 	RETURN_ZVAL(&proc->pid, 1, 0);
 }
 
+ZEND_METHOD(Process, stdout)
+{
+	async_process *proc;
+
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	proc = (async_process *) Z_OBJ_P(getThis());
+
+	ASYNC_CHECK_ERROR(proc->stdout == NULL, "Cannot access STDOUT because it is not configured to be a pipe");
+
+	GC_ADDREF(&proc->stdout->std);
+
+	ZVAL_OBJ(&obj, &proc->stdout->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
+ZEND_METHOD(Process, stderr)
+{
+	async_process *proc;
+
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	proc = (async_process *) Z_OBJ_P(getThis());
+
+	ASYNC_CHECK_ERROR(proc->stderr == NULL, "Cannot access STDERR because it is not configured to be a pipe");
+
+	GC_ADDREF(&proc->stderr->std);
+
+	ZVAL_OBJ(&obj, &proc->stderr->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
 ZEND_METHOD(Process, awaitExit)
 {
 	async_process *proc;
@@ -427,7 +483,7 @@ ZEND_METHOD(Process, awaitExit)
 		RETURN_ZVAL(&proc->exit_code, 1, 0);
 	}
 
-	async_task_suspend(&proc->observers, return_value, execute_data, 0);
+	async_task_suspend(&proc->observers, return_value, execute_data, 0, NULL);
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_process_debug_info, 0)
@@ -439,6 +495,12 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_pid, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_stdout, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_stderr, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_await_exit, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
@@ -446,7 +508,244 @@ static const zend_function_entry async_process_functions[] = {
 	ZEND_ME(Process, __debugInfo, arginfo_process_debug_info, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, isRunning, arginfo_process_is_running, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, pid, arginfo_process_pid, ZEND_ACC_PUBLIC)
+	ZEND_ME(Process, stdout, arginfo_process_stdout, ZEND_ACC_PUBLIC)
+	ZEND_ME(Process, stderr, arginfo_process_stderr, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, awaitExit, arginfo_process_await_exit, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static async_readable_pipe *async_readable_pipe_object_create(async_process *process, int i)
+{
+	async_readable_pipe *pipe;
+
+	pipe = emalloc(sizeof(async_readable_pipe));
+	ZEND_SECURE_ZERO(pipe, sizeof(async_readable_pipe));
+
+	zend_object_std_init(&pipe->std, async_readable_pipe_ce);
+	pipe->std.handlers = &async_readable_pipe_handlers;
+
+	pipe->process = process;
+
+	GC_ADDREF(&process->std);
+
+	ZVAL_UNDEF(&pipe->error);
+
+	uv_pipe_init(async_task_scheduler_get_loop(), &pipe->handle, 0);
+
+	pipe->handle.data = pipe;
+
+	process->options.stdio[i].data.stream = (uv_stream_t *) &pipe->handle;
+
+	return pipe;
+}
+
+static void readable_pipe_closed(uv_handle_t *handle)
+{
+	async_readable_pipe *pipe;
+
+	pipe = (async_readable_pipe *) handle->data;
+
+	if (pipe->process != NULL) {
+		OBJ_RELEASE(&pipe->process->std);
+		pipe->process = NULL;
+	}
+}
+
+static void async_readable_pipe_object_dtor(zend_object *object)
+{
+	async_readable_pipe *pipe;
+
+	pipe = (async_readable_pipe *) object;
+
+	if (pipe->process != NULL) {
+		OBJ_RELEASE(&pipe->process->std);
+		pipe->process = NULL;
+	}
+
+	if (!uv_is_closing((uv_handle_t *) &pipe->handle) && Z_TYPE_P(&pipe->error) == IS_UNDEF) {
+		GC_ADDREF(&pipe->std);
+
+		uv_close((uv_handle_t *) &pipe->handle, readable_pipe_closed);
+	}
+}
+
+static void async_readable_pipe_object_destroy(zend_object *object)
+{
+	async_readable_pipe *pipe;
+
+	pipe = (async_readable_pipe *) object;
+
+	zval_ptr_dtor(&pipe->error);
+
+	zend_object_std_dtor(&pipe->std);
+}
+
+static void pipe_read_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buffer)
+{
+	async_readable_pipe *pipe;
+	async_awaitable_cb *cb;
+
+	int size;
+
+	pipe = (async_readable_pipe *) handle->data;
+
+	ZEND_ASSERT(pipe->reads.first != NULL);
+
+	cb = pipe->reads.first;
+
+	while (Z_TYPE_P(&cb->data) == IS_UNDEF) {
+		cb = cb->next;
+	}
+
+	size = (int) Z_LVAL_P(&cb->data);
+	ZVAL_UNDEF(&cb->data);
+
+	buffer->base = emalloc(size);
+	buffer->len = MIN(size, suggested_size);
+}
+
+static void pipe_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buffer)
+{
+	async_readable_pipe *pipe;
+
+	zval data;
+
+	pipe = (async_readable_pipe *) stream->data;
+
+	if (nread > 0) {
+		ZVAL_STRINGL(&data, buffer->base, nread);
+
+		efree(buffer->base);
+
+		async_awaitable_trigger_next_continuation(&pipe->reads, &data, 1);
+
+		zval_ptr_dtor(&data);
+
+		if (pipe->reads.first == NULL) {
+			uv_read_stop(stream);
+		}
+
+		return;
+	}
+
+	if (buffer->base != NULL) {
+		efree(buffer->base);
+	}
+
+	if (nread == 0) {
+		return;
+	}
+
+	uv_read_stop(stream);
+
+	if (nread == UV_EOF) {
+		pipe->eof = 1;
+
+		ZVAL_NULL(&data);
+
+		async_awaitable_trigger_continuation(&pipe->reads, &data, 1);
+
+		uv_close((uv_handle_t *) stream, readable_pipe_closed);
+
+		return;
+	}
+
+	zend_throw_error(NULL, "Pipe read error");
+
+	ZVAL_OBJ(&data, EG(exception));
+	EG(exception) = NULL;
+
+	async_awaitable_trigger_continuation(&pipe->reads, &data, 0);
+}
+
+ZEND_METHOD(ReadablePipe, close)
+{
+	async_readable_pipe *pipe;
+
+	zval *val;
+
+	val = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(val)
+	ZEND_PARSE_PARAMETERS_END();
+
+	pipe = (async_readable_pipe *) Z_OBJ_P(getThis());
+
+	if (Z_TYPE_P(&pipe->error) != IS_UNDEF) {
+		return;
+	}
+
+	zend_throw_error(NULL, "Pipe has been closed");
+
+	ZVAL_OBJ(&pipe->error, EG(exception));
+	EG(exception) = NULL;
+
+	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
+		zend_exception_set_previous(Z_OBJ_P(&pipe->error), Z_OBJ_P(val));
+		GC_ADDREF(Z_OBJ_P(val));
+	}
+
+	if (pipe->eof == 0) {
+		pipe->eof = 1;
+
+		GC_ADDREF(&pipe->std);
+
+		uv_close((uv_handle_t *) &pipe->handle, readable_pipe_closed);
+	}
+
+	async_awaitable_trigger_continuation(&pipe->reads, &pipe->error, 0);
+}
+
+ZEND_METHOD(ReadablePipe, read)
+{
+	async_readable_pipe *pipe;
+
+	zval *hint;
+	zval len;
+
+	hint = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(hint)
+	ZEND_PARSE_PARAMETERS_END();
+
+	if (hint == NULL) {
+		ZVAL_LONG(&len, 8192);
+	} else if (Z_LVAL_P(hint) < 1) {
+		zend_throw_error(NULL, "Invalid read length: %d", (int) Z_LVAL_P(hint));
+		return;
+	} else {
+		ZVAL_COPY(&len, hint);
+	}
+
+	pipe = (async_readable_pipe *) Z_OBJ_P(getThis());
+
+	if (pipe->eof) {
+		return;
+	}
+
+	if (pipe->reads.first == NULL) {
+		uv_read_start((uv_stream_t *) &pipe->handle, pipe_read_alloc, pipe_read);
+	}
+
+	async_task_suspend(&pipe->reads, return_value, execute_data, 0, &len);
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_readable_pipe_close, 0, 0, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_readable_pipe_read, 0, 0, IS_STRING, 1)
+	ZEND_ARG_TYPE_INFO(0, length, IS_LONG, 1)
+ZEND_END_ARG_INFO()
+
+static const zend_function_entry async_readable_pipe_functions[] = {
+	ZEND_ME(ReadablePipe, close, arginfo_readable_pipe_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(ReadablePipe, read, arginfo_readable_pipe_read, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -455,7 +754,7 @@ void async_process_ce_register()
 {
 	zend_class_entry ce;
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\ProcessBuilder", async_process_builder_functions);
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Process\\ProcessBuilder", async_process_builder_functions);
 	async_process_builder_ce = zend_register_internal_class(&ce);
 	async_process_builder_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_process_builder_ce->create_object = async_process_builder_object_create;
@@ -474,7 +773,7 @@ void async_process_ce_register()
 	ASYNC_PROCESS_BUILDER_CONST("STDIO_INHERIT", ASYNC_PROCESS_STDIO_INHERIT);
 	ASYNC_PROCESS_BUILDER_CONST("STDIO_PIPE", ASYNC_PROCESS_STDIO_PIPE);
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Process", async_process_functions);
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Process\\Process", async_process_functions);
 	async_process_ce = zend_register_internal_class(&ce);
 	async_process_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_process_ce->serialize = zend_class_serialize_deny;
@@ -484,6 +783,19 @@ void async_process_ce_register()
 	async_process_handlers.dtor_obj = async_process_object_dtor;
 	async_process_handlers.free_obj = async_process_object_destroy;
 	async_process_handlers.clone_obj = NULL;
+
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Process\\ReadablePipe", async_readable_pipe_functions);
+	async_readable_pipe_ce = zend_register_internal_class(&ce);
+	async_readable_pipe_ce->ce_flags |= ZEND_ACC_FINAL;
+	async_readable_pipe_ce->serialize = zend_class_serialize_deny;
+	async_readable_pipe_ce->unserialize = zend_class_unserialize_deny;
+
+	memcpy(&async_readable_pipe_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_readable_pipe_handlers.dtor_obj = async_readable_pipe_object_dtor;
+	async_readable_pipe_handlers.free_obj = async_readable_pipe_object_destroy;
+	async_readable_pipe_handlers.clone_obj = NULL;
+
+	zend_class_implements(async_readable_pipe_ce, 1, async_readable_stream_ce);
 }
 
 

@@ -113,13 +113,14 @@ PHP_MINIT_FUNCTION(async)
 	async_context_ce_register();
 	async_deferred_ce_register();
 	async_fiber_ce_register();
-	async_process_ce_register();
 	async_signal_watcher_ce_register();
 	async_stream_ce_register();
 	async_stream_watcher_ce_register();
 	async_task_ce_register();
 	async_task_scheduler_ce_register();
 	async_timer_ce_register();
+
+	async_process_ce_register();
 
 	REGISTER_INI_ENTRIES();
 
@@ -244,7 +245,7 @@ static void async_gethostbyname_uv(char *name, zval *return_value, zend_execute_
 		return;
 	}
 
-	async_task_suspend(q, return_value, execute_data, 0);
+	async_task_suspend(q, return_value, execute_data, 0, NULL);
 
 	efree(req);
 	efree(q);

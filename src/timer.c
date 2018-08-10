@@ -93,7 +93,7 @@ static inline void suspend(async_timer *timer, zval *return_value, zend_execute_
 		}
 	}
 
-	async_task_suspend(&timer->timeouts, NULL, execute_data, 1);
+	async_task_suspend(&timer->timeouts, NULL, execute_data, 1, NULL);
 
 	if (context->background) {
 		timer->unref_count--;
