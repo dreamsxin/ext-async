@@ -925,6 +925,8 @@ ZEND_METHOD(WritablePipe, write)
 	uv_write_t write;
 	uv_buf_t buffer[1];
 
+	int result;
+
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_STR(data)
 	ZEND_PARSE_PARAMETERS_END();
@@ -943,6 +945,28 @@ ZEND_METHOD(WritablePipe, write)
 
 	buffer[0].base = ZSTR_VAL(data);
 	buffer[0].len = ZSTR_LEN(data);
+
+	// Attempt a non-blocking write first before queueing up writes.
+	if (pipe->writes.first == NULL) {
+		do {
+			result = uv_try_write((uv_stream_t *) &pipe->handle, buffer, 1);
+
+			if (result == UV_EAGAIN) {
+				break;
+			} else if (result < 0) {
+				zend_throw_error(NULL, "Pipe write error: %s", uv_strerror(result));
+
+				return;
+			}
+
+			if (result == buffer[0].len) {
+				return;
+			}
+
+			buffer[0].base += result;
+			buffer[0].len -= result;
+		} while (1);
+	}
 
 	uv_write(&write, (uv_stream_t *) &pipe->handle, buffer, 1, pipe_write);
 
