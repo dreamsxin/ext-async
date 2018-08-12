@@ -9,7 +9,7 @@ $builder->configureStderr(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDERR)
 
 $process = $builder->start(__DIR__ . '/pp.php');
 
-$stdin = $process->stdin();
+$stdin = $process->getStdin();
 
 try {
     $stdin->write('Hello');
@@ -39,15 +39,21 @@ $reader = function (ReadablePipe $pipe, int $len) {
     }
 };
 
-$builder = new ProcessBuilder('ls');
+$win32 = (\DIRECTORY_SEPARATOR == '\\');
+
+$builder = new ProcessBuilder($win32 ? 'cmd' : 'ls');
 $builder->configureStdout(ProcessBuilder::STDIO_PIPE);
 $builder->configureStderr(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDERR);
 
-$proccess = $builder->start(...\array_slice($_SERVER['argv'], 1));
+if ($win32) {
+    $proccess = $builder->start('/c', 'dir');
+} else {
+    $proccess = $builder->start(...\array_slice($_SERVER['argv'], 1));
+}
 
-// \Concurrent\Task::async($reader, $proccess->stdout(), 256);
+// \Concurrent\Task::async($reader, $proccess->getStdout(), 256);
 
-$reader($proccess->stdout(), 8192);
+$reader($proccess->getStdout(), 256);
 
 $code = $proccess->awaitExit();
 

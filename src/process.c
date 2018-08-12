@@ -101,16 +101,16 @@ static void async_process_closed(uv_handle_t *handle)
 
 	proc = (async_process *) handle->data;
 
-	if (proc->stdin != NULL) {
-		OBJ_RELEASE(&proc->stdin->std);
+	if (proc->stdin_pipe != NULL) {
+		OBJ_RELEASE(&proc->stdin_pipe->std);
 	}
 
-	if (proc->stdout != NULL) {
-		OBJ_RELEASE(&proc->stdout->std);
+	if (proc->stdout_pipe != NULL) {
+		OBJ_RELEASE(&proc->stdout_pipe->std);
 	}
 
-	if (proc->stderr != NULL) {
-		OBJ_RELEASE(&proc->stderr->std);
+	if (proc->stderr_pipe != NULL) {
+		OBJ_RELEASE(&proc->stderr_pipe->std);
 	}
 
 	OBJ_RELEASE(&proc->std);
@@ -224,7 +224,7 @@ static void pipe_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buffer
 		return;
 	}
 
-	zend_throw_error(NULL, "Pipe read error: %s", uv_strerror(nread));
+	zend_throw_error(NULL, "Pipe read error: %s", uv_strerror((int) nread));
 
 	ZVAL_OBJ(&data, EG(exception));
 	EG(exception) = NULL;
@@ -313,6 +313,8 @@ ZEND_METHOD(ProcessBuilder, configureStdin)
 	zend_long mode;
 	zend_long fd;
 
+	fd = 0;
+
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
 		Z_PARAM_LONG(mode)
 		Z_PARAM_OPTIONAL
@@ -331,6 +333,8 @@ ZEND_METHOD(ProcessBuilder, configureStdout)
 	zend_long mode;
 	zend_long fd;
 
+	fd = 0;
+
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
 		Z_PARAM_LONG(mode)
 		Z_PARAM_OPTIONAL
@@ -348,6 +352,8 @@ ZEND_METHOD(ProcessBuilder, configureStderr)
 
 	zend_long mode;
 	zend_long fd;
+
+	fd = 0;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
 		Z_PARAM_LONG(mode)
@@ -424,15 +430,15 @@ ZEND_METHOD(ProcessBuilder, start)
 	prepare_process(builder, proc, params, count, return_value, execute_data);
 
 	if (proc->options.stdio[0].flags & UV_CREATE_PIPE) {
-		proc->stdin = async_writable_pipe_object_create(proc);
+		proc->stdin_pipe = async_writable_pipe_object_create(proc);
 	}
 
 	if (proc->options.stdio[1].flags & UV_CREATE_PIPE) {
-		proc->stdout = async_readable_pipe_object_create(proc, 1);
+		proc->stdout_pipe = async_readable_pipe_object_create(proc, 1);
 	}
 
 	if (proc->options.stdio[2].flags & UV_CREATE_PIPE) {
-		proc->stderr = async_readable_pipe_object_create(proc, 2);
+		proc->stderr_pipe = async_readable_pipe_object_create(proc, 2);
 	}
 
 	code = uv_spawn(async_task_scheduler_get_loop(), &proc->handle, &proc->options);
@@ -445,6 +451,8 @@ ZEND_METHOD(ProcessBuilder, start)
 		OBJ_RELEASE(&proc->std);
 		return;
 	}
+
+	uv_unref((uv_handle_t *) &proc->handle);
 
 	ZVAL_LONG(&proc->pid, proc->handle.pid);
 
@@ -514,6 +522,8 @@ static void async_process_object_dtor(zend_object *object)
 
 	proc = (async_process *) object;
 
+	uv_ref((uv_handle_t *) &proc->handle);
+
 	if (Z_LVAL_P(&proc->exit_code) < 0) {
 		uv_process_kill(&proc->handle, 2);
 	}
@@ -565,7 +575,7 @@ ZEND_METHOD(Process, isRunning)
 	RETURN_BOOL(Z_LVAL_P(&proc->exit_code) < 0);
 }
 
-ZEND_METHOD(Process, pid)
+ZEND_METHOD(Process, getPid)
 {
 	async_process *proc;
 
@@ -576,7 +586,7 @@ ZEND_METHOD(Process, pid)
 	RETURN_ZVAL(&proc->pid, 1, 0);
 }
 
-ZEND_METHOD(Process, stdin)
+ZEND_METHOD(Process, getStdin)
 {
 	async_process *proc;
 
@@ -586,16 +596,16 @@ ZEND_METHOD(Process, stdin)
 
 	proc = (async_process *) Z_OBJ_P(getThis());
 
-	ASYNC_CHECK_ERROR(proc->stdin == NULL, "Cannot access STDIN because it is not configured to be a pipe");
+	ASYNC_CHECK_ERROR(proc->stdin_pipe == NULL, "Cannot access STDIN because it is not configured to be a pipe");
 
-	GC_ADDREF(&proc->stdin->std);
+	GC_ADDREF(&proc->stdin_pipe->std);
 
-	ZVAL_OBJ(&obj, &proc->stdin->std);
+	ZVAL_OBJ(&obj, &proc->stdin_pipe->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(Process, stdout)
+ZEND_METHOD(Process, getStdout)
 {
 	async_process *proc;
 
@@ -605,16 +615,16 @@ ZEND_METHOD(Process, stdout)
 
 	proc = (async_process *) Z_OBJ_P(getThis());
 
-	ASYNC_CHECK_ERROR(proc->stdout == NULL, "Cannot access STDOUT because it is not configured to be a pipe");
+	ASYNC_CHECK_ERROR(proc->stdout_pipe == NULL, "Cannot access STDOUT because it is not configured to be a pipe");
 
-	GC_ADDREF(&proc->stdout->std);
+	GC_ADDREF(&proc->stdout_pipe->std);
 
-	ZVAL_OBJ(&obj, &proc->stdout->std);
+	ZVAL_OBJ(&obj, &proc->stdout_pipe->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(Process, stderr)
+ZEND_METHOD(Process, getStderr)
 {
 	async_process *proc;
 
@@ -624,11 +634,11 @@ ZEND_METHOD(Process, stderr)
 
 	proc = (async_process *) Z_OBJ_P(getThis());
 
-	ASYNC_CHECK_ERROR(proc->stderr == NULL, "Cannot access STDERR because it is not configured to be a pipe");
+	ASYNC_CHECK_ERROR(proc->stderr_pipe == NULL, "Cannot access STDERR because it is not configured to be a pipe");
 
-	GC_ADDREF(&proc->stderr->std);
+	GC_ADDREF(&proc->stderr_pipe->std);
 
-	ZVAL_OBJ(&obj, &proc->stderr->std);
+	ZVAL_OBJ(&obj, &proc->stderr_pipe->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
@@ -645,6 +655,8 @@ ZEND_METHOD(Process, awaitExit)
 		RETURN_ZVAL(&proc->exit_code, 1, 0);
 	}
 
+	uv_ref((uv_handle_t *) &proc->handle);
+
 	async_task_suspend(&proc->observers, return_value, execute_data, 0, NULL);
 }
 
@@ -654,16 +666,16 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_is_running, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_pid, 0, 0, IS_LONG, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_get_pid, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_stdin, 0, 0, Concurrent\\Stream\\WritableStream, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_stdin, 0, 0, Concurrent\\Stream\\WritableStream, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_stdout, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_stdout, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_stderr, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_stderr, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_await_exit, 0, 0, IS_LONG, 0)
@@ -672,10 +684,10 @@ ZEND_END_ARG_INFO()
 static const zend_function_entry async_process_functions[] = {
 	ZEND_ME(Process, __debugInfo, arginfo_process_debug_info, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, isRunning, arginfo_process_is_running, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, pid, arginfo_process_pid, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, stdin, arginfo_process_stdin, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, stdout, arginfo_process_stdout, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, stderr, arginfo_process_stderr, ZEND_ACC_PUBLIC)
+	ZEND_ME(Process, getPid, arginfo_process_get_pid, ZEND_ACC_PUBLIC)
+	ZEND_ME(Process, getStdin, arginfo_process_get_stdin, ZEND_ACC_PUBLIC)
+	ZEND_ME(Process, getStdout, arginfo_process_get_stdout, ZEND_ACC_PUBLIC)
+	ZEND_ME(Process, getStderr, arginfo_process_get_stderr, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, awaitExit, arginfo_process_await_exit, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };

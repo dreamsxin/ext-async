@@ -410,9 +410,9 @@ struct _async_process {
 	/* Exit code returned by the process, will be -1 if the process has not terminated yet. */
 	zval exit_code;
 
-	async_writable_pipe *stdin;
-	async_readable_pipe *stdout;
-	async_readable_pipe *stderr;
+	async_writable_pipe *stdin_pipe;
+	async_readable_pipe *stdout_pipe;
+	async_readable_pipe *stderr_pipe;
 
 	/* Exit code / process termination observers. */
 	async_awaitable_queue observers;
