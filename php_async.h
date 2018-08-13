@@ -434,9 +434,8 @@ struct _async_process {
 	zval exit_code;
 
 	async_writable_pipe_state stdin_state;
-
-	async_readable_pipe *stdout_pipe;
-	async_readable_pipe *stderr_pipe;
+	async_readable_pipe_state stdout_state;
+	async_readable_pipe_state stderr_state;
 
 	/* Exit code / process termination observers. */
 	async_awaitable_queue observers;
@@ -446,14 +445,7 @@ struct _async_readable_pipe {
 	/* Fiber PHP object handle. */
 	zend_object std;
 
-	async_process *process;
-
-	zend_bool eof;
-	zval error;
-
-	uv_pipe_t handle;
-
-	async_awaitable_queue reads;
+	async_readable_pipe_state *state;
 };
 
 struct _async_signal_watcher {
