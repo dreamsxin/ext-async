@@ -228,7 +228,7 @@ static void prepare_process(async_process_builder *builder, async_process *proc,
 	uint32_t i;
 
 	args = ecalloc(sizeof(char *), count + 2);
-	args[0] = builder->command;
+	args[0] = ZSTR_VAL(builder->command);
 
 	for (i = 0; i < count; i++) {
 		args[i + 1] = Z_STRVAL_P(&params[i]);
@@ -236,12 +236,16 @@ static void prepare_process(async_process_builder *builder, async_process *proc,
 
 	args[count + 1] = NULL;
 
-	proc->options.file = builder->command;
+	proc->options.file = ZSTR_VAL(builder->command);
 	proc->options.args = args;
 	proc->options.stdio_count = 3;
 	proc->options.stdio = builder->stdio;
 	proc->options.exit_cb = async_process_exit;
 	proc->options.flags = UV_PROCESS_WINDOWS_HIDE;
+
+	if (builder->cwd != NULL) {
+		proc->options.cwd = ZSTR_VAL(builder->cwd);
+	}
 }
 
 static void pipe_read_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buffer)
@@ -368,6 +372,12 @@ static void async_process_builder_object_destroy(zend_object *object)
 
 	builder = (async_process_builder *) object;
 
+	zend_string_release(builder->command);
+
+	if (builder->cwd != NULL) {
+		zend_string_release(builder->cwd);
+	}
+
 	zend_object_std_dtor(&builder->std);
 }
 
@@ -375,12 +385,21 @@ ZEND_METHOD(ProcessBuilder, __construct)
 {
 	async_process_builder *builder;
 
-	size_t len;
+	builder = (async_process_builder *) Z_OBJ_P(getThis());
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_STR(builder->command)
+	ZEND_PARSE_PARAMETERS_END();
+}
+
+ZEND_METHOD(ProcessBuilder, setDirectory)
+{
+	async_process_builder *builder;
 
 	builder = (async_process_builder *) Z_OBJ_P(getThis());
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_STRING(builder->command, len)
+		Z_PARAM_STR(builder->cwd)
 	ZEND_PARSE_PARAMETERS_END();
 }
 
@@ -478,7 +497,7 @@ ZEND_METHOD(ProcessBuilder, execute)
 	efree(proc->options.args);
 
 	if (code != 0) {
-		zend_throw_error(NULL, "Failed to launch process \"%s\": %s", builder->command, uv_strerror(code));
+		zend_throw_error(NULL, "Failed to launch process \"%s\": %s", ZSTR_VAL(builder->command), uv_strerror(code));
 	} else {
 		async_task_suspend(&proc->observers, return_value, execute_data, 0, NULL);
 	}
@@ -524,7 +543,7 @@ ZEND_METHOD(ProcessBuilder, start)
 	efree(proc->options.args);
 
 	if (code != 0) {
-		zend_throw_error(NULL, "Failed to launch process \"%s\": %s", builder->command, uv_strerror(code));
+		zend_throw_error(NULL, "Failed to launch process \"%s\": %s", ZSTR_VAL(builder->command), uv_strerror(code));
 
 		OBJ_RELEASE(&proc->std);
 		return;
@@ -539,6 +558,10 @@ ZEND_METHOD(ProcessBuilder, start)
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_process_builder_ctor, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, command, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_builder_set_directory, 0, 1, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, dir, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_builder_configure_stdin, 0, 1, IS_VOID, 0)
@@ -566,6 +589,7 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_process_builder_functions[] = {
 	ZEND_ME(ProcessBuilder, __construct, arginfo_process_builder_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(ProcessBuilder, setDirectory, arginfo_process_builder_set_directory, ZEND_ACC_PUBLIC)
 	ZEND_ME(ProcessBuilder, configureStdin, arginfo_process_builder_configure_stdin, ZEND_ACC_PUBLIC)
 	ZEND_ME(ProcessBuilder, configureStdout, arginfo_process_builder_configure_stdout, ZEND_ACC_PUBLIC)
 	ZEND_ME(ProcessBuilder, configureStderr, arginfo_process_builder_configure_stderr, ZEND_ACC_PUBLIC)

@@ -289,6 +289,8 @@ final class ProcessBuilder
     
     public function __construct(string $command) { }
     
+    public function setDirectory(string $dir): void { }
+    
     public function configureStdin(int $mode, ?int $fd = null): void { }
     
     public function configureStdout(int $mode, ?int $fd = null): void { }
@@ -320,6 +322,8 @@ final class Process
     public function getStdout(): ReadableStream { }
     
     public function getStderr(): ReadableStream { }
+    
+    public function signal(int $signum): void { }
     
     public function awaitExit(): int { }
 }

@@ -390,7 +390,10 @@ struct _async_process_builder {
 	zend_object std;
 
 	/* Command to be executed (without arguments). */
-	char *command;
+	zend_string *command;
+
+	/* Current working directory for the process. */
+	zend_string *cwd;
 
 	/* STDIO pipe definitions for STDIN, STDOUT and STDERR. */
 	uv_stdio_container_t stdio[3];

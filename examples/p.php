@@ -52,6 +52,7 @@ $reader = function (ReadablePipe $pipe, int $len) {
 $win32 = (\DIRECTORY_SEPARATOR == '\\');
 
 $builder = new ProcessBuilder($win32 ? 'cmd' : 'ls');
+$builder->setDirectory(__DIR__);
 $builder->configureStdout(ProcessBuilder::STDIO_PIPE);
 $builder->configureStderr(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDERR);
 
