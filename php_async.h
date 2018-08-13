@@ -141,6 +141,7 @@ typedef struct _async_fiber                         async_fiber;
 typedef struct _async_process_builder               async_process_builder;
 typedef struct _async_process                       async_process;
 typedef struct _async_readable_pipe                 async_readable_pipe;
+typedef struct _async_readable_pipe_state           async_readable_pipe_state;
 typedef struct _async_signal_watcher                async_signal_watcher;
 typedef struct _async_stream_watcher                async_stream_watcher;
 typedef struct _async_task                          async_task;
@@ -151,6 +152,7 @@ typedef struct _async_task_scheduler_stack_entry    async_task_scheduler_stack_e
 typedef struct _async_task_queue                    async_task_queue;
 typedef struct _async_timer                         async_timer;
 typedef struct _async_writable_pipe                 async_writable_pipe;
+typedef struct _async_writable_pipe_state           async_writable_pipe_state;
 
 typedef void* async_fiber_context;
 
@@ -394,6 +396,27 @@ struct _async_process_builder {
 	uv_stdio_container_t stdio[3];
 };
 
+struct _async_writable_pipe_state {
+	async_process *process;
+
+	zval error;
+
+	uv_pipe_t handle;
+
+	async_awaitable_queue writes;
+};
+
+struct _async_readable_pipe_state {
+	async_process *process;
+
+	zend_bool eof;
+	zval error;
+
+	uv_pipe_t handle;
+
+	async_awaitable_queue reads;
+};
+
 struct _async_process {
 	/* Fiber PHP object handle. */
 	zend_object std;
@@ -410,7 +433,8 @@ struct _async_process {
 	/* Exit code returned by the process, will be -1 if the process has not terminated yet. */
 	zval exit_code;
 
-	async_writable_pipe *stdin_pipe;
+	async_writable_pipe_state stdin_state;
+
 	async_readable_pipe *stdout_pipe;
 	async_readable_pipe *stderr_pipe;
 
@@ -622,13 +646,7 @@ struct _async_writable_pipe {
 	/* Fiber PHP object handle. */
 	zend_object std;
 
-	async_process *process;
-
-	zval error;
-
-	uv_pipe_t handle;
-
-	async_awaitable_queue writes;
+	async_writable_pipe_state *state;
 };
 
 
