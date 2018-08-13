@@ -161,6 +161,8 @@ final class CancellationToken
 }
 ```
 
+## Watcher API
+
 ### Timer
 
 The `Timer` class is used to schedule timers with the integrated event loop. Timers do not make use of callbacks, instead they will suspend the current task during `awaitTimeout()` and continue when the next timeout is exceeded. The first call to `awaitTimeout()` will start the timer. If additional tasks await an active the timer they will share the same timeout (which could be less than the value passed to the constructor). A `Timer` can be closed by calling `close()` which will fail all pending timeout subscriptions and prevent any further operations.
@@ -224,7 +226,116 @@ final class SignalWatcher
 }
 ```
 
-### Fiber
+## Stream API
+
+The stream API provides an object-oriented interface to arbitrary byte streams. The stream API is closely aligned with `fclose()`, `fread()` and `fwrite()` functions.
+
+### ReadableStream
+
+A readable stream provides access to chunks of incoming data. There is no method to check for EOF, a call to `read()` will return `null` when the stream is at EOF. The (optional) `$length` argument can be used to specify the maximum number of bytes to be returned, a stream might return fewer bytes depending on network IO or internal buffers. Every call to `read()` must return at least one bytes, or `null` if no more bytes can be read (EOF). The optional error argument of `close()` allows to pass in an error that will be set as previous error when failing a read operation. Calling `close()` will fail all pending read operations and prevent any further reads from the stream.
+
+```php
+namespace Concurrent\Stream;
+
+interface ReadableStream
+{
+    public function close(?\Throwable $e = null): void { }
+    
+    public function read(?int $length = null): ?string { }
+}
+```
+
+### WritableStream
+
+A writable stream allows to write chunks of data in sequence. Multiple calls to `write()` from different tasks at the same time are allowed, stream implementations must preserve order of write operations. The optional error argument of `close()` allows to pass in an error that will be set as previous error when failing a write operation. Calling `close()` will fail all pending write operations and prevent any further writes from the stream.
+
+```php
+namespace Concurrent\Stream;
+
+interface WritableStream
+{
+    public function close(?\Throwable $e = null): void { }
+    
+    public function write(string $data): void { }
+}
+```
+
+### DuplexStream
+
+The duplex stream implements both `ReadableStream` and `WritableStream`. Streams backed by a socket will usually be compatible with (and implement) this interface.
+
+```php
+namespace Concurrent\Stream;
+
+interface DuplexStream extends ReadableStream, WritableStream { }
+```
+
+## Process API
+
+### ProcessBuilder
+
+```php
+namespace Concurrent\Process;
+
+final class ProcessBuilder
+{
+    public const STDIN;
+    public const STDOUT;
+    public const STDERR;
+    
+    public const STDIO_IGNORE;
+    public const STDIO_INHERIT;
+    public const STDIO_PIPE;
+    
+    public function __construct(string $command) { }
+    
+    public function configureStdin(int $mode, ?int $fd = null): void { }
+    
+    public function configureStdout(int $mode, ?int $fd = null): void { }
+    
+    public function configureStderr(int $mode, ?int $fd = null): void { }
+    
+    public function execute(string ...$args): int {}
+    
+    public function start(string ...$args): Process {}
+}
+```
+
+### Process
+
+```php
+namespace Concurrent\Process;
+
+use Concurrent\Stream\ReadableStream;
+use Concurrent\Stream\WritableStream;
+
+final class Process
+{
+    public function isRunning(): bool { }
+    
+    public function getPid(): int { }
+    
+    public function getStdin(): WritableStream { }
+    
+    public function getStdout(): ReadableStream { }
+    
+    public function getStderr(): ReadableStream { }
+    
+    public function awaitExit(): int { }
+}
+```
+
+## Functions
+
+An async version of `gethostbyname()` is provided to allow non-blocking DNS name resolution. This requires PHP to be run via `cli` or `phpdbg` SAPI, any other API will fallback to synchronous resolution for now (the function can still be used in these cases, but it will block until the name is resolved).
+
+```php
+namespace Concurrent;
+
+function gethostbyname(string $host): string { }
+```
+
+## Fiber
 
 A lower-level API for concurrent callback execution is available through the `Fiber` API. The underlying stack-switching is the same as in the `Task` implementation but fibers do not come with a scheduler or a higher level abstraction of continuations. A fiber must be started and resumed by the caller in PHP userland. Calling `Fiber::yield()` will suspend the fiber and return the yielded value to `start()`, `resume()` or `throw()`. The `status()` method is needed to check if the fiber has been run to completion yet.
 
@@ -255,16 +366,6 @@ final class Fiber
     
     public static function yield($val = null): mixed { }
 }
-```
-
-### Functions
-
-An async version of `gethostbyname()` is provided to allow non-blocking DNS name resolution. This requires PHP to be run via `cli` or `phpdbg` SAPI, any other API will fallback to synchronous resolution for now (the function can still be used in these cases, but it will block until the name is resolved).
-
-```php
-namespace Concurrent;
-
-function gethostbyname(string $host): string { }
 ```
 
 ## Async / Await Keyword Transformation

@@ -36,9 +36,9 @@ const zend_uchar ASYNC_PROCESS_STDIN = 0;
 const zend_uchar ASYNC_PROCESS_STDOUT = 1;
 const zend_uchar ASYNC_PROCESS_STDERR = 2;
 
-const zend_uchar ASYNC_PROCESS_STDIO_IGNORE = 0;
-const zend_uchar ASYNC_PROCESS_STDIO_INHERIT = 1;
-const zend_uchar ASYNC_PROCESS_STDIO_PIPE = 2;
+const zend_uchar ASYNC_PROCESS_STDIO_IGNORE = 16;
+const zend_uchar ASYNC_PROCESS_STDIO_INHERIT = 17;
+const zend_uchar ASYNC_PROCESS_STDIO_PIPE = 18;
 
 #define ASYNC_PROCESS_BUILDER_CONST(const_name, value) \
 	zend_declare_class_constant_long(async_process_builder_ce, const_name, sizeof(const_name)-1, (zend_long)value);
@@ -129,7 +129,7 @@ static void async_process_closed(uv_handle_t *handle)
 
 	if (proc->options.stdio[0].flags & UV_CREATE_PIPE) {
 		if (proc->stdin_state.writes.first != NULL) {
-			zend_throw_error(NULL, "Process has been closed");
+			zend_throw_exception(async_stream_closed_exception_ce, "Process has been closed", 0);
 
 			ZVAL_OBJ(&proc->stdin_state.error, EG(exception));
 			EG(exception) = NULL;
@@ -289,7 +289,7 @@ static void pipe_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buffer
 		return;
 	}
 
-	zend_throw_error(NULL, "Pipe read error: %s", uv_strerror((int) nread));
+	zend_throw_exception_ex(async_stream_exception_ce, 0, "Pipe read error: %s", uv_strerror((int) nread));
 
 	ZVAL_OBJ(&data, EG(exception));
 	EG(exception) = NULL;
@@ -313,7 +313,7 @@ static void pipe_write(uv_write_t *write, int status)
 		return;
 	}
 
-	zend_throw_error(NULL, "Pipe write error: %s", uv_strerror(status));
+	zend_throw_exception_ex(async_stream_exception_ce, 0, "Pipe write error: %s", uv_strerror(status));
 
 	ZVAL_OBJ(&data, EG(exception));
 	EG(exception) = NULL;
@@ -798,7 +798,7 @@ ZEND_METHOD(ReadablePipe, close)
 		return;
 	}
 
-	zend_throw_error(NULL, "Pipe has been closed");
+	zend_throw_exception(async_stream_closed_exception_ce, "Pipe has been closed", 0);
 
 	ZVAL_OBJ(&pipe->state->error, EG(exception));
 	EG(exception) = NULL;
@@ -927,7 +927,7 @@ ZEND_METHOD(WritablePipe, close)
 		return;
 	}
 
-	zend_throw_error(NULL, "Pipe has been closed");
+	zend_throw_exception(async_stream_closed_exception_ce, "Pipe has been closed", 0);
 
 	ZVAL_OBJ(&pipe->state->error, EG(exception));
 	EG(exception) = NULL;
