@@ -395,6 +395,12 @@ struct _async_process_builder {
 	/* Current working directory for the process. */
 	zend_string *cwd;
 
+	/* Environment vars to be passed to the created process. */
+	zval env;
+
+	/* Set to inherit env vars from parent. */
+	zend_bool inherit_env;
+
 	/* STDIO pipe definitions for STDIN, STDOUT and STDERR. */
 	uv_stdio_container_t stdio[3];
 };

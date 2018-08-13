@@ -6,6 +6,10 @@ $builder = new ProcessBuilder(PHP_BINARY);
 $builder->configureStdout(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDOUT);
 $builder->configureStderr(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDERR);
 
+$builder->setEnv([
+    'MY_TITLE' => 'TEST'
+]);
+
 $process = $builder->start(__DIR__ . '/ps.php');
 
 \Concurrent\Task::async(function () use ($process) {

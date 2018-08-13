@@ -47,6 +47,9 @@ static async_process *async_process_object_create();
 static async_readable_pipe *async_readable_pipe_object_create(async_process *process, async_readable_pipe_state *state);
 static async_writable_pipe *async_writable_pipe_object_create(async_process *process, async_writable_pipe_state *state);
 
+#ifndef ZEND_WIN32
+extern char **environ;
+#endif
 
 static void configure_stdio(async_process_builder *builder, int i, zend_long mode, zend_long fd, zend_execute_data *execute_data)
 {
@@ -246,6 +249,64 @@ static void prepare_process(async_process_builder *builder, async_process *proc,
 	if (builder->cwd != NULL) {
 		proc->options.cwd = ZSTR_VAL(builder->cwd);
 	}
+
+	if (Z_TYPE_P(&builder->env) != IS_UNDEF) {
+		zend_string *key;
+		zval *v;
+
+		char **prev;
+		char **env;
+
+		size_t len;
+		int count;
+		int i;
+
+		if (builder->inherit_env) {
+#ifdef ZEND_WIN32
+			prev = (char **) GetEnvironmentStrings();
+#else
+			prev = environ;
+#endif
+
+			count = 0;
+
+			while (NULL != prev[count]) {
+				count++;
+			}
+		} else {
+			count = 0;
+		}
+
+		env = ecalloc(zend_hash_num_elements(Z_ARRVAL_P(&builder->env)) + count + 1, sizeof(char *));
+
+		for (i = 0; i < count; i++) {
+			len = strlen(prev[i]) + 1;
+
+			env[i] = emalloc(len);
+			memcpy(env[i], prev[i], len);
+		}
+
+		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(&builder->env), key, v) {
+			env[i] = emalloc(sizeof(char) * key->len + Z_STRLEN_P(v) + 2);
+
+			slprintf(env[i], key->len + Z_STRLEN_P(v) + 2, "%s=%s", key->val, Z_STRVAL_P(v));
+
+			i++;
+		} ZEND_HASH_FOREACH_END();
+
+		env[i] = NULL;
+
+#ifdef ZEND_WIN32
+		if (builder->inherit_env) {
+			FreeEnvironmentStrings((LPTCH) prev);
+		}
+#endif
+
+		proc->options.env = env;
+	} else if (builder->inherit_env == 0) {
+		proc->options.env = emalloc(sizeof(char *));
+		proc->options.env[0] = NULL;
+	}
 }
 
 static void pipe_read_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buffer)
@@ -363,6 +424,10 @@ static zend_object *async_process_builder_object_create(zend_class_entry *ce)
 	zend_object_std_init(&builder->std, ce);
 	builder->std.handlers = &async_process_builder_handlers;
 
+	ZVAL_UNDEF(&builder->env);
+
+	builder->inherit_env = 1;
+
 	return &builder->std;
 }
 
@@ -377,6 +442,8 @@ static void async_process_builder_object_destroy(zend_object *object)
 	if (builder->cwd != NULL) {
 		zend_string_release(builder->cwd);
 	}
+
+	zval_ptr_dtor(&builder->env);
 
 	zend_object_std_dtor(&builder->std);
 }
@@ -401,6 +468,40 @@ ZEND_METHOD(ProcessBuilder, setDirectory)
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_STR(builder->cwd)
 	ZEND_PARSE_PARAMETERS_END();
+}
+
+ZEND_METHOD(ProcessBuilder, inheritEnv)
+{
+	async_process_builder *builder;
+
+	zend_long flag;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_LONG(flag)
+	ZEND_PARSE_PARAMETERS_END();
+
+	builder = (async_process_builder *) Z_OBJ_P(getThis());
+
+	builder->inherit_env = flag ? 1 : 0;
+}
+
+ZEND_METHOD(ProcessBuilder, setEnv)
+{
+	async_process_builder *builder;
+
+	zval *env;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ARRAY_EX(env, 1, 0)
+	ZEND_PARSE_PARAMETERS_END();
+
+	builder = (async_process_builder *) Z_OBJ_P(getThis());
+
+	if (Z_TYPE_P(&builder->env) != IS_UNDEF) {
+		zval_ptr_dtor(&builder->env);
+	}
+
+	ZVAL_COPY(&builder->env, env);
 }
 
 ZEND_METHOD(ProcessBuilder, configureStdin)
@@ -473,6 +574,7 @@ ZEND_METHOD(ProcessBuilder, execute)
 	zval *params;
 
 	int code;
+	int x;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, -1)
 		Z_PARAM_OPTIONAL
@@ -496,6 +598,16 @@ ZEND_METHOD(ProcessBuilder, execute)
 
 	efree(proc->options.args);
 
+	if (proc->options.env != NULL) {
+		x = 0;
+
+		while (proc->options.env[x] != NULL) {
+			efree(proc->options.env[x++]);
+		}
+
+		efree(proc->options.env);
+	}
+
 	if (code != 0) {
 		zend_throw_error(NULL, "Failed to launch process \"%s\": %s", ZSTR_VAL(builder->command), uv_strerror(code));
 	} else {
@@ -515,6 +627,7 @@ ZEND_METHOD(ProcessBuilder, start)
 	zval obj;
 
 	int code;
+	int x;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, -1)
 		Z_PARAM_OPTIONAL
@@ -542,6 +655,16 @@ ZEND_METHOD(ProcessBuilder, start)
 
 	efree(proc->options.args);
 
+	if (proc->options.env != NULL) {
+		x = 0;
+
+		while (proc->options.env[x] != NULL) {
+			efree(proc->options.env[x++]);
+		}
+
+		efree(proc->options.env);
+	}
+
 	if (code != 0) {
 		zend_throw_error(NULL, "Failed to launch process \"%s\": %s", ZSTR_VAL(builder->command), uv_strerror(code));
 
@@ -562,6 +685,14 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_builder_set_directory, 0, 1, IS_VOID, 0)
 	ZEND_ARG_TYPE_INFO(0, dir, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_builder_inherit_env, 0, 1, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, inherit, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_builder_set_env, 0, 1, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, env, IS_ARRAY, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_builder_configure_stdin, 0, 1, IS_VOID, 0)
@@ -590,6 +721,8 @@ ZEND_END_ARG_INFO()
 static const zend_function_entry async_process_builder_functions[] = {
 	ZEND_ME(ProcessBuilder, __construct, arginfo_process_builder_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
 	ZEND_ME(ProcessBuilder, setDirectory, arginfo_process_builder_set_directory, ZEND_ACC_PUBLIC)
+	ZEND_ME(ProcessBuilder, inheritEnv, arginfo_process_builder_inherit_env, ZEND_ACC_PUBLIC)
+	ZEND_ME(ProcessBuilder, setEnv, arginfo_process_builder_set_env, ZEND_ACC_PUBLIC)
 	ZEND_ME(ProcessBuilder, configureStdin, arginfo_process_builder_configure_stdin, ZEND_ACC_PUBLIC)
 	ZEND_ME(ProcessBuilder, configureStdout, arginfo_process_builder_configure_stdout, ZEND_ACC_PUBLIC)
 	ZEND_ME(ProcessBuilder, configureStderr, arginfo_process_builder_configure_stderr, ZEND_ACC_PUBLIC)

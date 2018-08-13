@@ -3,8 +3,8 @@
 namespace Concurrent;
 
 $signal = new SignalWatcher(SignalWatcher::SIGINT);
-
-echo "START\n";
+var_dump(getenv('PATH'));
+echo "START: \"", getenv('MY_TITLE'), "\"\n";
 
 $signal->awaitSignal();
 
