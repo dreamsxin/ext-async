@@ -437,6 +437,8 @@ struct _async_process {
 	async_readable_pipe_state stdout_state;
 	async_readable_pipe_state stderr_state;
 
+	zend_uchar pipes;
+
 	/* Exit code / process termination observers. */
 	async_awaitable_queue observers;
 };

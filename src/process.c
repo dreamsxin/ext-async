@@ -81,6 +81,17 @@ static void configure_stdio(async_process_builder *builder, int i, zend_long mod
 	}
 }
 
+static void dispose_process(uv_handle_t *handle)
+{
+	async_process *proc;
+
+	proc = (async_process *) handle->data;
+
+	async_awaitable_trigger_continuation(&proc->observers, &proc->exit_code, 1);
+
+	OBJ_RELEASE(&proc->std);
+}
+
 static void create_readable_state(async_process *process, async_readable_pipe_state *state, int i)
 {
 	uv_pipe_init(async_task_scheduler_get_loop(), &state->handle, 0);
@@ -89,6 +100,8 @@ static void create_readable_state(async_process *process, async_readable_pipe_st
 	state->process = process;
 
 	process->options.stdio[i].data.stream = (uv_stream_t *) &state->handle;
+
+	process->pipes++;
 }
 
 static void dispose_read_state(uv_handle_t * handle)
@@ -97,7 +110,13 @@ static void dispose_read_state(uv_handle_t * handle)
 
 	state = (async_readable_pipe_state *) handle->data;
 
-	OBJ_RELEASE(&state->process->std);
+	state->process->pipes--;
+
+	if (state->process->pipes == 0 && Z_LVAL_P(&state->process->exit_code) >= 0) {
+		uv_close((uv_handle_t *) &state->process->handle, dispose_process);
+	} else {
+		OBJ_RELEASE(&state->process->std);
+	}
 }
 
 static void create_writable_state(async_process *process, async_writable_pipe_state *state, int i)
@@ -108,6 +127,8 @@ static void create_writable_state(async_process *process, async_writable_pipe_st
 	state->process = process;
 
 	process->options.stdio[i].data.stream = (uv_stream_t *) &state->handle;
+
+	process->pipes++;
 }
 
 static void dispose_write_state(uv_handle_t * handle)
@@ -116,16 +137,18 @@ static void dispose_write_state(uv_handle_t * handle)
 
 	state = (async_writable_pipe_state *) handle->data;
 
-	OBJ_RELEASE(&state->process->std);
+	state->process->pipes--;
+
+	if (state->process->pipes == 0 && Z_LVAL_P(&state->process->exit_code) >= 0) {
+		uv_close((uv_handle_t *) &state->process->handle, dispose_process);
+	} else {
+		OBJ_RELEASE(&state->process->std);
+	}
 }
 
-static void async_process_closed(uv_handle_t *handle)
+static void close_process(async_process *proc)
 {
-	async_process *proc;
-
 	zval data;
-
-	proc = (async_process *) handle->data;
 
 	if (proc->options.stdio[0].flags & UV_CREATE_PIPE) {
 		if (proc->stdin_state.writes.first != NULL) {
@@ -176,7 +199,11 @@ static void async_process_closed(uv_handle_t *handle)
 		}
 	}
 
-	OBJ_RELEASE(&proc->std);
+	if (proc->pipes == 0) {
+		uv_close((uv_handle_t *) &proc->handle, dispose_process);
+	} else {
+		OBJ_RELEASE(&proc->std);
+	}
 }
 
 static void async_process_exit(uv_process_t *handle, int64_t status, int signal)
@@ -185,14 +212,14 @@ static void async_process_exit(uv_process_t *handle, int64_t status, int signal)
 
 	proc = (async_process *) handle->data;
 
-	GC_ADDREF(&proc->std);
-
 	ZVAL_LONG(&proc->pid, 0);
 	ZVAL_LONG(&proc->exit_code, status);
 
-	async_awaitable_trigger_continuation(&proc->observers, &proc->exit_code, 1);
+	if (proc->pipes == 0) {
+		GC_ADDREF(&proc->std);
 
-	uv_close((uv_handle_t *) &proc->handle, async_process_closed);
+		close_process(proc);
+	}
 }
 
 static void prepare_process(async_process_builder *builder, async_process *proc, zval *params, uint32_t count, zval *return_value, zend_execute_data *execute_data)
@@ -582,7 +609,7 @@ static void async_process_object_dtor(zend_object *object)
 	if (!uv_is_closing((uv_handle_t *) &proc->handle)) {
 		GC_ADDREF(&proc->std);
 
-		uv_close((uv_handle_t *) &proc->handle, async_process_closed);
+		close_process(proc);
 	}
 }
 
