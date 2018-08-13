@@ -47,8 +47,120 @@ static async_process *async_process_object_create();
 static async_readable_pipe *async_readable_pipe_object_create(async_process *process, async_readable_pipe_state *state);
 static async_writable_pipe *async_writable_pipe_object_create(async_process *process, async_writable_pipe_state *state);
 
-#ifndef ZEND_WIN32
+#ifdef ZEND_WIN32
+
+static char **populate_env(HashTable *add, zend_bool inherit)
+{
+	char **env;
+	zend_string *key;
+	zval *v;
+
+	LPTCH envstr;
+	char t;
+
+	size_t len;
+	int count;
+	int i;
+	int s;
+	size_t j;
+
+	i = 0;
+	count = 0;
+
+	if (inherit) {
+		envstr = GetEnvironmentStrings();
+
+		for (i = 0;; i++) {
+			if (envstr[i] == '\0') {
+				if (t == '\0') {
+					break;
+				}
+
+				count++;
+			}
+
+			t = envstr[i];
+		}
+
+		count -= 3;
+	}
+
+	env = ecalloc(zend_hash_num_elements(add) + count + 1, sizeof(char *));
+
+	if (inherit) {
+		j = 0;
+		s = 0;
+
+		while (envstr[j] != '\0') {
+			len = strlen(&envstr[j]) + 1;
+
+			if (s++ > 2) {
+				env[i] = emalloc(sizeof(char) * len);
+				memcpy(env[i++], &envstr[j], len);
+			}
+
+			j += len;
+		}
+
+		FreeEnvironmentStrings(envstr);
+	}
+
+	ZEND_HASH_FOREACH_STR_KEY_VAL(add, key, v) {
+		env[i] = emalloc(sizeof(char) * key->len + Z_STRLEN_P(v) + 2);
+
+		slprintf(env[i++], key->len + Z_STRLEN_P(v) + 2, "%s=%s", key->val, Z_STRVAL_P(v));
+	} ZEND_HASH_FOREACH_END();
+
+	env[i] = NULL;
+
+	return env;
+}
+
+#else
+
 extern char **environ;
+
+static char **populate_env(HashTable *add, zend_bool inherit)
+{
+	char **env;
+	zend_string *key;
+	zval *v;
+
+	size_t len;
+	int count;
+	int i;
+
+	i = 0;
+	count = 0;
+
+	if (inherit) {
+		while (NULL != environ[count]) {
+			count++;
+		}
+	}
+
+	env = ecalloc(zend_hash_num_elements(add) + count + 1, sizeof(char *));
+
+	if (inherit) {
+		for (; i < count; i++) {
+			len = strlen(environ[i]) + 1;
+
+			env[i] = emalloc(len);
+			memcpy(env[i], environ[i], len);
+		}
+	}
+
+	ZEND_HASH_FOREACH_STR_KEY_VAL(add, key, v) {
+		env[i] = emalloc(sizeof(char) * key->len + Z_STRLEN_P(v) + 2);
+
+		slprintf(env[i++], key->len + Z_STRLEN_P(v) + 2, "%s=%s", key->val, Z_STRVAL_P(v));
+	} ZEND_HASH_FOREACH_END();
+
+	env[i] = NULL;
+
+	return env;
+}
+
 #endif
 
 static void configure_stdio(async_process_builder *builder, int i, zend_long mode, zend_long fd, zend_execute_data *execute_data)
@@ -251,58 +363,7 @@ static void prepare_process(async_process_builder *builder, async_process *proc,
 	}
 
 	if (Z_TYPE_P(&builder->env) != IS_UNDEF) {
-		zend_string *key;
-		zval *v;
-
-		char **prev;
-		char **env;
-
-		size_t len;
-		int count;
-		int i;
-
-		if (builder->inherit_env) {
-#ifdef ZEND_WIN32
-			prev = (char **) GetEnvironmentStrings();
-#else
-			prev = environ;
-#endif
-
-			count = 0;
-
-			while (NULL != prev[count]) {
-				count++;
-			}
-		} else {
-			count = 0;
-		}
-
-		env = ecalloc(zend_hash_num_elements(Z_ARRVAL_P(&builder->env)) + count + 1, sizeof(char *));
-
-		for (i = 0; i < count; i++) {
-			len = strlen(prev[i]) + 1;
-
-			env[i] = emalloc(len);
-			memcpy(env[i], prev[i], len);
-		}
-
-		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(&builder->env), key, v) {
-			env[i] = emalloc(sizeof(char) * key->len + Z_STRLEN_P(v) + 2);
-
-			slprintf(env[i], key->len + Z_STRLEN_P(v) + 2, "%s=%s", key->val, Z_STRVAL_P(v));
-
-			i++;
-		} ZEND_HASH_FOREACH_END();
-
-		env[i] = NULL;
-
-#ifdef ZEND_WIN32
-		if (builder->inherit_env) {
-			FreeEnvironmentStrings((LPTCH) prev);
-		}
-#endif
-
-		proc->options.env = env;
+		proc->options.env = populate_env(Z_ARRVAL_P(&builder->env), builder->inherit_env);
 	} else if (builder->inherit_env == 0) {
 		proc->options.env = emalloc(sizeof(char *));
 		proc->options.env[0] = NULL;
