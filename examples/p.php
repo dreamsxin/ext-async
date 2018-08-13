@@ -3,9 +3,22 @@
 namespace Concurrent\Process;
 
 $builder = new ProcessBuilder(PHP_BINARY);
-$builder->configureStdin(ProcessBuilder::STDIO_PIPE);
 $builder->configureStdout(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDOUT);
 $builder->configureStderr(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDERR);
+
+$process = $builder->start(__DIR__ . '/ps.php');
+
+\Concurrent\Task::async(function () use ($process) {
+    (new \Concurrent\Timer(400))->awaitTimeout();
+    var_dump('SIGNAL!');
+    $process->signal(\Concurrent\SignalWatcher::SIGINT);
+});
+
+$code = $process->awaitExit();
+
+echo "\nEXIT CODE: ", $code, "\n";
+
+$builder->configureStdin(ProcessBuilder::STDIO_PIPE);
 
 $process = $builder->start(__DIR__ . '/pp.php');
 
@@ -21,9 +34,6 @@ try {
 } finally {
     $stdin->close();
 }
-
-$stdin = null;
-$dup = null;
 
 $code = $process->awaitExit();
 
@@ -46,16 +56,16 @@ $builder->configureStdout(ProcessBuilder::STDIO_PIPE);
 $builder->configureStderr(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDERR);
 
 if ($win32) {
-    $proccess = $builder->start('/c', 'dir');
+    $process = $builder->start('/c', 'dir');
 } else {
-    $proccess = $builder->start(...\array_slice($_SERVER['argv'], 1));
+    $process = $builder->start(...\array_slice($_SERVER['argv'], 1));
 }
 
-// \Concurrent\Task::async($reader, $proccess->getStdout(), 256);
+// \Concurrent\Task::async($reader, $process->getStdout(), 256);
 
-$reader($proccess->getStdout(), 256);
+$reader($process->getStdout(), 256);
 
-$code = $proccess->awaitExit();
+$code = $process->awaitExit();
 
 echo "\nEXIT CODE: ", $code, "\n";
 

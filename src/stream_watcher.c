@@ -197,6 +197,11 @@ static void async_stream_watcher_object_dtor(zend_object *object)
 
 	watcher = (async_stream_watcher *) object;
 
+	if (watcher->enable.active) {
+		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+		watcher->enable.active = 0;
+	}
+
 	if (!uv_is_closing((uv_handle_t *) &watcher->poll)) {
 		GC_ADDREF(&watcher->std);
 

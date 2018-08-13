@@ -703,6 +703,29 @@ ZEND_METHOD(Process, getStderr)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
+ZEND_METHOD(Process, signal)
+{
+	async_process *proc;
+
+	zend_long signum;
+	int code;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_LONG(signum)
+	ZEND_PARSE_PARAMETERS_END();
+
+	proc = (async_process *) Z_OBJ_P(getThis());
+
+	ASYNC_CHECK_ERROR(Z_LVAL_P(&proc->exit_code) >= 0, "Cannot signal a process that has alredy been terminated");
+
+	code = uv_process_kill(&proc->handle, (int) signum);
+
+	if (code != 0) {
+		zend_throw_error(NULL, "Failed to signal process: %s", uv_strerror(code));
+		return;
+	}
+}
+
 ZEND_METHOD(Process, awaitExit)
 {
 	async_process *proc;
@@ -714,7 +737,6 @@ ZEND_METHOD(Process, awaitExit)
 	if (Z_LVAL_P(&proc->exit_code) >= 0) {
 		RETURN_ZVAL(&proc->exit_code, 1, 0);
 	}
-
 	async_task_suspend(&proc->observers, return_value, execute_data, 0, NULL);
 }
 
@@ -736,6 +758,10 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_stderr, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_signal, 0, 1, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_await_exit, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
@@ -746,6 +772,7 @@ static const zend_function_entry async_process_functions[] = {
 	ZEND_ME(Process, getStdin, arginfo_process_get_stdin, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, getStdout, arginfo_process_get_stdout, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, getStderr, arginfo_process_get_stderr, ZEND_ACC_PUBLIC)
+	ZEND_ME(Process, signal, arginfo_process_signal, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, awaitExit, arginfo_process_await_exit, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };

@@ -139,6 +139,11 @@ static void async_timer_object_dtor(zend_object *object)
 
 	timer = (async_timer *) object;
 
+	if (timer->enable.active) {
+		ASYNC_Q_DETACH(&timer->scheduler->enable, &timer->enable);
+		timer->enable.active = 0;
+	}
+
 	if (!uv_is_closing((uv_handle_t *) &timer->timer)) {
 		GC_ADDREF(&timer->std);
 

@@ -138,6 +138,11 @@ static void async_signal_watcher_object_dtor(zend_object *object)
 
 	watcher = (async_signal_watcher *) object;
 
+	if (watcher->enable.active) {
+		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+		watcher->enable.active = 0;
+	}
+
 	if (!uv_is_closing((uv_handle_t *) &watcher->signal)) {
 		GC_ADDREF(&watcher->std);
 
@@ -207,7 +212,9 @@ ZEND_METHOD(SignalWatcher, close)
 		GC_ADDREF(&watcher->std);
 	}
 
-	uv_close((uv_handle_t *) &watcher->signal, close_signal);
+	if (!uv_is_closing((uv_handle_t *) &watcher->signal)) {
+		uv_close((uv_handle_t *) &watcher->signal, close_signal);
+	}
 
 	zend_throw_error(NULL, "Signal watcher has been closed");
 
