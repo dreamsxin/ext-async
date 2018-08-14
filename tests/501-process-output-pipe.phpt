@@ -14,7 +14,7 @@ $builder->configureStdout(ProcessBuilder::STDIO_PIPE);
 
 $process = $builder->start(__DIR__ . '/500.inc');
 
-var_dump('START');
+var_dump($process->isRunning(), $process->getPid() > 0, 'START');
 
 $stdout = $process->getStdout();
 
@@ -29,11 +29,17 @@ try {
 }
 
 var_dump($process->awaitExit());
-var_dump('FINISHED');
+var_dump($process->awaitExit());
+
+var_dump($process->isRunning(), 'FINISHED');
 
 --EXPECT--
+bool(true)
+bool(true)
 string(5) "START"
 bool(true)
 string(7) "RUNNING"
 int(7)
+int(7)
+bool(false)
 string(8) "FINISHED"
