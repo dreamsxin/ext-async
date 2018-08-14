@@ -232,7 +232,7 @@ The stream API provides an object-oriented interface to arbitrary byte streams. 
 
 ### ReadableStream
 
-A readable stream provides access to chunks of incoming data. There is no method to check for EOF, a call to `read()` will return `null` when the stream is at EOF. The (optional) `$length` argument can be used to specify the maximum number of bytes to be returned, a stream might return fewer bytes depending on network IO or internal buffers. Every call to `read()` must return at least one bytes, or `null` if no more bytes can be read (EOF). The optional error argument of `close()` allows to pass in an error that will be set as previous error when failing a read operation. Calling `close()` will fail all pending read operations and prevent any further reads from the stream.
+A readable stream provides access to chunks of incoming data. There is no method to check for EOF, a call to `read()` will return `null` when the stream is at EOF. The (optional) `$length` argument can be used to specify the maximum number of bytes to be returned, a stream might return fewer bytes depending on network IO or internal buffers. Every call to `read()` must return at least one bytes, or `null` if no more bytes can be read (EOF). The optional error argument of `close()` allows to pass in an error that will be set as previous error when failing a read operation. Calling `close()` will fail all pending read operations and prevent any further reads from the stream by throwing a `StreamClosedException`.
 
 ```php
 namespace Concurrent\Stream;
@@ -290,6 +290,10 @@ final class ProcessBuilder
     public function __construct(string $command) { }
     
     public function setDirectory(string $dir): void { }
+    
+    public function setEnv(array $env): void { }
+    
+    public function inheritEnv(bool $inherit): void { }
     
     public function configureStdin(int $mode, ?int $fd = null): void { }
     
