@@ -1,11 +1,13 @@
 <?php
 
-namespace Concurrent;
-
 var_dump('AWAIT SIGNAL');
 
-(new SignalWatcher(SignalWatcher::SIGINT))->awaitSignal();
+pcntl_signal(2, function () {
+    var_dump('SIGNAL RECEIVED');
+    
+    exit(4);
+});
 
-var_dump('SIGNAL RECEIVED');
+pcntl_async_signals(true);
 
-exit(4);
+sleep(1);
