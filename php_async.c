@@ -68,7 +68,7 @@ static void async_execute_ex(zend_execute_data *exec)
 	}
 
 	if (fiber == NULL && exec->prev_execute_data == NULL) {
-		async_task_scheduler_shutdown();
+		async_task_scheduler_run();
 	}
 }
 
@@ -170,6 +170,7 @@ static PHP_RINIT_FUNCTION(async)
 static PHP_RSHUTDOWN_FUNCTION(async)
 {
 	async_task_scheduler_shutdown();
+
 	async_context_shutdown();
 	async_fiber_shutdown();
 

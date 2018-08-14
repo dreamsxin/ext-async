@@ -61,10 +61,8 @@ static char **populate_env(HashTable *add, zend_bool inherit)
 	size_t len;
 	int count;
 	int i;
-	int s;
-	size_t j;
+	char *j;
 
-	i = 0;
 	count = 0;
 
 	if (inherit) {
@@ -86,17 +84,17 @@ static char **populate_env(HashTable *add, zend_bool inherit)
 	}
 
 	env = ecalloc(zend_hash_num_elements(add) + count + 1, sizeof(char *));
+	i = 0;
 
 	if (inherit) {
-		j = 0;
-		s = 0;
+		j = envstr;
 
-		while (envstr[j] != '\0') {
-			len = strlen(&envstr[j]) + 1;
+		while (*j != '\0') {
+			len = strlen(j) + 1;
 
-			if (s++ > 2) {
+			if (*j != '=') {
 				env[i] = emalloc(sizeof(char) * len);
-				memcpy(env[i++], &envstr[j], len);
+				memcpy(env[i++], j, len);
 			}
 
 			j += len;

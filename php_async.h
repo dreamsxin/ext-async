@@ -120,6 +120,8 @@ void async_fiber_ce_unregister();
 
 void async_context_shutdown();
 void async_fiber_shutdown();
+
+void async_task_scheduler_run();
 void async_task_scheduler_shutdown();
 
 
