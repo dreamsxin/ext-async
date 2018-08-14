@@ -532,6 +532,24 @@ void async_task_scheduler_ce_register()
 	async_task_scheduler_handlers.clone_obj = NULL;
 }
 
+void async_task_scheduler_run()
+{
+	async_task_scheduler *scheduler;
+	async_task_scheduler_stack *stack;
+
+	stack = ASYNC_G(scheduler_stack);
+
+	if (stack != NULL && stack->top != NULL) {
+		async_task_scheduler_dispose(stack->top->scheduler);
+	} else {
+		scheduler = ASYNC_G(scheduler);
+
+		if (scheduler != NULL) {
+			async_task_scheduler_dispose(scheduler);
+		}
+	}
+}
+
 void async_task_scheduler_shutdown()
 {
 	async_task_scheduler *scheduler;

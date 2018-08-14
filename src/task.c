@@ -196,7 +196,7 @@ static void cancel_suspend(void *obj, zval *error)
 	async_task_scheduler_enqueue(task);
 }
 
-void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool cancellable)
+void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool cancellable, zval *data)
 {
 	async_fiber *fiber;
 	async_task *task;
@@ -218,7 +218,7 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 		info.scheduler = scheduler;
 		info.state = 0;
 
-		cont = async_awaitable_register_continuation(q, &info, NULL, suspend_continuation);
+		cont = async_awaitable_register_continuation(q, &info, data, suspend_continuation);
 		async_task_scheduler_run_loop(scheduler);
 
 		if (info.state == ASYNC_OP_RESOLVED) {
@@ -275,7 +275,7 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 		GC_ADDREF(&context->std);
 	}
 
-	task->suspended = async_awaitable_register_continuation(q, task, NULL, task_continuation);
+	task->suspended = async_awaitable_register_continuation(q, task, data, task_continuation);
 
 	task->fiber.value = USED_RET() ? return_value : NULL;
 	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;

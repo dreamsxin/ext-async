@@ -96,7 +96,7 @@ static inline void suspend(async_signal_watcher *watcher, zval *return_value, ze
 		}
 	}
 
-	async_task_suspend(&watcher->observers, return_value, execute_data, 1);
+	async_task_suspend(&watcher->observers, NULL, execute_data, 1, NULL);
 
 	if (context->background) {
 		watcher->unref_count--;
@@ -137,6 +137,11 @@ static void async_signal_watcher_object_dtor(zend_object *object)
 	async_signal_watcher *watcher;
 
 	watcher = (async_signal_watcher *) object;
+
+	if (watcher->enable.active) {
+		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+		watcher->enable.active = 0;
+	}
 
 	if (!uv_is_closing((uv_handle_t *) &watcher->signal)) {
 		GC_ADDREF(&watcher->std);
@@ -207,7 +212,9 @@ ZEND_METHOD(SignalWatcher, close)
 		GC_ADDREF(&watcher->std);
 	}
 
-	uv_close((uv_handle_t *) &watcher->signal, close_signal);
+	if (!uv_is_closing((uv_handle_t *) &watcher->signal)) {
+		uv_close((uv_handle_t *) &watcher->signal, close_signal);
+	}
 
 	zend_throw_error(NULL, "Signal watcher has been closed");
 
@@ -330,11 +337,11 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_signal_watcher_ctor, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_signal_watcher_close, 0, 0, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_watcher_close, 0, 0, IS_VOID, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO(arginfo_signal_watcher_await_signal, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_watcher_await_signal, 0, 0, IS_VOID, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_watcher_is_supported, 0, 1, _IS_BOOL, 0)

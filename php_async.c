@@ -68,7 +68,7 @@ static void async_execute_ex(zend_execute_data *exec)
 	}
 
 	if (fiber == NULL && exec->prev_execute_data == NULL) {
-		async_task_scheduler_shutdown();
+		async_task_scheduler_run();
 	}
 }
 
@@ -114,10 +114,13 @@ PHP_MINIT_FUNCTION(async)
 	async_deferred_ce_register();
 	async_fiber_ce_register();
 	async_signal_watcher_ce_register();
+	async_stream_ce_register();
 	async_stream_watcher_ce_register();
 	async_task_ce_register();
 	async_task_scheduler_ce_register();
 	async_timer_ce_register();
+
+	async_process_ce_register();
 
 	REGISTER_INI_ENTRIES();
 
@@ -167,6 +170,7 @@ static PHP_RINIT_FUNCTION(async)
 static PHP_RSHUTDOWN_FUNCTION(async)
 {
 	async_task_scheduler_shutdown();
+
 	async_context_shutdown();
 	async_fiber_shutdown();
 
@@ -242,7 +246,7 @@ static void async_gethostbyname_uv(char *name, zval *return_value, zend_execute_
 		return;
 	}
 
-	async_task_suspend(q, return_value, execute_data, 0);
+	async_task_suspend(q, return_value, execute_data, 0, NULL);
 
 	efree(req);
 	efree(q);

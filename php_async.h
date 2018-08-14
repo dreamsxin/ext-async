@@ -87,19 +87,30 @@ ASYNC_API extern zend_class_entry *async_context_ce;
 ASYNC_API extern zend_class_entry *async_context_var_ce;
 ASYNC_API extern zend_class_entry *async_deferred_ce;
 ASYNC_API extern zend_class_entry *async_deferred_awaitable_ce;
+ASYNC_API extern zend_class_entry *async_duplex_stream_ce;
 ASYNC_API extern zend_class_entry *async_fiber_ce;
+ASYNC_API extern zend_class_entry *async_process_builder_ce;
+ASYNC_API extern zend_class_entry *async_process_ce;
+ASYNC_API extern zend_class_entry *async_readable_pipe_ce;
+ASYNC_API extern zend_class_entry *async_readable_stream_ce;
+ASYNC_API extern zend_class_entry *async_stream_closed_exception_ce;
+ASYNC_API extern zend_class_entry *async_stream_exception_ce;
 ASYNC_API extern zend_class_entry *async_signal_watcher_ce;
 ASYNC_API extern zend_class_entry *async_stream_watcher_ce;
 ASYNC_API extern zend_class_entry *async_task_ce;
 ASYNC_API extern zend_class_entry *async_task_scheduler_ce;
 ASYNC_API extern zend_class_entry *async_timer_ce;
+ASYNC_API extern zend_class_entry *async_writable_pipe_ce;
+ASYNC_API extern zend_class_entry *async_writable_stream_ce;
 
 
 void async_awaitable_ce_register();
 void async_context_ce_register();
 void async_deferred_ce_register();
 void async_fiber_ce_register();
+void async_process_ce_register();
 void async_signal_watcher_ce_register();
+void async_stream_ce_register();
 void async_stream_watcher_ce_register();
 void async_task_ce_register();
 void async_task_scheduler_ce_register();
@@ -109,6 +120,8 @@ void async_fiber_ce_unregister();
 
 void async_context_shutdown();
 void async_fiber_shutdown();
+
+void async_task_scheduler_run();
 void async_task_scheduler_shutdown();
 
 
@@ -127,6 +140,10 @@ typedef struct _async_deferred_transform            async_deferred_transform;
 typedef struct _async_enable_cb                     async_enable_cb;
 typedef struct _async_enable_queue                  async_enable_queue;
 typedef struct _async_fiber                         async_fiber;
+typedef struct _async_process_builder               async_process_builder;
+typedef struct _async_process                       async_process;
+typedef struct _async_readable_pipe                 async_readable_pipe;
+typedef struct _async_readable_pipe_state           async_readable_pipe_state;
 typedef struct _async_signal_watcher                async_signal_watcher;
 typedef struct _async_stream_watcher                async_stream_watcher;
 typedef struct _async_task                          async_task;
@@ -136,6 +153,8 @@ typedef struct _async_task_scheduler_stack          async_task_scheduler_stack;
 typedef struct _async_task_scheduler_stack_entry    async_task_scheduler_stack_entry;
 typedef struct _async_task_queue                    async_task_queue;
 typedef struct _async_timer                         async_timer;
+typedef struct _async_writable_pipe                 async_writable_pipe;
+typedef struct _async_writable_pipe_state           async_writable_pipe_state;
 
 typedef void* async_fiber_context;
 
@@ -159,6 +178,14 @@ extern const zend_uchar ASYNC_FIBER_STATUS_SUSPENDED;
 extern const zend_uchar ASYNC_FIBER_STATUS_RUNNING;
 extern const zend_uchar ASYNC_FIBER_STATUS_FINISHED;
 extern const zend_uchar ASYNC_FIBER_STATUS_FAILED;
+
+extern const zend_uchar ASYNC_PROCESS_STDIN;
+extern const zend_uchar ASYNC_PROCESS_STDOUT;
+extern const zend_uchar ASYNC_PROCESS_STDERR;
+
+extern const zend_uchar ASYNC_PROCESS_STDIO_IGNORE;
+extern const zend_uchar ASYNC_PROCESS_STDIO_INHERIT;
+extern const zend_uchar ASYNC_PROCESS_STDIO_PIPE;
 
 extern const int ASYNC_SIGNAL_SIGINT;
 extern const int ASYNC_SIGNAL_SIGHUP;
@@ -360,6 +387,80 @@ struct _async_fiber {
 	size_t line;
 };
 
+struct _async_process_builder {
+	/* Fiber PHP object handle. */
+	zend_object std;
+
+	/* Command to be executed (without arguments). */
+	zend_string *command;
+
+	/* Current working directory for the process. */
+	zend_string *cwd;
+
+	/* Environment vars to be passed to the created process. */
+	zval env;
+
+	/* Set to inherit env vars from parent. */
+	zend_bool inherit_env;
+
+	/* STDIO pipe definitions for STDIN, STDOUT and STDERR. */
+	uv_stdio_container_t stdio[3];
+};
+
+struct _async_writable_pipe_state {
+	async_process *process;
+
+	zval error;
+
+	uv_pipe_t handle;
+
+	async_awaitable_queue writes;
+};
+
+struct _async_readable_pipe_state {
+	async_process *process;
+
+	zend_bool eof;
+	zval error;
+
+	uv_pipe_t handle;
+
+	async_awaitable_queue reads;
+};
+
+struct _async_process {
+	/* Fiber PHP object handle. */
+	zend_object std;
+
+	/* Process handle providing access to the running process instance. */
+	uv_process_t handle;
+
+	/* Process configuration, provided by process builder. */
+	uv_process_options_t options;
+
+	/* Process ID, will be 0 if the process has finished execution. */
+	zval pid;
+
+	/* Exit code returned by the process, will be -1 if the process has not terminated yet. */
+	zval exit_code;
+
+	async_writable_pipe_state stdin_state;
+	async_readable_pipe_state stdout_state;
+	async_readable_pipe_state stderr_state;
+
+	zend_uchar pipes;
+
+	/* Exit code / process termination observers. */
+	async_awaitable_queue observers;
+};
+
+struct _async_readable_pipe {
+	/* Fiber PHP object handle. */
+	zend_object std;
+
+	async_readable_pipe_state *state;
+};
+
 struct _async_signal_watcher {
 	/* PHP object handle. */
 	zend_object std;
@@ -546,14 +647,22 @@ struct _async_timer {
 	async_enable_cb enable;
 };
 
+struct _async_writable_pipe {
+	/* Fiber PHP object handle. */
+	zend_object std;
+
+	async_writable_pipe_state *state;
+};
+
 
 ASYNC_API async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_queue *q, void *obj, zval *data, async_awaitable_func func);
 ASYNC_API void async_awaitable_dispose_continuation(async_awaitable_queue *q, async_awaitable_cb *cb);
+ASYNC_API void async_awaitable_trigger_next_continuation(async_awaitable_queue *q, zval *result, zend_bool success);
 ASYNC_API void async_awaitable_trigger_continuation(async_awaitable_queue *q, zval *result, zend_bool success);
 
 ASYNC_API async_context *async_context_get();
 
-ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool cancellable);
+ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool cancellable, zval *data);
 
 ASYNC_API uv_loop_t *async_task_scheduler_get_loop();
 ASYNC_API async_task_scheduler *async_task_scheduler_get();
