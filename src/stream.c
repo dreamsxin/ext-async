@@ -21,6 +21,7 @@
 #include "zend_inheritance.h"
 
 zend_class_entry *async_duplex_stream_ce;
+zend_class_entry *async_pending_read_exception_ce;
 zend_class_entry *async_readable_stream_ce;
 zend_class_entry *async_stream_closed_exception_ce;
 zend_class_entry *async_stream_exception_ce;
@@ -92,6 +93,11 @@ void async_stream_ce_register()
 	async_stream_closed_exception_ce = zend_register_internal_class(&ce);
 
 	zend_do_inheritance(async_stream_closed_exception_ce, async_stream_exception_ce);
+
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Stream\\PendingReadException", empty_funcs);
+	async_pending_read_exception_ce = zend_register_internal_class(&ce);
+
+	zend_do_inheritance(async_pending_read_exception_ce, async_stream_exception_ce);
 }
 
 

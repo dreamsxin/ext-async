@@ -213,8 +213,10 @@ static void create_readable_state(async_process *process, async_readable_pipe_st
 	state->process = process;
 
 	process->options.stdio[i].data.stream = (uv_stream_t *) &state->handle;
-
 	process->pipes++;
+
+	state->buffer.size = 0x8000;
+	state->buffer.base = emalloc(sizeof(char) * state->buffer.size);
 }
 
 static void dispose_read_state(uv_handle_t * handle)
@@ -222,8 +224,9 @@ static void dispose_read_state(uv_handle_t * handle)
 	async_readable_pipe_state *state;
 
 	state = (async_readable_pipe_state *) handle->data;
-
 	state->process->pipes--;
+
+	efree(state->buffer.base);
 
 	if (state->process->pipes == 0 && Z_LVAL_P(&state->process->exit_code) >= 0) {
 		uv_close((uv_handle_t *) &state->process->handle, dispose_process);
@@ -377,25 +380,14 @@ static void prepare_process(async_process_builder *builder, async_process *proc,
 static void pipe_read_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buffer)
 {
 	async_readable_pipe_state *state;
-	async_awaitable_cb *cb;
-
-	int size;
 
 	state = (async_readable_pipe_state *) handle->data;
 
-	ZEND_ASSERT(state->reads.first != NULL);
+	state->buffer.current = state->buffer.base;
+	state->buffer.len = 0;
 
-	cb = state->reads.first;
-
-	while (Z_TYPE_P(&cb->data) == IS_UNDEF) {
-		cb = cb->next;
-	}
-
-	size = (int) Z_LVAL_P(&cb->data);
-	ZVAL_UNDEF(&cb->data);
-
-	buffer->base = emalloc(size);
-	buffer->len = MIN(size, suggested_size);
+	buffer->base = state->buffer.base;
+	buffer->len = state->buffer.size;
 }
 
 static void pipe_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buffer)
@@ -406,31 +398,23 @@ static void pipe_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buffer
 
 	state = (async_readable_pipe_state *) stream->data;
 
-	if (nread > 0) {
-		ZVAL_STRINGL(&data, buffer->base, nread);
-
-		efree(buffer->base);
-
-		async_awaitable_trigger_next_continuation(&state->reads, &data, 1);
-
-		zval_ptr_dtor(&data);
-
-		if (state->reads.first == NULL) {
-			uv_read_stop(stream);
-		}
-
-		return;
-	}
-
-	if (buffer->base != NULL) {
-		efree(buffer->base);
-	}
-
 	if (nread == 0) {
 		return;
 	}
 
 	uv_read_stop(stream);
+
+	if (nread > 0) {
+		state->buffer.len = (size_t) nread;
+
+		ZVAL_NULL(&data);
+
+		async_awaitable_trigger_next_continuation(&state->reads, &data, 1);
+
+		return;
+	}
+
+	state->buffer.len = 0;
 
 	if (nread == UV_EOF) {
 		state->eof = 1;
@@ -1123,7 +1107,8 @@ ZEND_METHOD(ReadablePipe, read)
 	async_readable_pipe *pipe;
 
 	zval *hint;
-	zval len;
+	zval chunk;
+	size_t len;
 
 	hint = NULL;
 
@@ -1132,19 +1117,15 @@ ZEND_METHOD(ReadablePipe, read)
 		Z_PARAM_ZVAL(hint)
 	ZEND_PARSE_PARAMETERS_END();
 
+	pipe = (async_readable_pipe *) Z_OBJ_P(getThis());
+
 	if (hint == NULL) {
-		ZVAL_LONG(&len, 8192);
+		len = pipe->state->buffer.size;
 	} else if (Z_LVAL_P(hint) < 1) {
 		zend_throw_error(NULL, "Invalid read length: %d", (int) Z_LVAL_P(hint));
 		return;
 	} else {
-		ZVAL_COPY(&len, hint);
-	}
-
-	pipe = (async_readable_pipe *) Z_OBJ_P(getThis());
-
-	if (pipe->state->eof) {
-		return;
+		len = (size_t) Z_LVAL_P(hint);
 	}
 
 	if (Z_TYPE_P(&pipe->state->error) != IS_UNDEF) {
@@ -1157,11 +1138,33 @@ ZEND_METHOD(ReadablePipe, read)
 		return;
 	}
 
-	if (pipe->state->reads.first == NULL) {
-		uv_read_start((uv_stream_t *) &pipe->state->handle, pipe_read_alloc, pipe_read);
+	if (pipe->state->reads.first != NULL) {
+		zend_throw_exception(async_pending_read_exception_ce, "Cannot read from pipe while another read is pending", 0);
+		return;
 	}
 
-	async_task_suspend(&pipe->state->reads, return_value, execute_data, 0, &len);
+	if (pipe->state->eof) {
+		return;
+	}
+
+	if (pipe->state->buffer.len == 0) {
+		uv_read_start((uv_stream_t *) &pipe->state->handle, pipe_read_alloc, pipe_read);
+
+		async_task_suspend(&pipe->state->reads, return_value, execute_data, 0, NULL);
+
+		if (pipe->state->eof || UNEXPECTED(EG(exception))) {
+			return;
+		}
+	}
+
+	len = MIN(len, pipe->state->buffer.len);
+
+	ZVAL_STRINGL(&chunk, pipe->state->buffer.current, len);
+
+	pipe->state->buffer.current += len;
+	pipe->state->buffer.len -= len;
+
+	RETURN_ZVAL(&chunk, 1, 1);
 }
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_readable_pipe_close, 0, 0, IS_VOID, 0)

@@ -89,6 +89,7 @@ ASYNC_API extern zend_class_entry *async_deferred_ce;
 ASYNC_API extern zend_class_entry *async_deferred_awaitable_ce;
 ASYNC_API extern zend_class_entry *async_duplex_stream_ce;
 ASYNC_API extern zend_class_entry *async_fiber_ce;
+ASYNC_API extern zend_class_entry *async_pending_read_exception_ce;
 ASYNC_API extern zend_class_entry *async_process_builder_ce;
 ASYNC_API extern zend_class_entry *async_process_ce;
 ASYNC_API extern zend_class_entry *async_readable_pipe_ce;
@@ -127,6 +128,7 @@ void async_task_scheduler_shutdown();
 
 typedef struct _async_awaitable_cb                  async_awaitable_cb;
 typedef struct _async_awaitable_queue               async_awaitable_queue;
+typedef struct _async_byte_buffer                   async_byte_buffer;
 typedef struct _async_cancel_cb                     async_cancel_cb;
 typedef struct _async_cancel_queue                  async_cancel_queue;
 typedef struct _async_cancellation_handler          async_cancellation_handler;
@@ -247,6 +249,19 @@ struct _async_enable_queue {
 	async_enable_cb *last;
 };
 
+struct _async_byte_buffer {
+	/* Allocated buffer memory. */
+	char *base;
+
+	/* Allocated buffer size. */
+	size_t size;
+
+	/* Current read offset into the buffer. */
+	char *current;
+
+	/* Remaining number of buffered bytes. */
+	size_t len;
+};
 
 struct _async_cancellation_handler {
 	/* PHP object handle. */
@@ -430,6 +445,8 @@ struct _async_readable_pipe_state {
 	zval error;
 
 	uv_pipe_t handle;
+
+	async_byte_buffer buffer;
 
 	async_awaitable_queue reads;
 };
