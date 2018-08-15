@@ -151,8 +151,6 @@ typedef struct _async_stream_watcher                async_stream_watcher;
 typedef struct _async_task                          async_task;
 typedef struct _async_task_suspended                async_task_suspended;
 typedef struct _async_task_scheduler                async_task_scheduler;
-typedef struct _async_task_scheduler_stack          async_task_scheduler_stack;
-typedef struct _async_task_scheduler_stack_entry    async_task_scheduler_stack_entry;
 typedef struct _async_task_queue                    async_task_queue;
 typedef struct _async_timer                         async_timer;
 typedef struct _async_writable_pipe                 async_writable_pipe;
@@ -625,22 +623,6 @@ struct _async_task_scheduler {
 	async_enable_queue enable;
 };
 
-struct _async_task_scheduler_stack_entry {
-	/* Refers to the task scheduler. */
-	async_task_scheduler *scheduler;
-
-	/* Points to the previous scheduler, NULL if no stacked scheduler is active. */
-	async_task_scheduler_stack_entry *prev;
-};
-
-struct _async_task_scheduler_stack {
-	/* Number of stacked schedulers. */
-	size_t size;
-
-	/* Top-most scheduler on the stack. */
-	async_task_scheduler_stack_entry *top;
-};
-
 struct _async_timer {
 	/* PHP object handle. */
 	zend_object std;
@@ -706,9 +688,6 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 
 	/* Fallback root task scheduler. */
 	async_task_scheduler *scheduler;
-
-	/* Stack of registered default schedulers. */
-	async_task_scheduler_stack *scheduler_stack;
 
 	/* Running task scheduler. */
 	async_task_scheduler *current_scheduler;

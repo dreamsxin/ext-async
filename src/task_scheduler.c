@@ -110,18 +110,11 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 async_task_scheduler *async_task_scheduler_get()
 {
 	async_task_scheduler *scheduler;
-	async_task_scheduler_stack *stack;
 
 	scheduler = ASYNC_G(current_scheduler);
 
 	if (scheduler != NULL) {
 		return scheduler;
-	}
-
-	stack = ASYNC_G(scheduler_stack);
-
-	if (stack != NULL && stack->top != NULL) {
-		return stack->top->scheduler;
 	}
 
 	scheduler = ASYNC_G(scheduler);
@@ -356,8 +349,7 @@ static void debug_scope(void *info_obj, zval *data, zval *result, zend_bool succ
 static void exec_scope(zend_fcall_info fci, zend_fcall_info_cache fcc, debug_info *info, zval *return_value, zend_execute_data *execute_data)
 {
 	async_task_scheduler *scheduler;
-	async_task_scheduler_stack *stack;
-	async_task_scheduler_stack_entry *entry;
+	async_task_scheduler *prev;
 	async_task *task;
 
 	zend_uchar status;
@@ -365,24 +357,11 @@ static void exec_scope(zend_fcall_info fci, zend_fcall_info_cache fcc, debug_inf
 	zval retval;
 
 	scheduler = async_task_scheduler_object_create();
-	stack = ASYNC_G(scheduler_stack);
+	prev = ASYNC_G(current_scheduler);
+
+	ASYNC_G(current_scheduler) = scheduler;
 
 	info->scheduler = scheduler;
-
-	if (stack == NULL) {
-		stack = emalloc(sizeof(async_task_scheduler_stack));
-		stack->size = 0;
-		stack->top = NULL;
-
-		ASYNC_G(scheduler_stack) = stack;
-	}
-
-	entry = emalloc(sizeof(async_task_scheduler_stack_entry));
-	entry->scheduler = scheduler;
-	entry->prev = stack->top;
-
-	stack->top = entry;
-	stack->size++;
 
 	fci.param_count = 0;
 
@@ -397,16 +376,13 @@ static void exec_scope(zend_fcall_info fci, zend_fcall_info_cache fcc, debug_inf
 	async_task_scheduler_enqueue(task);
 	async_task_scheduler_dispose(scheduler);
 
-	stack->top = entry->prev;
-	stack->size--;
-
-	efree(entry);
-
 	status = task->fiber.status;
 	ZVAL_COPY(&retval, &task->result);
 
 	OBJ_RELEASE(&task->fiber.std);
 	OBJ_RELEASE(&scheduler->std);
+
+	ASYNC_G(current_scheduler) = prev;
 
 	if (status == ASYNC_FIBER_STATUS_FINISHED) {
 		RETURN_ZVAL(&retval, 1, 1);
@@ -535,47 +511,17 @@ void async_task_scheduler_ce_register()
 void async_task_scheduler_run()
 {
 	async_task_scheduler *scheduler;
-	async_task_scheduler_stack *stack;
 
-	stack = ASYNC_G(scheduler_stack);
+	scheduler = ASYNC_G(scheduler);
 
-	if (stack != NULL && stack->top != NULL) {
-		async_task_scheduler_dispose(stack->top->scheduler);
-	} else {
-		scheduler = ASYNC_G(scheduler);
-
-		if (scheduler != NULL) {
-			async_task_scheduler_dispose(scheduler);
-		}
+	if (scheduler != NULL) {
+		async_task_scheduler_dispose(scheduler);
 	}
 }
 
 void async_task_scheduler_shutdown()
 {
 	async_task_scheduler *scheduler;
-	async_task_scheduler_stack *stack;
-	async_task_scheduler_stack_entry *entry;
-
-	stack = ASYNC_G(scheduler_stack);
-
-	if (stack != NULL) {
-		ASYNC_G(scheduler_stack) = NULL;
-
-		while (stack->top != NULL) {
-			entry = stack->top;
-
-			stack->top = entry->prev;
-			stack->size--;
-
-			async_task_scheduler_dispose(entry->scheduler);
-
-			OBJ_RELEASE(&entry->scheduler->std);
-
-			efree(entry);
-		}
-
-		efree(stack);
-	}
 
 	scheduler = ASYNC_G(scheduler);
 
