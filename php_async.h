@@ -394,6 +394,12 @@ struct _async_process_builder {
 	/* Command to be executed (without arguments). */
 	zend_string *command;
 
+	/* Number of additional arguments. */
+	uint32_t argc;
+
+	/* Additional args passed to the base command. */
+	zval *argv;
+
 	/* Current working directory for the process. */
 	zend_string *cwd;
 

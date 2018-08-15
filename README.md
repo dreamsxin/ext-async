@@ -272,7 +272,15 @@ interface DuplexStream extends ReadableStream, WritableStream { }
 
 ## Process API
 
+The process API provides tools to spawn processes and communicate with them. This includes setting the work directory, setting environment variables, dealing with input / output, support for signals (limited support on Windows) and awaiting termination (including access to the exit code).
+
 ### ProcessBuilder
+
+The `ProcessBuilder` is used to configure the execution environment of a spawned process. The constructor takes the command to be executed, additional arguments can be passed to `execute()` or `start()`. The current working directory of the spawned process can be changed using `setDirectory()`, the process will inherit the current working directory by default. You can specify env vars to be passed to the process using `setEnv()`, inheritance of all current env vars can be configured using `inheritEnv()` (inheritance is enabled by default, variables specified in `setEnv()` will be added to the inherited vars).
+
+Each process is spawned with access to three anonymous pipes (`STDIN`, `STDOUT` and `STDERR`). The behavior of these pipes can be configured using the `configure*($mode, $fd)` methods of the `ProcessBuilder`. By default all pipes will be ignored (redirected to eighter `/dev/null` or `NUL`) providing no access to process IO. It is possible to have pipes use the same pipe as the process that is spawning a new process, use `STDIO_INHERIT` as `$mode` and one of the `ProcessBuilder` class constants (`STDIN`, `STDOUT` and `STDERR`) to configure inheritance. Both `STDIO_IGNORE` and `STDIO_INHERIT` handle IO automatically, there is no way to control or access the pipes. If you need to write or read data to / from a pipe you need to configure it using `STDIO_PIPE` as mode. Doing so will provide access to the various pipes as async streams that can be accessed using the `Process` object.
+
+A call to `execute()` will run the spawned process to completion and return with the exit code of the process. This method can only be used if all pipes are configured with mode `STDIO_IGNORE` or `STDIO_INHERIT`. If you need to do pipe IO, access the process PID or signal the process you need to call `start()` instead which will return a `Process` object that provides access to a running process.
 
 ```php
 namespace Concurrent\Process;
@@ -287,7 +295,7 @@ final class ProcessBuilder
     public const STDIO_INHERIT;
     public const STDIO_PIPE;
     
-    public function __construct(string $command) { }
+    public function __construct(string $command, string ...$args) { }
     
     public function setDirectory(string $dir): void { }
     
@@ -308,6 +316,8 @@ final class ProcessBuilder
 ```
 
 ### Process
+
+The `Process` class provides access to a started process. You can use `isRunning()` to check if the process has terminated yet. The process identifier can be accessed using `getPid()`. Iy any pipe was configured using `STDIO_PIPE` it will be accessible via the corresponding getter method. You can send a signal to the process using `signal()`, on Windows systems only `SIGHUP` and `SIGINT` are supported (you should use the class constants defined in `SignalWatcher` to avoid magic numbers). Calling `awaitExit()` will suspend the current task until the process has terminated and return the exit code of the process.
 
 ```php
 namespace Concurrent\Process;

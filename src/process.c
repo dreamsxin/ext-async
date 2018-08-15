@@ -340,11 +340,17 @@ static void prepare_process(async_process_builder *builder, async_process *proc,
 	char **args;
 	uint32_t i;
 
+	count += builder->argc;
+
 	args = ecalloc(sizeof(char *), count + 2);
 	args[0] = ZSTR_VAL(builder->command);
 
-	for (i = 0; i < count; i++) {
-		args[i + 1] = Z_STRVAL_P(&params[i]);
+	for (i = 1; i <= builder->argc; i++) {
+		args[i] = Z_STRVAL_P(&builder->argv[i - 1]);
+	}
+
+	for (; i <= count; i++) {
+		args[i] = Z_STRVAL_P(&params[i - 1]);
 	}
 
 	args[count + 1] = NULL;
@@ -493,6 +499,7 @@ static zend_object *async_process_builder_object_create(zend_class_entry *ce)
 static void async_process_builder_object_destroy(zend_object *object)
 {
 	async_process_builder *builder;
+	uint32_t i;
 
 	builder = (async_process_builder *) object;
 
@@ -500,6 +507,14 @@ static void async_process_builder_object_destroy(zend_object *object)
 
 	if (builder->cwd != NULL) {
 		zend_string_release(builder->cwd);
+	}
+
+	if (builder->argc > 0) {
+		for (i = 0; i < builder->argc; i++) {
+			zval_ptr_dtor(&builder->argv[i]);
+		}
+
+		efree(builder->argv);
 	}
 
 	zval_ptr_dtor(&builder->env);
@@ -510,12 +525,25 @@ static void async_process_builder_object_destroy(zend_object *object)
 ZEND_METHOD(ProcessBuilder, __construct)
 {
 	async_process_builder *builder;
+	uint32_t i;
+
+	zval *params;
 
 	builder = (async_process_builder *) Z_OBJ_P(getThis());
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
 		Z_PARAM_STR(builder->command)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_VARIADIC('+', params, builder->argc)
 	ZEND_PARSE_PARAMETERS_END();
+
+	if (builder->argc > 0) {
+		builder->argv = ecalloc(builder->argc, sizeof(zval));
+
+		for (i = 0; i < builder->argc; i++) {
+			ZVAL_COPY(&builder->argv[i], &params[i]);
+		}
+	}
 }
 
 ZEND_METHOD(ProcessBuilder, setDirectory)
@@ -740,6 +768,7 @@ ZEND_METHOD(ProcessBuilder, start)
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_process_builder_ctor, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, command, IS_STRING, 0)
+	ZEND_ARG_VARIADIC_TYPE_INFO(0, arguments, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_builder_set_directory, 0, 1, IS_VOID, 0)
