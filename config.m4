@@ -1,6 +1,9 @@
 PHP_ARG_ENABLE(async, Whether to enable "async" support,
 [ --enable-async          Enable "async" support], no)
 
+PHP_ARG_WITH(openssl-dir, OpenSSL dir for "async",
+[ --with-openssl-dir[=DIR] Openssl install prefix], no, no)
+
 if test "$PHP_ASYNC" != "no"; then
   AC_DEFINE(HAVE_ASYNC, 1, [ ])
   
@@ -26,6 +29,7 @@ if test "$PHP_ASYNC" != "no"; then
     src/stream_watcher.c \
     src/task.c \
     src/task_scheduler.c \
+    src/tcp.c \
     src/timer.c"
   
   AS_CASE([$host_cpu],
@@ -91,7 +95,8 @@ if test "$PHP_ASYNC" != "no"; then
   esac
   
   PHP_NEW_EXTENSION(async, $async_source_files, $ext_shared,, \\$(ASYNC_CFLAGS))
-  
+  PHP_SUBST(ASYNC_CFLAGS)
+  PHP_SUBST(ASYNC_SHARED_LIBADD)
   PHP_ADD_MAKEFILE_FRAGMENT
   
   case $host in
@@ -100,8 +105,26 @@ if test "$PHP_ASYNC" != "no"; then
   esac
   
   LDFLAGS="-lpthread $LDFLAGS"
-      
-  PHP_SUBST(ASYNC_CFLAGS)
   
   PHP_INSTALL_HEADERS([ext/async], [config.h thirdparty/libuv/include/*.h])
+  
+  if test "$PHP_OPENSSL" = ""; then
+    AC_CHECK_HEADER(openssl/evp.h, [
+      PHP_OPENSSL='yes'
+    ], [
+      PHP_OPENSSL='no'
+    ])
+  fi
+
+  if test "$PHP_OPENSSL" != "no" || test "$PHP_OPENSSL_DIR" != "no"; then
+    PHP_SETUP_OPENSSL(ASYNC_SHARED_LIBADD, [
+      AC_MSG_CHECKING(for SSL support)
+      AC_MSG_RESULT(yes)
+      AC_DEFINE(HAVE_ASYNC_SSL,1,[ ])
+    ], [
+      AC_MSG_CHECKING(for SSL support)
+      AC_MSG_RESULT(no)
+    ])
+  fi
+  
 fi

@@ -6,6 +6,8 @@ if (PHP_ASYNC != 'no') {
 	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname);
 	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\include');
 	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\thirdparty\\libuv\\include');
+	
+	ADD_FLAG('LDFLAGS', '/NODEFAULTLIB:LIBCMT');
 		
 	var async_source_files = [
 		'php_async.c',
@@ -21,6 +23,7 @@ if (PHP_ASYNC != 'no') {
 		'src\\stream_watcher.c',
 		'src\\task.c',
 		'src\\task_scheduler.c',
+		'src\\tcp.c',
 		'src\\timer.c'
 	];
 	
@@ -29,16 +32,23 @@ if (PHP_ASYNC != 'no') {
 		'thirdparty\\libuv\\include\\uv.h'
 	];
 	
-	// Required in order to link against libuv.
-	CHECK_LIB("Iphlpapi.lib", 'async');
-	CHECK_LIB("psapi.lib", 'async');
-	CHECK_LIB('Userenv.lib', 'async');
-	CHECK_LIB("Ws2_32.lib", 'async');
-	
 	// Use pre-built libuv from async extension.
 	CHECK_LIB('libuv-x64.lib', 'async', configure_module_dirname + '\\thirdparty');
+	
+	// Required in order to link against libuv.
+	CHECK_LIB("Ws2_32.lib", 'async');
+	CHECK_LIB("psapi.lib", 'async');
+	CHECK_LIB("Iphlpapi.lib", 'async');
+	CHECK_LIB('Userenv.lib', 'async');
 
 	PHP_INSTALL_HEADERS('ext/async', async_header_files.join(' '));
+
+	var ret = SETUP_OPENSSL('async', PHP_ASYNC);
+	
+	if (ret > 0) {
+		MESSAGE('Enabling SSL support for ext\\async');
+		AC_DEFINE('HAVE_ASYNC_SSL', 1, 'Have async socket over SSL support');
+	}
 
 	EXTENSION('async', async_source_files.join(' '), PHP_ASYNC_SHARED, '/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1');
 }

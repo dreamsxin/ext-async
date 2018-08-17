@@ -241,9 +241,9 @@ namespace Concurrent\Stream;
 
 interface ReadableStream
 {
-    public function close(?\Throwable $e = null): void { }
+    public function close(?\Throwable $e = null): void;
     
-    public function read(?int $length = null): ?string { }
+    public function read(?int $length = null): ?string;
 }
 ```
 
@@ -256,20 +256,81 @@ namespace Concurrent\Stream;
 
 interface WritableStream
 {
-    public function close(?\Throwable $e = null): void { }
+    public function close(?\Throwable $e = null): void;
     
-    public function write(string $data): void { }
+    public function write(string $data): void;
 }
 ```
 
 ### DuplexStream
 
-The duplex stream implements both `ReadableStream` and `WritableStream`. Streams backed by a socket will usually be compatible with (and implement) this interface.
+The duplex stream implements both `ReadableStream` and `WritableStream`. Streams backed by a socket will usually be compatible with (and implement) this interface. You can call `readStream()` or `writeStream()` to aquire a stream that is restricted to one of the combined interfaces. This is especially useful if you want calls to `close()` to result in a half-closed stream.
 
 ```php
 namespace Concurrent\Stream;
 
-interface DuplexStream extends ReadableStream, WritableStream { }
+interface DuplexStream extends ReadableStream, WritableStream
+{
+    public function readStream(): ReadableStream;
+    
+    public function writeStream(): WritableStream;
+}
+```
+
+## Network API
+
+The network API provides access to stream and datagram sockets.
+
+### TcpSocket
+
+A `TcpSocket` wraps a TCP network conneciton. It implements `DuplexStream` to provide access based on the stream API. Closing a TCP socket will close both read and write sides of the stream. You can use `writeStream()` to aquire the writer and call `close()` on it to signal the remote peer that the stream is half-closed, you can still read data from the remote peer until the stream is closed by the remote peer.
+
+```php
+namespace Concurrent\Network;
+
+use Concurrent\Stream\DuplexStream
+use Concurrent\Stream\ReadableStream
+use Concurrent\Stream\WritableStream
+
+final class TcpSocket implements DuplexStream
+{
+    public static function connect(string $host, int $port): Socket { }
+    
+    public static function pair(): array { }
+    
+    public function close(?\Throwable $e = null): void { }
+    
+    public function nodelay(bool $enable): void { }
+    
+    public function getLocalPeer(): array { }
+    
+    public function getRemotePeer(): array { }
+    
+    public function read(?int $length = null): ?string { }
+    
+    public function readStream(): ReadableStream { }
+    
+    public function write(string $data): void { }
+    
+    public function writeStream(): WritableStream { }
+}
+```
+
+### TcpServer
+
+A `TcpServer` listens on a local port for incoming TCP connection attempts until `close()` is called to terminate the server socket. You have to call `accept()` to accept the next pending connection attempt. Each accepted connection is wrapped in a `TcpSocket` that can be used to communicate with the remote peer. Accepted socket connections are not closed when the server is closed, they have to be closed individually by calling `close()` on the `TcpSocket` object.
+
+```php
+namespace Concurrent\Network;
+
+final class TcpServer
+{
+    public static function listen(string $host, int $port): Server { }
+    
+    public function close(?\Throwable $e = null): void { }
+    
+    public function accept(): Socket { }
+}
 ```
 
 ## Process API

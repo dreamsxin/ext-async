@@ -30,6 +30,7 @@
 #include <Iphlpapi.h>
 #endif
 
+#include "uv.h"
 #include "php.h"
 
 extern zend_module_entry async_module_entry;
@@ -48,8 +49,6 @@ extern zend_module_entry async_module_entry;
 #ifdef ZTS
 #include "TSRM.h"
 #endif
-
-#include "uv.h"
 
 #include "zend.h"
 #include "zend_API.h"
@@ -100,6 +99,8 @@ ASYNC_API extern zend_class_entry *async_signal_watcher_ce;
 ASYNC_API extern zend_class_entry *async_stream_watcher_ce;
 ASYNC_API extern zend_class_entry *async_task_ce;
 ASYNC_API extern zend_class_entry *async_task_scheduler_ce;
+ASYNC_API extern zend_class_entry *async_tcp_server_ce;
+ASYNC_API extern zend_class_entry *async_tcp_socket_ce;
 ASYNC_API extern zend_class_entry *async_timer_ce;
 ASYNC_API extern zend_class_entry *async_writable_pipe_ce;
 ASYNC_API extern zend_class_entry *async_writable_stream_ce;
@@ -115,6 +116,7 @@ void async_stream_ce_register();
 void async_stream_watcher_ce_register();
 void async_task_ce_register();
 void async_task_scheduler_ce_register();
+void async_tcp_ce_register();
 void async_timer_ce_register();
 
 void async_fiber_ce_unregister();
@@ -152,6 +154,10 @@ typedef struct _async_task                          async_task;
 typedef struct _async_task_suspended                async_task_suspended;
 typedef struct _async_task_scheduler                async_task_scheduler;
 typedef struct _async_task_queue                    async_task_queue;
+typedef struct _async_tcp_server                    async_tcp_server;
+typedef struct _async_tcp_socket                    async_tcp_socket;
+typedef struct _async_tcp_socket_reader             async_tcp_socket_reader;
+typedef struct _async_tcp_socket_writer             async_tcp_socket_writer;
 typedef struct _async_timer                         async_timer;
 typedef struct _async_writable_pipe                 async_writable_pipe;
 typedef struct _async_writable_pipe_state           async_writable_pipe_state;
@@ -571,6 +577,9 @@ struct _async_task {
 	/* Cancellation callback (inlined to avoid additional memory allocation). */
 	async_cancel_cb cancel;
 
+	/* Flag indicating last suspended operation was cancelled. */
+	zend_bool *cancelled;
+
 	/* Linked list of registered continuation callbacks. */
 	async_awaitable_queue continuation;
 };
@@ -623,6 +632,64 @@ struct _async_task_scheduler {
 	async_enable_queue enable;
 };
 
+struct _async_tcp_server {
+	/* PHP object handle. */
+	zend_object std;
+
+	/* UV TCP handle. */
+	uv_tcp_t handle;
+
+	zend_uchar pending;
+
+	/* Error being used to close the server. */
+	zval error;
+
+	/* Queue of tasks waiting to accept a socket connection. */
+	async_awaitable_queue accepts;
+};
+
+struct _async_tcp_socket {
+	/* PHP object handle. */
+	zend_object std;
+
+	/* UV TCP handle. */
+	uv_tcp_t handle;
+
+	/* Is set if EOF has been red. */
+	zend_bool eof;
+
+	/* Error being used to close the read stream. */
+	zval read_error;
+
+	/* Error being used to close the write stream. */
+	zval write_error;
+
+	/* Internal read buffer of the socket. */
+	async_byte_buffer buffer;
+
+	/* Queue of pending read tasks (only one task is allowed). */
+	async_awaitable_queue reads;
+
+	/* Queue of pending write tasks. */
+	async_awaitable_queue writes;
+};
+
+struct _async_tcp_socket_reader {
+	/* PHP object handle. */
+	zend_object std;
+
+	/* Socket being used to delegate reads. */
+	async_tcp_socket *socket;
+};
+
+struct _async_tcp_socket_writer {
+	/* PHP object handle. */
+	zend_object std;
+
+	/* Socket being used to delegate writes. */
+	async_tcp_socket *socket;
+};
+
 struct _async_timer {
 	/* PHP object handle. */
 	zend_object std;
@@ -667,10 +734,12 @@ ASYNC_API void async_awaitable_trigger_continuation(async_awaitable_queue *q, zv
 
 ASYNC_API async_context *async_context_get();
 
-ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool cancellable, zval *data);
+ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool *cancelled);
 
 ASYNC_API uv_loop_t *async_task_scheduler_get_loop();
 ASYNC_API async_task_scheduler *async_task_scheduler_get();
+
+ASYNC_API void async_gethostbyname(char *name, zval *return_value, zend_execute_data *execute_data);
 
 
 ZEND_BEGIN_MODULE_GLOBALS(async)

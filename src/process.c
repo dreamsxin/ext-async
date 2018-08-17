@@ -682,7 +682,7 @@ ZEND_METHOD(ProcessBuilder, execute)
 	if (code != 0) {
 		zend_throw_error(NULL, "Failed to launch process \"%s\": %s", ZSTR_VAL(builder->command), uv_strerror(code));
 	} else {
-		async_task_suspend(&proc->observers, return_value, execute_data, 0, NULL);
+		async_task_suspend(&proc->observers, return_value, execute_data, NULL);
 	}
 
 	OBJ_RELEASE(&proc->std);
@@ -993,7 +993,7 @@ ZEND_METHOD(Process, awaitExit)
 	if (Z_LVAL_P(&proc->exit_code) >= 0) {
 		RETURN_ZVAL(&proc->exit_code, 1, 0);
 	}
-	async_task_suspend(&proc->observers, return_value, execute_data, 0, NULL);
+	async_task_suspend(&proc->observers, return_value, execute_data, NULL);
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_process_debug_info, 0)
@@ -1105,6 +1105,7 @@ ZEND_METHOD(ReadablePipe, close)
 ZEND_METHOD(ReadablePipe, read)
 {
 	async_readable_pipe *pipe;
+	zend_bool cancelled;
 
 	zval *hint;
 	zval chunk;
@@ -1150,7 +1151,12 @@ ZEND_METHOD(ReadablePipe, read)
 	if (pipe->state->buffer.len == 0) {
 		uv_read_start((uv_stream_t *) &pipe->state->handle, pipe_read_alloc, pipe_read);
 
-		async_task_suspend(&pipe->state->reads, return_value, execute_data, 0, NULL);
+		async_task_suspend(&pipe->state->reads, return_value, execute_data, &cancelled);
+
+		if (cancelled) {
+			uv_read_stop((uv_stream_t *) &pipe->state->handle);
+			return;
+		}
 
 		if (pipe->state->eof || UNEXPECTED(EG(exception))) {
 			return;
@@ -1278,7 +1284,7 @@ ZEND_METHOD(WritablePipe, write)
 			if (result == UV_EAGAIN) {
 				break;
 			} else if (result < 0) {
-				zend_throw_error(NULL, "Pipe write error: %s", uv_strerror(result));
+				zend_throw_exception_ex(async_stream_exception_ce, 0, "Pipe write error: %s", uv_strerror(result));
 
 				return;
 			}
@@ -1294,7 +1300,7 @@ ZEND_METHOD(WritablePipe, write)
 
 	uv_write(&write, (uv_stream_t *) &pipe->state->handle, buffer, 1, pipe_write);
 
-	async_task_suspend(&pipe->state->writes, return_value, execute_data, 0, NULL);
+	async_task_suspend(&pipe->state->writes, return_value, execute_data, NULL);
 }
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_writable_pipe_close, 0, 0, IS_VOID, 0)

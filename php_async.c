@@ -18,11 +18,11 @@
 
 #include "php_async.h"
 
-#include "async_fiber.h"
-#include "async_task.h"
-
 #include "ext/standard/info.h"
 #include "SAPI.h"
+
+#include "async_fiber.h"
+#include "async_task.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
@@ -73,7 +73,7 @@ static void async_execute_ex(zend_execute_data *exec)
 }
 
 
-static PHP_INI_MH(OnUpdateFiberStackSize)
+PHP_INI_MH(OnUpdateFiberStackSize)
 {
 	OnUpdateLong(entry, new_value, mh_arg1, mh_arg2, mh_arg3, stage);
 
@@ -89,7 +89,7 @@ PHP_INI_BEGIN()
 PHP_INI_END()
 
 
-static PHP_GINIT_FUNCTION(async)
+PHP_GINIT_FUNCTION(async)
 {
 #if defined(ZTS) && defined(COMPILE_DL_ASYNC)
 	ZEND_TSRMLS_CACHE_UPDATE();
@@ -100,14 +100,11 @@ static PHP_GINIT_FUNCTION(async)
 
 PHP_MINIT_FUNCTION(async)
 {
-	async_cli = 0;
-
 	if (0 == strcmp(sapi_module.name, "cli") || 0 == strcmp(sapi_module.name, "phpdbg")) {
 		async_cli = 1;
+	} else {
+		async_cli = 0;
 	}
-
-	// Use PHP's memory manager within libuv.
-	uv_replace_allocator((uv_malloc_func) _emalloc, (uv_realloc_func) _erealloc, (uv_calloc_func) _ecalloc, (uv_free_func) _efree);
 
 	async_awaitable_ce_register();
 	async_context_ce_register();
@@ -121,6 +118,7 @@ PHP_MINIT_FUNCTION(async)
 	async_timer_ce_register();
 
 	async_process_ce_register();
+	async_tcp_ce_register();
 
 	REGISTER_INI_ENTRIES();
 
@@ -143,7 +141,7 @@ PHP_MSHUTDOWN_FUNCTION(async)
 }
 
 
-static PHP_MINFO_FUNCTION(async)
+PHP_MINFO_FUNCTION(async)
 {
 	char uv_version[20];
 
@@ -158,7 +156,7 @@ static PHP_MINFO_FUNCTION(async)
 }
 
 
-static PHP_RINIT_FUNCTION(async)
+PHP_RINIT_FUNCTION(async)
 {
 #if defined(ZTS) && defined(COMPILE_DL_ASYNC)
 	ZEND_TSRMLS_CACHE_UPDATE();
@@ -167,7 +165,7 @@ static PHP_RINIT_FUNCTION(async)
 	return SUCCESS;
 }
 
-static PHP_RSHUTDOWN_FUNCTION(async)
+PHP_RSHUTDOWN_FUNCTION(async)
 {
 	async_task_scheduler_shutdown();
 
@@ -178,7 +176,7 @@ static PHP_RSHUTDOWN_FUNCTION(async)
 }
 
 
-static zend_string *async_gethostbyname(char *name)
+static zend_string *async_gethostbyname_sync(char *name)
 {
 	struct hostent *hp;
 	struct in_addr in;
@@ -203,17 +201,35 @@ static void async_gethostbyname_cb(uv_getaddrinfo_t *req, int status, struct add
 
 	zval result;
 
-	if (res->ai_addrlen == 16) {
-		uv_ip4_name((struct sockaddr_in*) res->ai_addr, name, res->ai_addrlen);
-	} else {
-		uv_ip6_name((struct sockaddr_in6*) res->ai_addr, name, res->ai_addrlen);
+	q = (async_awaitable_queue *) req->data;
+
+	efree(req);
+
+	if (status != 0) {
+		uv_freeaddrinfo(res);
+
+		if (status == UV_ECANCELED) {
+			return;
+		}
+
+		ZVAL_LONG(&result, status);
+
+		async_awaitable_trigger_continuation(q, &result, 1);
+
+		return;
 	}
 
-	ZVAL_STRING(&result, name);
+	if (res->ai_family == AF_INET) {
+		uv_ip4_name((struct sockaddr_in*) res->ai_addr, name, res->ai_addrlen);
+		ZVAL_STRING(&result, name);
+	} else if (res->ai_family == AF_INET6) {
+		uv_ip6_name((struct sockaddr_in6*) res->ai_addr, name, res->ai_addrlen);
+		ZVAL_STRING(&result, name);
+	} else {
+		ZVAL_NULL(&result);
+	}
 
 	uv_freeaddrinfo(res);
-
-	q = (async_awaitable_queue *) req->data;
 
 	async_awaitable_trigger_continuation(q, &result, 1);
 
@@ -223,16 +239,20 @@ static void async_gethostbyname_cb(uv_getaddrinfo_t *req, int status, struct add
 static void async_gethostbyname_uv(char *name, zval *return_value, zend_execute_data *execute_data)
 {
 	async_awaitable_queue *q;
+	zend_bool cancelled;
 
 	uv_loop_t *loop;
 	uv_getaddrinfo_t *req;
 
+	zval result;
 	int err;
 
 	q = emalloc(sizeof(async_awaitable_queue));
 	ZEND_SECURE_ZERO(q, sizeof(async_awaitable_queue));
 
 	req = emalloc(sizeof(uv_getaddrinfo_t));
+	ZEND_SECURE_ZERO(req, sizeof(uv_getaddrinfo_t));
+
 	req->data = q;
 
 	loop = async_task_scheduler_get_loop();
@@ -246,35 +266,55 @@ static void async_gethostbyname_uv(char *name, zval *return_value, zend_execute_
 		return;
 	}
 
-	async_task_suspend(q, return_value, execute_data, 0, NULL);
+	async_task_suspend(q, &result, execute_data, &cancelled);
 
-	efree(req);
 	efree(q);
+
+	if (cancelled) {
+		uv_cancel((uv_req_t *) req);
+		return;
+	}
+
+	if (Z_TYPE_P(&result) == IS_LONG) {
+		zend_throw_error(NULL, "Failed to resolve \"%s\": %s", name, uv_strerror((int) Z_LVAL_P(&result)));
+		return;
+	}
+
+	if (Z_TYPE_P(&result) == IS_NULL) {
+		zend_throw_error(NULL, "No IP could be resolved for \"%s\"", name);
+		return;
+	}
+
+	RETURN_ZVAL(&result, 1, 1);
+}
+
+void async_gethostbyname(char *name, zval *return_value, zend_execute_data *execute_data)
+{
+	zend_string *ip;
+
+	ASYNC_CHECK_ERROR(strlen(name) > MAXFQDNLEN, "Host name is too long, the limit is %d characters", MAXFQDNLEN);
+
+	if (async_cli) {
+		async_gethostbyname_uv(name, return_value, execute_data);
+	} else {
+		ip = async_gethostbyname_sync(name);
+
+		ASYNC_CHECK_ERROR(ip == NULL, "Failed to resolve \"%s\" into an IP address", name);
+
+		RETURN_STR(ip);
+	}
 }
 
 static PHP_FUNCTION(gethostbyname)
 {
 	char *name;
 	size_t len;
-	zend_string *ip;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_STRING(name, len)
 	ZEND_PARSE_PARAMETERS_END();
 
-	ASYNC_CHECK_ERROR(len > MAXFQDNLEN, "Host name is too long, the limit is %d characters", MAXFQDNLEN);
-
-	if (async_cli) {
-		async_gethostbyname_uv(name, return_value, execute_data);
-
-		return;
-	}
-
-	ip = async_gethostbyname(name);
-
-	ASYNC_CHECK_ERROR(ip == NULL, "Failed to resolve \"%s\" into an IP address", name);
-
-	RETURN_STR(ip);
+	async_gethostbyname(name, return_value, execute_data);
 }
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_async_gethostbyname, 0, 1, IS_STRING, 0)

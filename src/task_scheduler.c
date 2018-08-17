@@ -252,6 +252,8 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 {
 	async_task_scheduler *scheduler;
 
+	int code;
+
 	scheduler = (async_task_scheduler *)object;
 
 	async_task_scheduler_dispose(scheduler);
@@ -262,7 +264,9 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 	uv_run(&scheduler->loop, UV_RUN_DEFAULT);
 
 	ZEND_ASSERT(!uv_loop_alive(&scheduler->loop));
-	ZEND_ASSERT(uv_loop_close(&scheduler->loop) == 0);
+	code = uv_loop_close(&scheduler->loop);
+
+	ZEND_ASSERT(code == 0);
 
 	zend_object_std_dtor(object);
 }

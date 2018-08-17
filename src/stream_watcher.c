@@ -137,6 +137,7 @@ static void close_poll(uv_handle_t *handle)
 static inline void suspend(async_stream_watcher *watcher, async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data)
 {
 	async_context *context;
+	zend_bool cancelled;
 
 	context = async_context_get();
 
@@ -154,7 +155,7 @@ static inline void suspend(async_stream_watcher *watcher, async_awaitable_queue 
 		}
 	}
 
-	async_task_suspend(q, NULL, execute_data, 1, NULL);
+	async_task_suspend(q, NULL, execute_data, &cancelled);
 
 	if (context->background) {
 		watcher->unref_count--;

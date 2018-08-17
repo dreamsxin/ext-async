@@ -64,6 +64,22 @@ static const zend_function_entry async_writable_stream_functions[] = {
 };
 
 
+ZEND_METHOD(DuplexStream, readStream) { }
+ZEND_METHOD(DuplexStream, writeStream) { }
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_duplex_stream_read_stream, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_duplex_stream_write_stream, 0, 0, Concurrent\\Stream\\WritableStream, 0)
+ZEND_END_ARG_INFO()
+
+static const zend_function_entry async_duplex_stream_functions[] = {
+	ZEND_ME(DuplexStream, readStream, arginfo_duplex_stream_read_stream, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
+	ZEND_ME(DuplexStream, writeStream, arginfo_duplex_stream_write_stream, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
+	ZEND_FE_END
+};
+
+
 static const zend_function_entry empty_funcs[] = {
 	ZEND_FE_END
 };
@@ -79,7 +95,7 @@ void async_stream_ce_register()
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Stream\\WritableStream", async_writable_stream_functions);
 	async_writable_stream_ce = zend_register_internal_interface(&ce);
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Stream\\DuplexStream", empty_funcs);
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Stream\\DuplexStream", async_duplex_stream_functions);
 	async_duplex_stream_ce = zend_register_internal_interface(&ce);
 
 	zend_class_implements(async_duplex_stream_ce, 2, async_readable_stream_ce, async_writable_stream_ce);

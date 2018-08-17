@@ -193,10 +193,15 @@ static void cancel_suspend(void *obj, zval *error)
 
 	task->fiber.value = NULL;
 
+	if (task->cancelled != NULL) {
+		*task->cancelled = 1;
+		task->cancelled = NULL;
+	}
+
 	async_task_scheduler_enqueue(task);
 }
 
-void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool cancellable, zval *data)
+void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool *cancelled)
 {
 	async_fiber *fiber;
 	async_task *task;
@@ -210,6 +215,10 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 
 	fiber = ASYNC_G(current_fiber);
 
+	if (cancelled != NULL) {
+		*cancelled = 0;
+	}
+
 	if (fiber == NULL) {
 		scheduler = async_task_scheduler_get();
 
@@ -218,7 +227,7 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 		info.scheduler = scheduler;
 		info.state = 0;
 
-		cont = async_awaitable_register_continuation(q, &info, data, suspend_continuation);
+		cont = async_awaitable_register_continuation(q, &info, NULL, suspend_continuation);
 		async_task_scheduler_run_loop(scheduler);
 
 		if (info.state == ASYNC_OP_RESOLVED) {
@@ -258,7 +267,7 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 
 	context = ASYNC_G(current_context);
 
-	if (cancellable && context->cancel != NULL) {
+	if (cancelled != NULL && context->cancel != NULL) {
 		// Context is already cancelled.
 		if (Z_TYPE_P(&context->cancel->error) != IS_UNDEF) {
 			Z_ADDREF_P(&context->cancel->error);
@@ -267,15 +276,19 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 			zend_throw_exception_internal(&context->cancel->error);
 			execute_data->opline++;
 
+			*cancelled = 1;
+
 			return;
 		}
 
 		ASYNC_Q_ENQUEUE(&context->cancel->callbacks, &task->cancel);
 
 		GC_ADDREF(&context->std);
+
+		task->cancelled = cancelled;
 	}
 
-	task->suspended = async_awaitable_register_continuation(q, task, data, task_continuation);
+	task->suspended = async_awaitable_register_continuation(q, task, NULL, task_continuation);
 
 	task->fiber.value = USED_RET() ? return_value : NULL;
 	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
@@ -286,8 +299,10 @@ void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execu
 
 	ASYNC_G(current_context) = context;
 
+	task->cancelled = NULL;
+
 	// Dispose of cancel handler if task continued without cancellation.
-	if (cancellable && context->cancel != NULL) {
+	if (cancelled != NULL && context->cancel != NULL) {
 		if (task->suspended == NULL) {
 			ASYNC_Q_DETACH(&context->cancel->callbacks, &task->cancel);
 		}

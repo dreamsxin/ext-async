@@ -76,6 +76,7 @@ static void close_timer(uv_handle_t *handle)
 static inline void suspend(async_timer *timer, zval *return_value, zend_execute_data *execute_data)
 {
 	async_context *context;
+	zend_bool cancelled;
 
 	context = async_context_get();
 
@@ -93,7 +94,7 @@ static inline void suspend(async_timer *timer, zval *return_value, zend_execute_
 		}
 	}
 
-	async_task_suspend(&timer->timeouts, NULL, execute_data, 1, NULL);
+	async_task_suspend(&timer->timeouts, NULL, execute_data, &cancelled);
 
 	if (context->background) {
 		timer->unref_count--;
