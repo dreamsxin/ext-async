@@ -46,8 +46,8 @@ if (PHP_ASYNC != 'no') {
 	var ret = SETUP_OPENSSL('async', PHP_ASYNC);
 	
 	if (ret > 0) {
-		MESSAGE('Enabling SSL support for ext\\async');
-		AC_DEFINE('HAVE_ASYNC_SSL', 1, 'Have async socket over SSL support');
+		MESSAGE('Enabling SSL support for ext\\async: ' + ret);
+		AC_DEFINE("HAVE_ASYNC_SSL", 1);
 	}
 
 	EXTENSION('async', async_source_files.join(' '), PHP_ASYNC_SHARED, '/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1');

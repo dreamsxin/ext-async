@@ -120,7 +120,7 @@ if test "$PHP_ASYNC" != "no"; then
     PHP_SETUP_OPENSSL(ASYNC_SHARED_LIBADD, [
       AC_MSG_CHECKING(for SSL support)
       AC_MSG_RESULT(yes)
-      AC_DEFINE(HAVE_ASYNC_SSL,1,[ ])
+      AC_DEFINE(HAVE_ASYNC_SSL, 1, [ ])
     ], [
       AC_MSG_CHECKING(for SSL support)
       AC_MSG_RESULT(no)

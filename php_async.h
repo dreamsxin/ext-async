@@ -28,6 +28,20 @@
 #include <Mswsock.h>
 #include <psapi.h>
 #include <Iphlpapi.h>
+
+#undef HAVE_ASYNC_SSL
+#define HAVE_ASYNC_SSL 1
+
+#endif
+
+#ifdef HAVE_ASYNC_SSL
+#include <openssl/opensslv.h>
+#include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/pem.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #endif
 
 #include "uv.h"
@@ -57,6 +71,10 @@ extern zend_module_entry async_module_entry;
 #include "zend_exceptions.h"
 #include "zend_closures.h"
 
+#ifdef PHP_WIN32
+#include "win32/winutil.h"
+#endif
+
 #include "php_network.h"
 #include "php_streams.h"
 
@@ -80,6 +98,7 @@ typedef struct {
 #define ASYNC_OP_FAILED 65
 
 ASYNC_API extern zend_bool async_cli;
+ASYNC_API extern char async_ssl_config_file[MAXPATHLEN];
 
 ASYNC_API extern zend_class_entry *async_awaitable_ce;
 ASYNC_API extern zend_class_entry *async_context_ce;
@@ -99,7 +118,9 @@ ASYNC_API extern zend_class_entry *async_signal_watcher_ce;
 ASYNC_API extern zend_class_entry *async_stream_watcher_ce;
 ASYNC_API extern zend_class_entry *async_task_ce;
 ASYNC_API extern zend_class_entry *async_task_scheduler_ce;
+ASYNC_API extern zend_class_entry *async_tcp_client_encryption_ce;
 ASYNC_API extern zend_class_entry *async_tcp_server_ce;
+ASYNC_API extern zend_class_entry *async_tcp_server_encryption_ce;
 ASYNC_API extern zend_class_entry *async_tcp_socket_ce;
 ASYNC_API extern zend_class_entry *async_timer_ce;
 ASYNC_API extern zend_class_entry *async_writable_pipe_ce;
@@ -154,7 +175,11 @@ typedef struct _async_task                          async_task;
 typedef struct _async_task_suspended                async_task_suspended;
 typedef struct _async_task_scheduler                async_task_scheduler;
 typedef struct _async_task_queue                    async_task_queue;
+typedef struct _async_tcp_cert                      async_tcp_cert;
+typedef struct _async_tcp_cert_queue                async_tcp_cert_queue;
+typedef struct _async_tcp_client_encryption         async_tcp_client_encryption;
 typedef struct _async_tcp_server                    async_tcp_server;
+typedef struct _async_tcp_server_encryption         async_tcp_server_encryption;
 typedef struct _async_tcp_socket                    async_tcp_socket;
 typedef struct _async_tcp_socket_reader             async_tcp_socket_reader;
 typedef struct _async_tcp_socket_writer             async_tcp_socket_writer;
@@ -632,6 +657,34 @@ struct _async_task_scheduler {
 	async_enable_queue enable;
 };
 
+struct _async_tcp_cert {
+	zend_string *host;
+	zend_string *file;
+	zend_string *key;
+	zend_string *passphrase;
+	async_tcp_cert *next;
+	async_tcp_cert *prev;
+#ifdef HAVE_ASYNC_SSL
+	SSL_CTX *ctx;
+#endif
+};
+
+struct _async_tcp_cert_queue {
+	async_tcp_cert *first;
+	async_tcp_cert *last;
+};
+
+struct _async_tcp_client_encryption {
+	/* PHP object handle. */
+	zend_object std;
+
+	/* If set self-signed server certificates are accepted. */
+	zend_bool allow_self_signed;
+
+	/* Name of the peer to connect to. */
+	zend_string *peer_name;
+};
+
 struct _async_tcp_server {
 	/* PHP object handle. */
 	zend_object std;
@@ -639,6 +692,13 @@ struct _async_tcp_server {
 	/* UV TCP handle. */
 	uv_tcp_t handle;
 
+	/* Hostname or IP address that was used to establish the connection. */
+	zend_string *name;
+
+	/* Port number being used to bind the server socket. */
+	uint16_t port;
+
+	/* Number of pending connection attempts queued in the backlog. */
 	zend_uchar pending;
 
 	/* Error being used to close the server. */
@@ -646,6 +706,22 @@ struct _async_tcp_server {
 
 	/* Queue of tasks waiting to accept a socket connection. */
 	async_awaitable_queue accepts;
+
+#ifdef HAVE_ASYNC_SSL
+	/* TLS server encryption settings. */
+	async_tcp_server_encryption *encryption;
+
+	/* Server SSL context (shared between all socket connections). */
+	SSL_CTX *ctx;
+#endif
+};
+
+struct _async_tcp_server_encryption {
+	/* PHP object handle. */
+	zend_object std;
+
+	async_tcp_cert cert;
+	async_tcp_cert_queue certs;
 };
 
 struct _async_tcp_socket {
@@ -654,6 +730,12 @@ struct _async_tcp_socket {
 
 	/* UV TCP handle. */
 	uv_tcp_t handle;
+
+	/* Hostname or IP address that was used to establish the connection. */
+	zend_string *name;
+
+	/* Refers to the (local) server that accepted the TCP socket connection. */
+	async_tcp_server *server;
 
 	/* Is set if EOF has been red. */
 	zend_bool eof;
@@ -672,6 +754,23 @@ struct _async_tcp_socket {
 
 	/* Queue of pending write tasks. */
 	async_awaitable_queue writes;
+
+#ifdef HAVE_ASYNC_SSL
+	/* TLS client encryption settings. */
+	async_tcp_client_encryption *encryption;
+
+	/* SSL context being used by the connection. */
+	SSL_CTX *ctx;
+
+	/* SSL instance being used to encrypt / decrypt data. */
+	SSL *ssl;
+
+	/* Holds encrypted bytes that have been read from the socket. */
+	BIO *rbio;
+
+	/* Holds encrypted bytes that need to be written to the socket. */
+	BIO *wbio;
+#endif
 };
 
 struct _async_tcp_socket_reader {
@@ -823,6 +922,12 @@ ZEND_TSRMLS_CACHE_EXTERN()
 } while (0)
 
 #endif
+
+#define ASYNC_RETURN_ON_ERROR() do { \
+	if (UNEXPECTED(EG(exception))) { \
+		return; \
+	} \
+} while (0)
 
 /*
  * Queue macros require a "q" pointer with fields "first" and "last" of same ponter type as "v".

@@ -227,6 +227,7 @@ static void dispose_read_state(uv_handle_t * handle)
 	state->process->pipes--;
 
 	efree(state->buffer.base);
+	state->buffer.base = NULL;
 
 	if (state->process->pipes == 0 && Z_LVAL_P(&state->process->exit_code) >= 0) {
 		uv_close((uv_handle_t *) &state->process->handle, dispose_process);
