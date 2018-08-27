@@ -1,7 +1,7 @@
 FROM alpine:3.8
 
 ENV PHP_VERSION nightly
-RUN apk add --no-cache build-base git curl libressl-dev libxml2-dev autoconf bison
+RUN apk add --no-cache build-base git curl libressl-dev libxml2-dev autoconf bison bash automake libtool
 
 # Install PHP:
 RUN mkdir /usr/local/php
