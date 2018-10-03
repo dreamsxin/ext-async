@@ -5,6 +5,36 @@
 
 Provides concurrent Zend VM executions using native C fibers in PHP.
 
+## Installation
+
+The `async` extension is not published as `pecl` extension (yet).
+
+### Linux / MacOS
+
+You have to install the extension from source. Installing works like this (assuming you have PHP installed):
+```shell
+mkdir ext-async
+curl -LSs https://github.com/concurrent-php/ext-async/archive/master.tar.gz | tar -xz -C "ext-async" --strip-components 1
+
+pushd ext-async
+phpize
+./configure
+make install
+popd
+```
+
+### Windows
+
+You can [download a pre-compiled DLL](https://github.com/martinschroeder/ext-async-win32/raw/master/php_async.dll) working with PHP 7.3+ (VC15 x64 Thread Safe only). Just drop the DLL file in your `ext` directory and add `extension=php_async.dll` in your `php.ini` file.
+
+Building the extension on Windows requires the PHP-SDK for Windows. After the SDK is installed you have to use the starter batch file for you platform and Visual Studio version. In the command prompt navigate to the `php-src` directory and execute these commands and build PHP with the async extension as DLL file:
+```shell
+buildconf
+configure --disable-all --enable-cli --enable-async=shared
+nmake
+```
+You can leave out `=shared` to compile the extension into PHP (faster compilation and no need to load it in `php.ini`) which is nice for testing but does not create a DLL file that can be distributed. You should add `--enable-debug` to allow for debugging when you are working on the source code of the extension.
+
 ## Async API
 
 The async extension exposes a public API that can be used to create, run and interact with fiber-based async executions. You can obtain the API stub files for code completion in your IDE by installing `concurrent-php/async-api` via Composer.
@@ -523,7 +553,7 @@ You can install a patched version of PHP that provides native support for `async
 
 ```shell
 mkdir php-src
-curl -LSs https://github.com/concurrent-php/php-src/archive/async.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
+curl -LSs https://github.com/concurrent-php/php-src/archive/async.tar.gz | tar -xz -C "php-src" --strip-components 1
 
 pushd php-src
 ./buildconf --force
@@ -533,7 +563,7 @@ make install
 popd
 
 mkdir ext-async
-curl -LSs https://github.com/concurrent-php/ext-async/archive/master.tar.gz | sudo tar -xz -C "ext-async" --strip-components 1
+curl -LSs https://github.com/concurrent-php/ext-async/archive/master.tar.gz | tar -xz -C "ext-async" --strip-components 1
 
 pushd ext-async
 phpize
