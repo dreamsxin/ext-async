@@ -56,6 +56,16 @@ struct _socket_buffer {
 	socket_buffer *next;
 };
 
+#ifdef PHP_WIN32
+#include "win32/winutil.h"
+#include "win32/time.h"
+#include <Wincrypt.h>
+/* These are from Wincrypt.h, they conflict with OpenSSL */
+#undef X509_NAME
+#undef X509_CERT_PAIR
+#undef X509_EXTENSIONS
+#endif
+
 static int ssl_error_continue(async_tcp_socket *socket, int code)
 {
 	int error = SSL_get_error(socket->ssl, code);
@@ -273,9 +283,18 @@ static int ssl_verify_callback(int preverify, X509_STORE_CTX *ctx)
 		}
 	}
 
+	if (depth > socket->encryption->verify_depth) {
+		X509_STORE_CTX_set_error(ctx, X509_V_ERR_CERT_CHAIN_TOO_LONG);
+		return 0;
+	}
+
 	if (!cert || err || socket == NULL) {
 		return preverify;
 	}
+
+#ifdef PHP_WIN32
+	return preverify;
+#endif
 
 	if (depth == 0) {
 		if (ssl_check_san_names(socket, cert, ctx)) {
@@ -354,6 +373,187 @@ static int ssl_servername_cb(SSL *ssl, int *ad, void *arg)
 
 	return SSL_TLSEXT_ERR_OK;
 }
+
+#ifdef PHP_WIN32
+
+#define RETURN_CERT_VERIFY_FAILURE(code) X509_STORE_CTX_set_error(x509_store_ctx, code); return 0;
+
+#define PHP_X509_NAME_ENTRY_TO_UTF8(ne, i, out) \
+ASN1_STRING_to_UTF8(&out, X509_NAME_ENTRY_get_data(X509_NAME_get_entry(ne, i)))
+
+#define php_win_err_free(err) if (err && err[0]) free(err);
+
+static int php_openssl_win_cert_verify_callback(X509_STORE_CTX *x509_store_ctx, void *arg) /* {{{ */
+{
+	PCCERT_CONTEXT cert_ctx = NULL;
+	PCCERT_CHAIN_CONTEXT cert_chain_ctx = NULL;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+	X509 *cert = x509_store_ctx->cert;
+#else
+	X509 *cert = X509_STORE_CTX_get0_cert(x509_store_ctx);
+#endif
+
+	async_tcp_socket *socket;
+	SSL* ssl;
+	zend_bool is_self_signed = 0;
+
+
+	ssl = X509_STORE_CTX_get_ex_data(x509_store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
+	socket = (async_tcp_socket *) SSL_get_ex_data(ssl, async_index);
+
+	{ /* First convert the x509 struct back to a DER encoded buffer and let Windows decode it into a form it can work with */
+		unsigned char *der_buf = NULL;
+		int der_len;
+
+		der_len = i2d_X509(cert, &der_buf);
+		if (der_len < 0) {
+			unsigned long err_code, e;
+			char err_buf[512];
+
+			while ((e = ERR_get_error()) != 0) {
+				err_code = e;
+			}
+
+			php_error_docref(NULL, E_WARNING, "Error encoding X509 certificate: %d: %s", err_code, ERR_error_string(err_code, err_buf));
+			RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
+		}
+
+		cert_ctx = CertCreateCertificateContext(X509_ASN_ENCODING, der_buf, der_len);
+		OPENSSL_free(der_buf);
+
+		if (cert_ctx == NULL) {
+			char *err = php_win_err();
+			php_error_docref(NULL, E_WARNING, "Error creating certificate context: %s", err);
+			php_win_err_free(err);
+			RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
+		}
+	}
+
+	{ /* Next fetch the relevant cert chain from the store */
+		CERT_ENHKEY_USAGE enhkey_usage = {0};
+		CERT_USAGE_MATCH cert_usage = {0};
+		CERT_CHAIN_PARA chain_params = {sizeof(CERT_CHAIN_PARA)};
+		LPSTR usages[] = {szOID_PKIX_KP_SERVER_AUTH, szOID_SERVER_GATED_CRYPTO, szOID_SGC_NETSCAPE};
+		DWORD chain_flags = 0;
+		unsigned long allowed_depth;
+		unsigned int i;
+
+		enhkey_usage.cUsageIdentifier = 3;
+		enhkey_usage.rgpszUsageIdentifier = usages;
+		cert_usage.dwType = USAGE_MATCH_TYPE_OR;
+		cert_usage.Usage = enhkey_usage;
+		chain_params.RequestedUsage = cert_usage;
+		chain_flags = CERT_CHAIN_CACHE_END_CERT | CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT;
+
+		if (!CertGetCertificateChain(NULL, cert_ctx, NULL, NULL, &chain_params, chain_flags, NULL, &cert_chain_ctx)) {
+			char *err = php_win_err();
+			php_error_docref(NULL, E_WARNING, "Error getting certificate chain: %s", err);
+			php_win_err_free(err);
+			CertFreeCertificateContext(cert_ctx);
+			RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
+		}
+
+		/* check if the cert is self-signed */
+		if (cert_chain_ctx->cChain > 0 && cert_chain_ctx->rgpChain[0]->cElement > 0
+			&& (cert_chain_ctx->rgpChain[0]->rgpElement[0]->TrustStatus.dwInfoStatus & CERT_TRUST_IS_SELF_SIGNED) != 0) {
+			is_self_signed = 1;
+		}
+
+		/* check the depth */
+		allowed_depth = socket->encryption->verify_depth;
+
+		for (i = 0; i < cert_chain_ctx->cChain; i++) {
+			if (cert_chain_ctx->rgpChain[i]->cElement > allowed_depth) {
+				CertFreeCertificateChain(cert_chain_ctx);
+				CertFreeCertificateContext(cert_ctx);
+				RETURN_CERT_VERIFY_FAILURE(X509_V_ERR_CERT_CHAIN_TOO_LONG);
+			}
+		}
+	}
+
+	{ /* Then verify it against a policy */
+		SSL_EXTRA_CERT_CHAIN_POLICY_PARA ssl_policy_params = {sizeof(SSL_EXTRA_CERT_CHAIN_POLICY_PARA)};
+		CERT_CHAIN_POLICY_PARA chain_policy_params = {sizeof(CERT_CHAIN_POLICY_PARA)};
+		CERT_CHAIN_POLICY_STATUS chain_policy_status = {sizeof(CERT_CHAIN_POLICY_STATUS)};
+		LPWSTR server_name = NULL;
+		BOOL verify_result;
+
+		{ /* This looks ridiculous and it is - but we validate the name ourselves using the peer_name
+		     ctx option, so just use the CN from the cert here */
+
+			X509_NAME *cert_name;
+			unsigned char *cert_name_utf8;
+			int index, cert_name_utf8_len;
+			DWORD num_wchars;
+
+			cert_name = X509_get_subject_name(cert);
+			index = X509_NAME_get_index_by_NID(cert_name, NID_commonName, -1);
+			if (index < 0) {
+				php_error_docref(NULL, E_WARNING, "Unable to locate certificate CN");
+				CertFreeCertificateChain(cert_chain_ctx);
+				CertFreeCertificateContext(cert_ctx);
+				RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
+			}
+
+			cert_name_utf8_len = PHP_X509_NAME_ENTRY_TO_UTF8(cert_name, index, cert_name_utf8);
+
+			num_wchars = MultiByteToWideChar(CP_UTF8, 0, (char*)cert_name_utf8, -1, NULL, 0);
+			if (num_wchars == 0) {
+				php_error_docref(NULL, E_WARNING, "Unable to convert %s to wide character string", cert_name_utf8);
+				OPENSSL_free(cert_name_utf8);
+				CertFreeCertificateChain(cert_chain_ctx);
+				CertFreeCertificateContext(cert_ctx);
+				RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
+			}
+
+			server_name = emalloc((num_wchars * sizeof(WCHAR)) + sizeof(WCHAR));
+
+			num_wchars = MultiByteToWideChar(CP_UTF8, 0, (char*)cert_name_utf8, -1, server_name, num_wchars);
+			if (num_wchars == 0) {
+				php_error_docref(NULL, E_WARNING, "Unable to convert %s to wide character string", cert_name_utf8);
+				efree(server_name);
+				OPENSSL_free(cert_name_utf8);
+				CertFreeCertificateChain(cert_chain_ctx);
+				CertFreeCertificateContext(cert_ctx);
+				RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
+			}
+
+			OPENSSL_free(cert_name_utf8);
+		}
+
+		ssl_policy_params.dwAuthType = (socket->server == NULL) ? AUTHTYPE_CLIENT : AUTHTYPE_SERVER;
+		ssl_policy_params.pwszServerName = server_name;
+		chain_policy_params.pvExtraPolicyPara = &ssl_policy_params;
+
+		verify_result = CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, cert_chain_ctx, &chain_policy_params, &chain_policy_status);
+
+		efree(server_name);
+		CertFreeCertificateChain(cert_chain_ctx);
+		CertFreeCertificateContext(cert_ctx);
+
+		if (!verify_result) {
+			char *err = php_win_err();
+			php_error_docref(NULL, E_WARNING, "Error verifying certificate chain policy: %s", err);
+			php_win_err_free(err);
+			RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
+		}
+
+		if (chain_policy_status.dwError != 0) {
+			/* The chain does not match the policy */
+			if (is_self_signed && chain_policy_status.dwError == CERT_E_UNTRUSTEDROOT
+				&& socket->encryption->allow_self_signed) {
+				/* allow self-signed certs */
+				X509_STORE_CTX_set_error(x509_store_ctx, X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT);
+			} else {
+				RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
+			}
+		}
+	}
+
+	return 1;
+}
+/* }}} */
+#endif
 
 #endif
 
@@ -1171,6 +1371,10 @@ ZEND_METHOD(Socket, encrypt)
 		SSL_CTX_set_default_passwd_cb_userdata(socket->ctx, NULL);
 		SSL_CTX_set_default_passwd_cb(socket->ctx, ssl_cert_passphrase_cb);
 
+#ifdef PHP_WIN32
+		SSL_CTX_set_cert_verify_callback(socket->ctx, php_openssl_win_cert_verify_callback, (void *)socket);
+#endif
+
 		SSL_CTX_set_verify(socket->ctx, SSL_VERIFY_PEER, ssl_verify_callback);
 		SSL_CTX_set_verify_depth(socket->ctx, 10);
 	} else {
@@ -1827,6 +2031,8 @@ static zend_object *async_tcp_client_encryption_object_create(zend_class_entry *
 	zend_object_std_init(&encryption->std, ce);
 	encryption->std.handlers = &async_tcp_client_encryption_handlers;
 
+	encryption->verify_depth = 10;
+
 	return &encryption->std;
 }
 
@@ -1836,6 +2042,7 @@ static async_tcp_client_encryption *clone_client_encryption(async_tcp_client_enc
 
 	result = (async_tcp_client_encryption *) async_tcp_client_encryption_object_create(async_tcp_client_encryption_ce);
 	result->allow_self_signed = encryption->allow_self_signed;
+	result->verify_depth = encryption->verify_depth;
 
 	if (encryption->peer_name != NULL) {
 		result->peer_name = zend_string_copy(encryption->peer_name);
@@ -1862,15 +2069,35 @@ ZEND_METHOD(ClientEncryption, withAllowSelfSigned)
 	async_tcp_client_encryption *encryption;
 
 	zend_bool allow;
+	zval obj;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_BOOL(allow)
 	ZEND_PARSE_PARAMETERS_END();
 
-	zval obj;
-
 	encryption = clone_client_encryption((async_tcp_client_encryption *) Z_OBJ_P(getThis()));
 	encryption->allow_self_signed = allow;
+
+	ZVAL_OBJ(&obj, &encryption->std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
+ZEND_METHOD(ClientEncryption, withVerifyDepth)
+{
+	async_tcp_client_encryption *encryption;
+
+	zend_long depth;
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_LONG(depth)
+	ZEND_PARSE_PARAMETERS_END();
+
+	ASYNC_CHECK_ERROR(depth < 1, "Verify depth must not be less than 1");
+
+	encryption = clone_client_encryption((async_tcp_client_encryption *) Z_OBJ_P(getThis()));
+	encryption->verify_depth = (int) depth;
 
 	ZVAL_OBJ(&obj, &encryption->std);
 
@@ -1882,12 +2109,11 @@ ZEND_METHOD(ClientEncryption, withPeerName)
 	async_tcp_client_encryption *encryption;
 
 	zend_string *name;
+	zval obj;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_STR(name)
 	ZEND_PARSE_PARAMETERS_END();
-
-	zval obj;
 
 	encryption = clone_client_encryption((async_tcp_client_encryption *) Z_OBJ_P(getThis()));
 	encryption->peer_name = zend_string_copy(name);
@@ -1901,12 +2127,17 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_client_encryption_with_allow_
 	ZEND_ARG_TYPE_INFO(0, allow, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_client_encryption_with_verify_depth, 0, 1, Concurrent\\Network\\ClientEncryption, 0)
+	ZEND_ARG_TYPE_INFO(0, depth, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_client_encryption_with_peer_name, 0, 1, Concurrent\\Network\\ClientEncryption, 0)
 	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_tcp_client_encryption_functions[] = {
 	ZEND_ME(ClientEncryption, withAllowSelfSigned, arginfo_tcp_client_encryption_with_allow_self_signed, ZEND_ACC_PUBLIC)
+	ZEND_ME(ClientEncryption, withVerifyDepth, arginfo_tcp_client_encryption_with_verify_depth, ZEND_ACC_PUBLIC)
 	ZEND_ME(ClientEncryption, withPeerName, arginfo_tcp_client_encryption_with_peer_name, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };

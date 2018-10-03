@@ -683,6 +683,9 @@ struct _async_tcp_client_encryption {
 
 	/* Name of the peer to connect to. */
 	zend_string *peer_name;
+
+	/* Maximum verification cert chain length */
+	int verify_depth;
 };
 
 struct _async_tcp_server {

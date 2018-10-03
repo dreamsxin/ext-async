@@ -352,6 +352,8 @@ final class ClientEncryption
 {
     public function withAllowSelfSigned(bool $allow): self { }
     
+    public function withVerifyDepth(int $depth): self { }
+    
     public function withPeerName(string $name): self { }
 }
 ```
