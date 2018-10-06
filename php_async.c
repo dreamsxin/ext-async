@@ -61,6 +61,7 @@ const int ASYNC_SIGNAL_SIGUSR2 = -1;
 static void async_execute_ex(zend_execute_data *exec)
 {
 	async_fiber *fiber;
+	zend_object *error;
 
 	fiber = ASYNC_G(current_fiber);
 
@@ -69,7 +70,12 @@ static void async_execute_ex(zend_execute_data *exec)
 	}
 
 	if (fiber == NULL && exec->prev_execute_data == NULL) {
+		error = EG(exception);
+		EG(exception) = NULL;
+
 		async_task_scheduler_run();
+
+		EG(exception) = error;
 	}
 }
 
