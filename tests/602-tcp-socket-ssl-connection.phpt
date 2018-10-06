@@ -24,6 +24,7 @@ try {
     
     Task::async(function () use ($host, $port) {
         $encryption = new ClientEncryption();
+        $encryption = $encryption->withPeerName('localhost');
         $encryption = $encryption->withAllowSelfSigned(true);
         
         $socket = TcpSocket::connect($host, $port, $encryption);
@@ -37,6 +38,8 @@ try {
         
             var_dump($socket->read());
             $socket->write('World!');
+        } catch (\Throwable $e) {
+            echo $e, "\n\n";
         } finally {
             $socket->close();
         }

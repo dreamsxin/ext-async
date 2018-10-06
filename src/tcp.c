@@ -214,7 +214,7 @@ static int ssl_check_san_names(async_tcp_socket *socket, X509 *cert, X509_STORE_
 	names = X509_get_ext_d2i(cert, NID_subject_alt_name, 0, 0);
 
 	if (names == NULL) {
-		return 1;
+		return 0;
 	}
 
 	for (count = sk_GENERAL_NAME_num(names), i = 0; i < count; i++) {
