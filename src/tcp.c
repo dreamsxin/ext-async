@@ -274,7 +274,6 @@ static int ssl_verify_callback(int preverify, X509_STORE_CTX *ctx)
 	ssl = X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
 	socket = (async_tcp_socket *) SSL_get_ex_data(ssl, async_index);
 
-	// Allow self-signed cert only as first cert in chain.
 	if (depth == 0 && err == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT) {
 		if (socket->encryption != NULL && socket->encryption->allow_self_signed) {
 			err = 0;
@@ -291,10 +290,6 @@ static int ssl_verify_callback(int preverify, X509_STORE_CTX *ctx)
 	if (!cert || err || socket == NULL) {
 		return preverify;
 	}
-
-#ifdef PHP_WIN32
-	return preverify;
-#endif
 
 	if (depth == 0) {
 		if (ssl_check_san_names(socket, cert, ctx)) {
@@ -1372,10 +1367,12 @@ ZEND_METHOD(Socket, encrypt)
 		SSL_CTX_set_default_passwd_cb(socket->ctx, ssl_cert_passphrase_cb);
 
 #ifdef PHP_WIN32
+		SSL_CTX_set_verify(socket->ctx, SSL_VERIFY_PEER, NULL);
 		SSL_CTX_set_cert_verify_callback(socket->ctx, php_openssl_win_cert_verify_callback, (void *)socket);
+#else
+		SSL_CTX_set_verify(socket->ctx, SSL_VERIFY_PEER, ssl_verify_callback);
 #endif
 
-		SSL_CTX_set_verify(socket->ctx, SSL_VERIFY_PEER, ssl_verify_callback);
 		SSL_CTX_set_verify_depth(socket->ctx, 10);
 	} else {
 		if (socket->server->encryption == NULL) {
@@ -1472,7 +1469,7 @@ ZEND_METHOD(Socket, encrypt)
 
 		result = SSL_get_verify_result(socket->ssl);
 
-		if (X509_V_OK != result) {
+		if (X509_V_OK != result && !(socket->encryption->allow_self_signed && result == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT)) {
 			zend_throw_error(NULL, "Failed to verify server SSL certificate [%ld]: %s", result, X509_verify_cert_error_string(result));
 			return;
 		}
@@ -1915,11 +1912,27 @@ ZEND_METHOD(Server, getPort)
 {
 	async_tcp_server *server;
 
+	zend_long port;
+	zval tmp;
+	zval *entry;
+
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	server = (async_tcp_server *) Z_OBJ_P(getThis());
 
-	RETURN_LONG(server->port);
+	if (server->port > 0) {
+		RETURN_LONG(server->port);
+	}
+
+	assemble_peer(&server->handle, 0, &tmp, execute_data);
+
+	entry = zend_hash_index_find(Z_ARRVAL_P(&tmp), 1);
+	port = Z_LVAL_P(entry);
+
+	zval_ptr_dtor(&tmp);
+	zval_ptr_dtor(entry);
+
+	RETURN_LONG(port);
 }
 
 ZEND_METHOD(Server, getPeer)
