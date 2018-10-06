@@ -1919,18 +1919,17 @@ ZEND_METHOD(Server, getPort)
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	server = (async_tcp_server *) Z_OBJ_P(getThis());
+	port = server->port;
 
-	if (server->port > 0) {
-		RETURN_LONG(server->port);
+	if (port == 0) {
+		assemble_peer(&server->handle, 0, &tmp, execute_data);
+
+		entry = zend_hash_index_find(Z_ARRVAL_P(&tmp), 1);
+		port = Z_LVAL_P(entry);
+
+		zval_ptr_dtor(&tmp);
+		zval_ptr_dtor(entry);
 	}
-
-	assemble_peer(&server->handle, 0, &tmp, execute_data);
-
-	entry = zend_hash_index_find(Z_ARRVAL_P(&tmp), 1);
-	port = Z_LVAL_P(entry);
-
-	zval_ptr_dtor(&tmp);
-	zval_ptr_dtor(entry);
 
 	RETURN_LONG(port);
 }
