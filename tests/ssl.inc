@@ -17,6 +17,7 @@ function sslPair(): array
         $t = Task::async(function () use ($server) {
             $encryption = new ClientEncryption();
             $encryption = $encryption->withAllowSelfSigned(true);
+            $encryption = $encryption->withVerifyDepth(5);
             
             $socket = TcpSocket::connect($server->getHost(), $server->getPort(), $encryption);
             

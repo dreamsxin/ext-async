@@ -1,5 +1,5 @@
 --TEST--
-TCP slow receiver.
+TCP closed read stream.
 --SKIPIF--
 <?php
 if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
@@ -16,31 +16,25 @@ list ($a, $b) = TcpSocket::pair();
 
 Task::async(function () use ($a) {
     try {
-        $timer = new Timer(10);
-        $len = 0;
-    
-        while (null !== ($chunk = $a->read())) {
-            $timer->awaitTimeout();
-            $len += strlen($chunk);
-        }
+        var_dump($a->readStream()->read());
+        $a->readStream()->close();
         
-        var_dump($len);
+        $a->write('DONE');
     } finally {
         $a->close();
     }
 });
 
 try {
-    $b->setNoDelay(true);
-
-    $chunk = str_repeat('A', 7000);
-
-    for ($i = 0; $i < 1000; $i++) {
-        $b->write($chunk);
-    }
+    $b->write('Hello');
+    
+    (new Timer(50))->awaitTimeout();
+    
+    var_dump($b->read());
 } finally {
     $b->close();
 }
 
 --EXPECT--
-int(7000000)
+string(5) "Hello"
+string(4) "DONE"

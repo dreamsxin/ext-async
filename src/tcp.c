@@ -1026,9 +1026,21 @@ ZEND_METHOD(Socket, setNodelay)
 
 	code = uv_tcp_nodelay(&socket->handle, nodelay ? 1 : 0);
 
-	if (UNEXPECTED(code != 0)) {
+	if (UNEXPECTED(code != 0 && code != UV_ENOTSUP)) {
 		zend_throw_error(NULL, "Failed to set TCP nodelay: %s", uv_strerror(code));
 	}
+}
+
+static void assemble_fake_peer(zval *return_value)
+{
+	zval tmp;
+
+	array_init_size(return_value, 2);
+	ZVAL_STRINGL(&tmp, "127.0.0.1", sizeof("127.0.0.1") - 1);
+	zend_hash_index_update(Z_ARRVAL_P(return_value), 0, &tmp);
+
+	ZVAL_LONG(&tmp, 0);
+	zend_hash_index_update(Z_ARRVAL_P(return_value), 1, &tmp);
 }
 
 static void assemble_peer(uv_tcp_t *tcp, zend_bool remote, zval *return_value, zend_execute_data *execute_data)
@@ -1082,7 +1094,11 @@ ZEND_METHOD(Socket, getLocalPeer)
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 
 	if (USED_RET()) {
-		assemble_peer(&socket->handle, 0, return_value, execute_data);
+		if (socket->name == NULL) {
+			assemble_fake_peer(return_value);
+		} else {
+			assemble_peer(&socket->handle, 0, return_value, execute_data);
+		}
 	}
 }
 
@@ -1095,7 +1111,11 @@ ZEND_METHOD(Socket, getRemotePeer)
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 
 	if (USED_RET()) {
-		assemble_peer(&socket->handle, 1, return_value, execute_data);
+		if (socket->name == NULL) {
+			assemble_fake_peer(return_value);
+		} else {
+			assemble_peer(&socket->handle, 1, return_value, execute_data);
+		}
 	}
 }
 
@@ -1428,6 +1448,8 @@ ZEND_METHOD(Socket, encrypt)
 
 	zval retval;
 
+	uv_tcp_nodelay(&socket->handle, 1);
+
 	while (!SSL_is_init_finished(socket->ssl)) {
 		ssl_send_handshake_bytes(socket, execute_data);
 
@@ -1483,6 +1505,8 @@ ZEND_METHOD(Socket, encrypt)
 		zend_throw_error(NULL, "SSL data feed failed [%d]: %s", code, ERR_reason_error_string(code));
 		return;
 	}
+
+	uv_tcp_nodelay(&socket->handle, 0);
 #endif
 }
 
