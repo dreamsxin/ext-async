@@ -53,6 +53,7 @@ typedef struct _socket_buffer socket_buffer;
 
 struct _socket_buffer {
 	uv_buf_t buf;
+	char *base;
 	socket_buffer *next;
 };
 
@@ -121,15 +122,18 @@ static SSL_CTX *ssl_create_context()
 static void ssl_send_handshake_bytes(async_tcp_socket *socket, zend_execute_data *execute_data)
 {
 	uv_buf_t buffer[1];
+	char *base;
 	size_t len;
 
 	while ((len = BIO_ctrl_pending(socket->wbio)) > 0) {
-		buffer[0].base = emalloc(len);
+		base = emalloc(len);
+
+		buffer[0].base = base;
 		buffer[0].len = BIO_read(socket->wbio, buffer[0].base, len);
 
 		write_to_socket(socket, buffer, 1, execute_data);
 
-		efree(buffer[0].base);
+		efree(base);
 
 		ASYNC_RETURN_ON_ERROR();
 	}
@@ -151,12 +155,9 @@ static int ssl_feed_data(async_tcp_socket *socket)
 		len = SSL_read(socket->ssl, base, socket->buffer.size - socket->buffer.len);
 
 		if (len < 1) {
-			switch (error = SSL_get_error(socket->ssl, len)) {
-			case SSL_ERROR_WANT_READ:
-				return 0;
-			default:
-				return error;
-			}
+			error = SSL_get_error(socket->ssl, len);
+
+			return (error == SSL_ERROR_WANT_READ) ? 0 : error;
 		}
 
 		socket->buffer.len += len;
@@ -1267,7 +1268,8 @@ static inline void socket_call_write(async_tcp_socket *socket, zval *return_valu
 
 				last = current;
 
-				current->buf.base = emalloc(len);
+				current->base = emalloc(len);
+				current->buf.base = current->base;
 				current->buf.len = BIO_read(socket->wbio, current->buf.base, len);
 
 				num++;
@@ -1294,7 +1296,7 @@ static inline void socket_call_write(async_tcp_socket *socket, zval *return_valu
 		current = first;
 
 		while (current != NULL) {
-			efree(current->buf.base);
+			efree(current->base);
 
 			last = current;
 			current = current->next;
