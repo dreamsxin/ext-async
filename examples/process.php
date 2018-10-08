@@ -10,7 +10,7 @@ $builder->setEnv([
     'MY_TITLE' => 'TEST'
 ]);
 
-$process = $builder->start(__DIR__ . '/ps.php');
+$process = $builder->start(__DIR__ . '/process-p2.php');
 
 \Concurrent\Task::async(function () use ($process) {
     (new \Concurrent\Timer(400))->awaitTimeout();
@@ -24,7 +24,7 @@ echo "\nEXIT CODE: ", $code, "\n";
 
 $builder->configureStdin(ProcessBuilder::STDIO_PIPE);
 
-$process = $builder->start(__DIR__ . '/pp.php');
+$process = $builder->start(__DIR__ . '/process-p1.php');
 
 $stdin = $process->getStdin();
 

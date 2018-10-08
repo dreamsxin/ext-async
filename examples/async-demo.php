@@ -1,7 +1,5 @@
 <?php
 
-// Event loop integration using a customized scheduler.
-
 namespace Concurrent;
 
 register_shutdown_function(function () {
