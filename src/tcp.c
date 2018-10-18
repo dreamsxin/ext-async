@@ -1949,6 +1949,8 @@ ZEND_METHOD(Server, getPort)
 
 	if (port == 0) {
 		assemble_peer(&server->handle, 0, &tmp, execute_data);
+		
+		ASYNC_RETURN_ON_ERROR();
 
 		entry = zend_hash_index_find(Z_ARRVAL_P(&tmp), 1);
 		port = Z_LVAL_P(entry);

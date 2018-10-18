@@ -75,7 +75,7 @@ void async_info_prop_str(HashTable *info, char *key, zend_string *value)
 	if (value == NULL) {
 		ZVAL_NULL(&v);
 	} else {
-		ZVAL_STR(&v, value);
+		ZVAL_STR_COPY(&v, value);
 	}
 
 	async_info_prop(info, key, &v);

@@ -151,6 +151,7 @@ PHP_MINIT_FUNCTION(async)
 
 	async_process_ce_register();
 	async_tcp_ce_register();
+	async_udp_socket_ce_register();
 
 	REGISTER_INI_ENTRIES();
 

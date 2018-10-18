@@ -24,7 +24,8 @@ if (PHP_ASYNC != 'no') {
 		'src\\task.c',
 		'src\\task_scheduler.c',
 		'src\\tcp.c',
-		'src\\timer.c'
+		'src\\timer.c',
+		'src\\udp.c'
 	];
 	
 	var async_header_files = [

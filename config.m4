@@ -30,7 +30,9 @@ if test "$PHP_ASYNC" != "no"; then
     src/task.c \
     src/task_scheduler.c \
     src/tcp.c \
-    src/timer.c"
+    src/timer.c \
+    src/udp.c
+  "
   
   AS_CASE([$host_cpu],
     [x86_64*], [async_cpu="x86_64"],

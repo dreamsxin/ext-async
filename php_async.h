@@ -139,6 +139,7 @@ void async_task_ce_register();
 void async_task_scheduler_ce_register();
 void async_tcp_ce_register();
 void async_timer_ce_register();
+void async_udp_socket_ce_register();
 
 void async_fiber_ce_unregister();
 
@@ -184,6 +185,8 @@ typedef struct _async_tcp_socket                    async_tcp_socket;
 typedef struct _async_tcp_socket_reader             async_tcp_socket_reader;
 typedef struct _async_tcp_socket_writer             async_tcp_socket_writer;
 typedef struct _async_timer                         async_timer;
+typedef struct _async_udp_datagram                  async_udp_datagram;
+typedef struct _async_udp_socket                    async_udp_socket;
 typedef struct _async_writable_pipe                 async_writable_pipe;
 typedef struct _async_writable_pipe_state           async_writable_pipe_state;
 
@@ -819,6 +822,29 @@ struct _async_timer {
 
 	async_task_scheduler *scheduler;
 	async_enable_cb enable;
+};
+
+struct _async_udp_datagram {
+	zend_object std;
+	
+	zend_string *data;
+	zend_string *address;
+	zend_long port;
+};
+
+struct _async_udp_socket {
+	zend_object std;
+	
+	uv_udp_t handle;
+	
+	zend_string *name;
+	zend_string *ip;
+	zend_long port;
+	
+	zval error;
+	
+	async_awaitable_queue receivers;
+	async_awaitable_queue senders;
 };
 
 struct _async_writable_pipe {

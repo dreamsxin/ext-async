@@ -324,7 +324,7 @@ use Concurrent\Stream\WritableStream
 
 final class TcpSocket implements DuplexStream
 {
-    public static function connect(string $host, int $port, ?ClientEncryption $encryption = null): Socket { }
+    public static function connect(string $host, int $port, ?ClientEncryption $encryption = null): TcpSocket { }
     
     public static function pair(): array { }
     
@@ -357,7 +357,7 @@ namespace Concurrent\Network;
 
 final class TcpServer
 {
-    public static function listen(string $host, int $port, ?ServerEncryption $encryption = null): Server { }
+    public static function listen(string $host, int $port, ?ServerEncryption $encryption = null): TcpServer { }
     
     public function close(?\Throwable $e = null): void { }
     
@@ -367,7 +367,7 @@ final class TcpServer
     
     public function getPeer(): array { }
     
-    public function accept(): Socket { }
+    public function accept(): TcpSocket { }
 }
 ```
 
@@ -380,11 +380,11 @@ namespace Concurrent\Network;
 
 final class ClientEncryption
 {
-    public function withAllowSelfSigned(bool $allow): self { }
+    public function withAllowSelfSigned(bool $allow): ClientEncryption { }
     
-    public function withVerifyDepth(int $depth): self { }
+    public function withVerifyDepth(int $depth): ClientEncryption { }
     
-    public function withPeerName(string $name): self { }
+    public function withPeerName(string $name): ClientEncryption { }
 }
 ```
 
@@ -397,9 +397,59 @@ namespace Concurrent\Network;
 
 final class ServerEncryption
 {
-    public function withDefaultCertificate(string $cert, string $key, ?string $passphrase = null): self { }
+    public function withDefaultCertificate(string $cert, string $key, ?string $passphrase = null): ServerEncryption { }
     
-    public function withCertificate(string $host, string $cert, string $key, ?string $passphrase = null): self { }
+    public function withCertificate(string $host, string $cert, string $key, ?string $passphrase = null): ServerEncryption { }
+}
+```
+
+### UdpSocket
+
+Provides UDP networking capabilities.
+
+```php
+namespace Concurrent\Network;
+
+final class UdpSocket
+{
+    public static function bind(string $address, int $port): UdpSocket { }
+    
+    public static function multicast(string $group, int $port): UdpSocket { }
+    
+    public function close(?\Throwable $e = null): void { }
+    
+    public function getHost(): string { }
+    
+    public function getPort(): int { }
+    
+    public function getPeer(): array { }
+    
+    public function receive(): UdpDatagram { }
+    
+    public function send(UdpDatagram $datagram): void { }
+}
+```
+
+### UdpDatagram
+
+Wraps a UDP datagram into a single object to allow for better type-hinting and a single return value.
+
+```php
+namespace Concurrent\Network;
+
+final class UdpDatagram
+{
+    public readonly $data;
+    
+    public readonly $address;
+    
+    public readonly $port;
+
+    public function __construct(string $data, string $address, int $port) { }
+    
+    public function withData(string $data): UdpDatagram { }
+    
+    public function withPeer(string $address, int $port): UdpDatagram { }
 }
 ```
 

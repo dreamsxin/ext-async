@@ -627,7 +627,7 @@ ZEND_METHOD(Deferred, combine)
 		if (k == NULL) {
 			ZVAL_LONG(&key, i);
 		} else {
-			ZVAL_STR(&key, k);
+			ZVAL_STR_COPY(&key, k);
 		}
 
 		if (ce == async_task_ce) {
