@@ -1274,8 +1274,7 @@ ZEND_METHOD(WritablePipe, write)
 		return;
 	}
 
-	buffer[0].base = ZSTR_VAL(data);
-	buffer[0].len = ZSTR_LEN(data);
+	buffer[0] = uv_buf_init(ZSTR_VAL(data), ZSTR_LEN(data));
 
 	// Attempt a non-blocking write first before queueing up writes.
 	if (pipe->state->writes.first == NULL) {

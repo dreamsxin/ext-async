@@ -8,7 +8,7 @@ try {
     while (true) {
         print_r($datagram = $socket->receive());
 
-        $socket->send($datagram->withData(implode("\r\n", [
+        $socket->sendAsync($datagram->withData(implode("\r\n", [
             'HTTP/1.1 200 OK',
             'CACHE-CONTROL: max-age=1800',
             'DATE: ' . gmdate('D, d M Y H:i:s') . ' GMT',

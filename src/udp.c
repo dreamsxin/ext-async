@@ -31,6 +31,12 @@ static zend_object_handlers async_udp_datagram_handlers;
 
 static zend_object *async_udp_datagram_object_create(zend_class_entry *ce);
 
+typedef struct _async_udp_send {
+	uv_udp_send_t request;
+	async_udp_socket *socket;
+	async_udp_datagram *datagram;
+} async_udp_send;
+
 
 static void assemble_peer(async_udp_socket *socket, zval *return_value, zend_execute_data *execute_data)
 {
@@ -74,8 +80,8 @@ static void socket_closed(uv_handle_t *handle)
 
 static void socket_alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buffer)
 {
-	buffer->base = emalloc(4096);
-	buffer->len = 4096;
+	buffer->base = emalloc(8192);
+	buffer->len = 8192;
 }
 
 static void socket_received(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buffer, const struct sockaddr* addr, unsigned int flags)
@@ -146,6 +152,18 @@ static void socket_sent(uv_udp_send_t *req, int status)
 	async_awaitable_trigger_continuation(&socket->senders, &data, 0);
 }
 
+static void socket_sent_async(uv_udp_send_t *req, int status)
+{
+	async_udp_send *send;
+	
+	send = (async_udp_send *) req->data;
+	
+	OBJ_RELEASE(&send->datagram->std);
+	OBJ_RELEASE(&send->socket->std);
+	
+	efree(send);
+}
+
 
 static async_udp_socket *async_udp_socket_object_create()
 {
@@ -211,7 +229,7 @@ ZEND_METHOD(UdpSocket, bind)
 	int code;
 	
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 2)
-	    Z_PARAM_STR(name)
+		Z_PARAM_STR(name)
 		Z_PARAM_LONG(port)
 	ZEND_PARSE_PARAMETERS_END();
 	
@@ -265,7 +283,7 @@ ZEND_METHOD(UdpSocket, multicast)
 	int code;
 	
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 2)
-	    Z_PARAM_STR(group)
+		Z_PARAM_STR(group)
 		Z_PARAM_LONG(port)
 	ZEND_PARSE_PARAMETERS_END();
 	
@@ -417,7 +435,7 @@ ZEND_METHOD(UdpSocket, send)
 	
 	struct sockaddr_in dest;
 	uv_udp_send_t req;
-	uv_buf_t buffers[1];	
+	uv_buf_t buffers[1];
 	int code;
 	
 	zval *val;
@@ -434,8 +452,7 @@ ZEND_METHOD(UdpSocket, send)
 	
 	ASYNC_CHECK_ERROR(code != 0, "Failed to assemble remote IP address: %s", uv_strerror(code));
 	
-	buffers[0].base = ZSTR_VAL(datagram->data);
-	buffers[0].len = ZSTR_LEN(datagram->data);
+	buffers[0] = uv_buf_init(ZSTR_VAL(datagram->data), ZSTR_LEN(datagram->data));
 	
 	if (socket->senders.first == NULL) {
 	    code = uv_udp_try_send(&socket->handle, buffers, 1, (const struct sockaddr *)&dest);
@@ -456,6 +473,79 @@ ZEND_METHOD(UdpSocket, send)
 	ZVAL_UNDEF(&retval);
 	async_task_suspend(&socket->senders, &retval, execute_data, NULL);
 	zval_ptr_dtor(&retval);
+}
+
+ZEND_METHOD(UdpSocket, sendAsync)
+{
+	async_udp_socket *socket;
+	async_udp_datagram *datagram;
+	async_udp_send *send;
+	zend_long limit;
+	
+	struct sockaddr_in dest;
+	uv_buf_t buffers[1];
+	int code;
+	
+	zval *val;
+	zval *val2;
+	
+	val2 = NULL;
+	
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
+		Z_PARAM_ZVAL(val)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(val2)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if (val2 != NULL && Z_TYPE_P(val2) != IS_NULL) {
+		limit = Z_LVAL_P(val2);
+		
+		ASYNC_CHECK_ERROR(limit < 1024, "UDP buffer size must not be less than %d bytes", 1024);
+	} else {
+		limit = 0;
+	}
+	
+	socket = (async_udp_socket *) Z_OBJ_P(getThis());
+	datagram = (async_udp_datagram *) Z_OBJ_P(val);
+	
+	code = uv_ip4_addr(ZSTR_VAL(datagram->address), (int) datagram->port, &dest);
+	
+	ASYNC_CHECK_ERROR(code != 0, "Failed to assemble remote IP address: %s", uv_strerror(code));
+	
+	buffers[0] = uv_buf_init(ZSTR_VAL(datagram->data), ZSTR_LEN(datagram->data));
+	
+	if (socket->senders.first == NULL) {
+	    code = uv_udp_try_send(&socket->handle, buffers, 1, (const struct sockaddr *)&dest);
+	    
+	    if (code >= 0) {
+	        RETURN_TRUE;
+	    }
+	    
+	    ASYNC_CHECK_ERROR(code != UV_EAGAIN, "Failed to send UDP data: %s", uv_strerror(code));
+	}
+	
+	if (limit > 0 && (socket->handle.send_queue_size + buffers[0].len) > limit) {
+		RETURN_FALSE;
+	}
+	
+	send = emalloc(sizeof(async_udp_send));
+	send->request.data = send;
+	send->socket = socket;
+	send->datagram = datagram;
+	
+	code = uv_udp_send(&send->request, &socket->handle, buffers, 1, (const struct sockaddr *)&dest, socket_sent_async);
+	
+	if (code != 0) {
+		efree(send);
+		
+		zend_throw_error(NULL, "Failed to send UDP data: %s", uv_strerror(code));
+		return;
+	}
+	
+	GC_ADDREF(&socket->std);
+	GC_ADDREF(&datagram->std);
+	
+	RETURN_TRUE;
 }
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_udp_socket_bind, 0, 2, Concurrent\\Network\\UdpSocket, 0)
@@ -488,6 +578,11 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_send, 0, 1, IS_VOID, 
 	ZEND_ARG_OBJ_INFO(0, datagram, Concurrent\\Network\\UdpDatagram, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_send_async, 0, 1, _IS_BOOL, 0)
+	ZEND_ARG_OBJ_INFO(0, datagram, Concurrent\\Network\\UdpDatagram, 0)
+	ZEND_ARG_TYPE_INFO(0, limit, IS_LONG, 1)
+ZEND_END_ARG_INFO()
+
 static const zend_function_entry async_udp_socket_functions[] = {
 	ZEND_ME(UdpSocket, bind, arginfo_udp_socket_bind, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(UdpSocket, multicast, arginfo_udp_socket_multicast, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
@@ -497,6 +592,7 @@ static const zend_function_entry async_udp_socket_functions[] = {
 	ZEND_ME(UdpSocket, getPeer, arginfo_udp_socket_get_peer, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, receive, arginfo_udp_socket_receive, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, send, arginfo_udp_socket_send, ZEND_ACC_PUBLIC)
+	ZEND_ME(UdpSocket, sendAsync, arginfo_udp_socket_send_async, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
