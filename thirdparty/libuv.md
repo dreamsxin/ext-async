@@ -1,20 +1,16 @@
 # Libuv Integration
 
-LIBUV VERSION: 1.22.0
-MINIMUM VERSION: 1.19.0 (due to handle data void ptr)
+Libuv `1.23.2` is bundled with the extension for static linking.
 
-## Static linking
+## Linux
 
-Use static linking of libuv to avoid dependency on externally installed libuv.
+Libuv is compiled as part of the build, the generated static lib is moved to `thirdparty/lib/libuv.a`.
 
-### Linux
+## Windows
 
-Add `CC_CHECK_CFLAGS_APPEND([-fPIC])` in `configure.ac`.
-
-### Windows
-
-Lib files are build using MSVC dev shell. Need to compile both x86 and x64 versions. Libuv's build system requires Python 2 to be installed (Python 3 does not work!).
-
-## Installation on Linux
-
-Compiling libuv might fail on ubuntu 14 depending on libtool / autoconf version. Workaround: copy libuv files from thirdparty to a tmp folder outside of the project. Build libuv as usual. Provide the path to the diretory containing the generated `include` and `lib` folder to the async extension via `--with-uv={PATH_TO_FOLDER}`.
+1. Ensure the Visual Studio compiler and Python 2 are installed on your system.
+2. Download and unpack a libuv release from github.
+3. Open the Developer Command Prompt for VS.
+4. Change directory to the libuv directory.
+5. Execute `vcbuild release static`, add eighter `x64` or `x86` to specify the target platform. Add `vs2017` if you are building with Visual Studio 2017.
+6. Copy the generated lib file to `thirdparty/lib/libuv-{x86|x64}.lib`.
