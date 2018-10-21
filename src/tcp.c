@@ -1492,7 +1492,6 @@ ZEND_METHOD(Socket, writeAsync)
 		return;
 	}
 	
-	// TODO: Eager write data here!
 	if (socket->writes.first == NULL) {
 		tmp = try_write_to_socket(socket, buffers, nbufs, &num);
 	} else {

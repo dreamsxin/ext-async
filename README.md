@@ -344,6 +344,8 @@ final class TcpSocket implements DuplexStream
     
     public function write(string $data): void { }
     
+    public function writeAsync(string $data, ?int $size = null): bool { }
+    
     public function writeStream(): WritableStream { }
 }
 ```
@@ -427,6 +429,8 @@ final class UdpSocket
     public function receive(): UdpDatagram { }
     
     public function send(UdpDatagram $datagram): void { }
+    
+    public function sendAsync(UdpDatagram $datagram, ?int $size = null): bool { }
 }
 ```
 
