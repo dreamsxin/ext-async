@@ -1330,7 +1330,7 @@ static inline void socket_call_read(async_tcp_socket *socket, zval *return_value
 		Z_PARAM_ZVAL(hint)
 	ZEND_PARSE_PARAMETERS_END();
 
-	if (hint == NULL) {
+	if (hint == NULL || Z_TYPE_P(hint) == IS_NULL) {
 		len = socket->buffer.size;
 	} else if (Z_LVAL_P(hint) < 1) {
 		zend_throw_error(NULL, "Invalid read length: %d", (int) Z_LVAL_P(hint));

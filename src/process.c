@@ -1121,7 +1121,7 @@ ZEND_METHOD(ReadablePipe, read)
 
 	pipe = (async_readable_pipe *) Z_OBJ_P(getThis());
 
-	if (hint == NULL) {
+	if (hint == NULL || Z_TYPE_P(hint) == IS_NULL) {
 		len = pipe->state->buffer.size;
 	} else if (Z_LVAL_P(hint) < 1) {
 		zend_throw_error(NULL, "Invalid read length: %d", (int) Z_LVAL_P(hint));
