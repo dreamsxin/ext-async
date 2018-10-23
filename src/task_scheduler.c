@@ -248,6 +248,28 @@ static async_task_scheduler *async_task_scheduler_object_create()
 	return scheduler;
 }
 
+static void walk_loop_cb(uv_handle_t *handle, void *arg)
+{
+	int *count;
+	
+	count = (int *) arg;
+	
+	(*count)++;
+	
+	printf(">> UV HANDLE LEAKED: [%d] %s -> %d\n", handle->type, uv_handle_type_name(handle->type), uv_is_closing(handle));
+}
+
+static int debug_handles(uv_loop_t *loop)
+{
+    int pending;
+    
+    pending = 0;
+
+	uv_walk(loop, walk_loop_cb, &pending);
+	
+	return pending;
+}
+
 static void async_task_scheduler_object_destroy(zend_object *object)
 {
 	async_task_scheduler *scheduler;
@@ -264,10 +286,11 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 	uv_run(&scheduler->loop, UV_RUN_DEFAULT);
 
 	ZEND_ASSERT(!uv_loop_alive(&scheduler->loop));
+	ZEND_ASSERT(debug_handles(&scheduler->loop) == 0);
+	
 	code = uv_loop_close(&scheduler->loop);
-
 	ZEND_ASSERT(code == 0);
-
+	
 	zend_object_std_dtor(object);
 }
 
