@@ -37,7 +37,7 @@ static zend_object_handlers async_deferred_awaitable_handlers;
 				ASYNC_Q_DETACH(&defer->context->cancel->callbacks, &defer->cancel); \
 				defer->cancel.object = NULL; \
 			} \
-			OBJ_RELEASE(&defer->context->std); \
+			ASYNC_DELREF(&defer->context->std); \
 			defer->context = NULL; \
 		} \
 } while (0);
@@ -57,7 +57,7 @@ static void cancel_defer(void *obj, zval* error)
 	defer->cancel.object = NULL;
 
 	ZVAL_OBJ(&args[0], &defer->std);
-	GC_ADDREF(&defer->std);
+	ASYNC_ADDREF(&defer->std);
 
 	ZVAL_COPY(&args[1], error);
 
@@ -73,7 +73,7 @@ static void cancel_defer(void *obj, zval* error)
 	zval_ptr_dtor(&retval);
 
 	if (defer->context != NULL) {
-		OBJ_RELEASE(&defer->context->std);
+		ASYNC_DELREF(&defer->context->std);
 		defer->context = NULL;
 	}
 
@@ -120,7 +120,7 @@ static void combine_continuation(void *obj, zval *data, zval *result, zend_bool 
 	combined->counter--;
 
 	ZVAL_OBJ(&args[0], &combined->defer->std);
-	GC_ADDREF(&combined->defer->std);
+	ASYNC_ADDREF(&combined->defer->std);
 
 	ZVAL_BOOL(&args[1], combined->counter == 0);
 	ZVAL_COPY(&args[2], data);
@@ -183,7 +183,7 @@ static void combine_continuation(void *obj, zval *data, zval *result, zend_bool 
 			async_awaitable_trigger_continuation(&combined->defer->continuation, &combined->defer->result, 0);
 		}
 
-		OBJ_RELEASE(&combined->defer->std);
+		ASYNC_DELREF(&combined->defer->std);
 
 		efree(combined);
 	}
@@ -243,7 +243,7 @@ static void transform_continuation(void *obj, zval *data, zval *result, zend_boo
 
 	zval_ptr_dtor(&retval);
 
-	OBJ_RELEASE(&trans->defer->std);
+	ASYNC_DELREF(&trans->defer->std);
 
 	efree(trans);
 }
@@ -261,7 +261,7 @@ static async_deferred_awaitable *async_deferred_awaitable_object_create(async_de
 
 	awaitable->defer = defer;
 
-	GC_ADDREF(&defer->std);
+	ASYNC_ADDREF(&defer->std);
 
 	return awaitable;
 }
@@ -272,7 +272,7 @@ static void async_deferred_awaitable_object_destroy(zend_object *object)
 
 	awaitable = (async_deferred_awaitable *) object;
 
-	OBJ_RELEASE(&awaitable->defer->std);
+	ASYNC_DELREF(&awaitable->defer->std);
 
 	zend_object_std_dtor(&awaitable->std);
 }
@@ -327,9 +327,15 @@ static zend_object *async_deferred_object_create(zend_class_entry *ce)
 	defer->status = ASYNC_DEFERRED_STATUS_PENDING;
 
 	ZVAL_NULL(&defer->result);
+	
+	async_awaitable_queue_init(&defer->continuation, NULL);
 
 	zend_object_std_init(&defer->std, ce);
 	defer->std.handlers = &async_deferred_handlers;
+	
+	defer->context = async_context_get();
+	
+	ASYNC_ADDREF(&defer->context->std);
 
 	return &defer->std;
 }
@@ -347,6 +353,8 @@ static void async_deferred_object_destroy(zend_object *object)
 	zval_ptr_dtor(&defer->result);
 
 	ASYNC_DEFERRED_CLEANUP_CANCEL(defer);
+	
+	async_awaitable_queue_destroy(&defer->continuation);
 
 	zend_object_std_dtor(&defer->std);
 }
@@ -354,32 +362,25 @@ static void async_deferred_object_destroy(zend_object *object)
 ZEND_METHOD(Deferred, __construct)
 {
 	async_deferred *defer;
-	async_context *context;
-
+	
 	defer = (async_deferred *) Z_OBJ_P(getThis());
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_FUNC_EX(defer->fci, defer->fcc, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
-
+	
 	if (ZEND_NUM_ARGS() > 0) {
-		context = async_context_get();
-
-		if (context->cancel != NULL) {
-			if (Z_TYPE_P(&context->cancel->error) != IS_UNDEF) {
-				cancel_defer(defer, &context->cancel->error);
+		if (defer->context->cancel != NULL) {
+			if (Z_TYPE_P(&defer->context->cancel->error) != IS_UNDEF) {
+				cancel_defer(defer, &defer->context->cancel->error);
 			} else {
 				defer->cancel.object = defer;
 				defer->cancel.func = cancel_defer;
 
 				Z_TRY_ADDREF_P(&defer->fci.function_name);
 
-				defer->context = context;
-
-				GC_ADDREF(&context->std);
-
-				ASYNC_Q_ENQUEUE(&context->cancel->callbacks, &defer->cancel);
+				ASYNC_Q_ENQUEUE(&defer->context->cancel->callbacks, &defer->cancel);
 			}
 		}
 	}
@@ -504,8 +505,8 @@ ZEND_METHOD(Deferred, value)
 		}
 	}
 
-	defer = emalloc(sizeof(async_deferred));
-	ZEND_SECURE_ZERO(defer, sizeof(async_deferred));
+	defer = (async_deferred *) async_deferred_object_create(async_deferred_ce);
+	awaitable = async_deferred_awaitable_object_create(defer);
 
 	defer->status = ASYNC_DEFERRED_STATUS_RESOLVED;
 
@@ -515,14 +516,9 @@ ZEND_METHOD(Deferred, value)
 		ZVAL_COPY(&defer->result, val);
 	}
 
-	zend_object_std_init(&defer->std, async_deferred_ce);
-	defer->std.handlers = &async_deferred_handlers;
-
-	awaitable = async_deferred_awaitable_object_create(defer);
-
 	ZVAL_OBJ(&obj, &awaitable->std);
 
-	OBJ_RELEASE(&defer->std);
+	ASYNC_DELREF(&defer->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
@@ -539,21 +535,16 @@ ZEND_METHOD(Deferred, error)
 		Z_PARAM_ZVAL(error)
 	ZEND_PARSE_PARAMETERS_END();
 
-	defer = emalloc(sizeof(async_deferred));
-	ZEND_SECURE_ZERO(defer, sizeof(async_deferred));
-
+	defer = (async_deferred *) async_deferred_object_create(async_deferred_ce);
+	awaitable = async_deferred_awaitable_object_create(defer);
+	
 	defer->status = ASYNC_DEFERRED_STATUS_FAILED;
 
 	ZVAL_COPY(&defer->result, error);
 
-	zend_object_std_init(&defer->std, async_deferred_ce);
-	defer->std.handlers = &async_deferred_handlers;
-
-	awaitable = async_deferred_awaitable_object_create(defer);
-
 	ZVAL_OBJ(&obj, &awaitable->std);
 
-	OBJ_RELEASE(&defer->std);
+	ASYNC_DELREF(&defer->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
@@ -601,14 +592,7 @@ ZEND_METHOD(Deferred, combine)
 		}
 	} ZEND_HASH_FOREACH_END();
 
-	defer = emalloc(sizeof(async_deferred));
-	ZEND_SECURE_ZERO(defer, sizeof(async_deferred));
-
-	zend_object_std_init(&defer->std, async_deferred_ce);
-	defer->std.handlers = &async_deferred_handlers;
-
-	defer->status = ASYNC_DEFERRED_STATUS_PENDING;
-
+	defer = (async_deferred *) async_deferred_object_create(async_deferred_ce);
 	awaitable = async_deferred_awaitable_object_create(defer);
 
 	ZVAL_OBJ(&obj, &awaitable->std);
@@ -678,14 +662,7 @@ ZEND_METHOD(Deferred, transform)
 		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
-	defer = emalloc(sizeof(async_deferred));
-	ZEND_SECURE_ZERO(defer, sizeof(async_deferred));
-
-	zend_object_std_init(&defer->std, async_deferred_ce);
-	defer->std.handlers = &async_deferred_handlers;
-
-	defer->status = ASYNC_DEFERRED_STATUS_PENDING;
-
+	defer = (async_deferred *) async_deferred_object_create(async_deferred_ce);
 	awaitable = async_deferred_awaitable_object_create(defer);
 
 	ZVAL_OBJ(&obj, &awaitable->std);

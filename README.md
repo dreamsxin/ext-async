@@ -318,9 +318,9 @@ A `TcpSocket` wraps a TCP network conneciton. It implements `DuplexStream` to pr
 ```php
 namespace Concurrent\Network;
 
-use Concurrent\Stream\DuplexStream
-use Concurrent\Stream\ReadableStream
-use Concurrent\Stream\WritableStream
+use Concurrent\Stream\DuplexStream;
+use Concurrent\Stream\ReadableStream;
+use Concurrent\Stream\WritableStream;
 
 final class TcpSocket implements DuplexStream
 {

@@ -1,5 +1,7 @@
 ARG_ENABLE('async', 'async support', 'yes');
 
+X64 = toolset_is_64();
+
 if (PHP_ASYNC != 'no') {
 	AC_DEFINE('HAVE_ASYNC', 1, 'async support enabled');
 
@@ -33,8 +35,12 @@ if (PHP_ASYNC != 'no') {
 		'thirdparty\\libuv\\include\\uv.h'
 	];
 	
-	// Use pre-built libuv from async extension.
-	CHECK_LIB('libuv-x64.lib', 'async', configure_module_dirname + '\\thirdparty');
+	// Do static linking against included libuv.
+	if (X64) {
+		CHECK_LIB('libuv-x64.lib', 'async', configure_module_dirname + '\\thirdparty');
+	} else {
+		CHECK_LIB('libuv-x86.lib', 'async', configure_module_dirname + '\\thirdparty');
+	}
 	
 	// Required in order to link against libuv.
 	CHECK_LIB("Ws2_32.lib", 'async');

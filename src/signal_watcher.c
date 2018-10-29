@@ -56,12 +56,12 @@ static void enable_signal(void *obj)
 	watcher->running = watcher->new_running;
 
 	if (watcher->running) {
-		uv_signal_start(&watcher->signal, trigger_signal, watcher->signum);
+		uv_signal_start(&watcher->handle, trigger_signal, watcher->signum);
 	} else {
-		uv_signal_stop(&watcher->signal);
+		uv_signal_stop(&watcher->handle);
 	}
 
-	OBJ_RELEASE(&watcher->std);
+	ASYNC_DELREF(&watcher->std);
 }
 
 static void close_signal(uv_handle_t *handle)
@@ -72,46 +72,7 @@ static void close_signal(uv_handle_t *handle)
 
 	ZEND_ASSERT(watcher != NULL);
 
-	OBJ_RELEASE(&watcher->scheduler->std);
-	OBJ_RELEASE(&watcher->std);
-}
-
-static inline void suspend(async_signal_watcher *watcher, zval *return_value, zend_execute_data *execute_data)
-{
-	async_context *context;
-	zend_bool cancelled;
-
-	context = async_context_get();
-
-	if (context->background) {
-		watcher->unref_count++;
-
-		if (watcher->unref_count == 1 && !watcher->ref_count) {
-			uv_unref((uv_handle_t *) &watcher->signal);
-		}
-	} else {
-		watcher->ref_count++;
-
-		if (watcher->ref_count == 1 && watcher->unref_count) {
-			uv_ref((uv_handle_t *) &watcher->signal);
-		}
-	}
-
-	async_task_suspend(&watcher->observers, NULL, execute_data, &cancelled);
-
-	if (context->background) {
-		watcher->unref_count--;
-
-		if (watcher->unref_count == 0 && watcher->ref_count) {
-			uv_ref((uv_handle_t *) &watcher->signal);
-		}
-	} else {
-		watcher->ref_count--;
-
-		if (watcher->ref_count == 0 && watcher->unref_count) {
-			uv_unref((uv_handle_t *) &watcher->signal);
-		}
-	}
+	ASYNC_DELREF(&watcher->std);
 }
 
 
@@ -126,6 +87,10 @@ static zend_object *async_signal_watcher_object_create(zend_class_entry *ce)
 	watcher->std.handlers = &async_signal_watcher_handlers;
 
 	ZVAL_UNDEF(&watcher->error);
+	
+	watcher->scheduler = async_task_scheduler_get();
+	
+	async_awaitable_queue_init(&watcher->observers, watcher->scheduler);	
 
 	watcher->enable.object = watcher;
 	watcher->enable.func = enable_signal;
@@ -144,10 +109,10 @@ static void async_signal_watcher_object_dtor(zend_object *object)
 		watcher->enable.active = 0;
 	}
 
-	if (!uv_is_closing((uv_handle_t *) &watcher->signal)) {
-		GC_ADDREF(&watcher->std);
+	if (!uv_is_closing((uv_handle_t *) &watcher->handle)) {
+		ASYNC_ADDREF(&watcher->std);
 
-		uv_close((uv_handle_t *) &watcher->signal, close_signal);
+		uv_close((uv_handle_t *) &watcher->handle, close_signal);
 	}
 }
 
@@ -158,6 +123,8 @@ static void async_signal_watcher_object_destroy(zend_object *object)
 	watcher = (async_signal_watcher *) object;
 
 	zval_ptr_dtor(&watcher->error);
+	
+	async_awaitable_queue_destroy(&watcher->observers);
 
 	zend_object_std_dtor(&watcher->std);
 }
@@ -178,13 +145,10 @@ ZEND_METHOD(SignalWatcher, __construct)
 	ASYNC_CHECK_ERROR(signum < 1, "Invalid signal number: %d", (int) signum);
 
 	watcher->signum = (int) signum;
-	watcher->scheduler = async_task_scheduler_get();
 
-	GC_ADDREF(&watcher->scheduler->std);
+	uv_signal_init(&watcher->scheduler->loop, &watcher->handle);
 
-	uv_signal_init(&watcher->scheduler->loop, &watcher->signal);
-
-	watcher->signal.data = watcher;
+	watcher->handle.data = watcher;
 }
 
 ZEND_METHOD(SignalWatcher, close)
@@ -210,11 +174,11 @@ ZEND_METHOD(SignalWatcher, close)
 		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
 		watcher->enable.active = 0;
 	} else {
-		GC_ADDREF(&watcher->std);
+		ASYNC_ADDREF(&watcher->std);
 	}
 
-	if (!uv_is_closing((uv_handle_t *) &watcher->signal)) {
-		uv_close((uv_handle_t *) &watcher->signal, close_signal);
+	if (!uv_is_closing((uv_handle_t *) &watcher->handle)) {
+		uv_close((uv_handle_t *) &watcher->handle, close_signal);
 	}
 
 	zend_throw_error(NULL, "Signal watcher has been closed");
@@ -233,6 +197,9 @@ ZEND_METHOD(SignalWatcher, close)
 ZEND_METHOD(SignalWatcher, awaitSignal)
 {
 	async_signal_watcher *watcher;
+	async_context *context;
+	
+	zend_bool cancelled;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
@@ -256,23 +223,40 @@ ZEND_METHOD(SignalWatcher, awaitSignal)
 				ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
 				watcher->enable.active = 0;
 
-				OBJ_RELEASE(&watcher->std);
+				ASYNC_DELREF(&watcher->std);
 			}
 		} else if (!watcher->enable.active) {
-			GC_ADDREF(&watcher->std);
+			ASYNC_ADDREF(&watcher->std);
 
 			async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
 		}
 	}
 
-	suspend(watcher, return_value, execute_data);
+	context = async_context_get();
+
+	ASYNC_REF_ENTER(context, watcher);
+	async_task_suspend(&watcher->observers, NULL, execute_data, &cancelled);
+	ASYNC_REF_EXIT(context, watcher);
+	
+	if (watcher->scheduler->disposed && Z_TYPE_P(&watcher->error) == IS_UNDEF) {
+		ZVAL_COPY(&watcher->error, &watcher->scheduler->error);
+	
+		if (watcher->enable.active) {
+			ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+			watcher->enable.active = 0;
+		} else {
+			ASYNC_ADDREF(&watcher->std);
+		}
+		
+		uv_close((uv_handle_t *) &watcher->handle, close_signal);
+	}
 
 	if (!watcher->ref_count && !watcher->unref_count && Z_TYPE_P(&watcher->error) == IS_UNDEF) {
 		watcher->new_running = 0;
 
 		if (watcher->running) {
 			if (!watcher->enable.active) {
-				GC_ADDREF(&watcher->std);
+				ASYNC_ADDREF(&watcher->std);
 
 				async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
 			}
@@ -280,7 +264,7 @@ ZEND_METHOD(SignalWatcher, awaitSignal)
 			ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
 			watcher->enable.active = 0;
 
-			OBJ_RELEASE(&watcher->std);
+			ASYNC_DELREF(&watcher->std);
 		}
 	}
 }

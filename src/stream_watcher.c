@@ -114,12 +114,12 @@ static void enable_poll(void *obj)
 	watcher->events = watcher->new_events;
 
 	if (watcher->events & (UV_READABLE | UV_WRITABLE)) {
-		uv_poll_start(&watcher->poll, watcher->events, trigger_poll);
+		uv_poll_start(&watcher->handle, watcher->events, trigger_poll);
 	} else {
-		uv_poll_stop(&watcher->poll);
+		uv_poll_stop(&watcher->handle);
 	}
 
-	OBJ_RELEASE(&watcher->std);
+	ASYNC_DELREF(&watcher->std);
 }
 
 static void close_poll(uv_handle_t *handle)
@@ -130,8 +130,7 @@ static void close_poll(uv_handle_t *handle)
 
 	ZEND_ASSERT(watcher != NULL);
 
-	OBJ_RELEASE(&watcher->scheduler->std);
-	OBJ_RELEASE(&watcher->std);
+	ASYNC_DELREF(&watcher->std);
 }
 
 static inline void suspend(async_stream_watcher *watcher, async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data)
@@ -141,34 +140,21 @@ static inline void suspend(async_stream_watcher *watcher, async_awaitable_queue 
 
 	context = async_context_get();
 
-	if (context->background) {
-		watcher->unref_count++;
-
-		if (watcher->unref_count == 1 && !watcher->ref_count) {
-			uv_unref((uv_handle_t *) &watcher->poll);
-		}
-	} else {
-		watcher->ref_count++;
-
-		if (watcher->ref_count == 1 && watcher->unref_count) {
-			uv_ref((uv_handle_t *) &watcher->poll);
-		}
-	}
-
+	ASYNC_REF_ENTER(context, watcher);
 	async_task_suspend(q, NULL, execute_data, &cancelled);
-
-	if (context->background) {
-		watcher->unref_count--;
-
-		if (watcher->unref_count == 0 && watcher->ref_count) {
-			uv_ref((uv_handle_t *) &watcher->poll);
+	ASYNC_REF_EXIT(context, watcher);
+	
+	if (watcher->scheduler->disposed && Z_TYPE_P(&watcher->error) == IS_UNDEF) {
+		ZVAL_COPY(&watcher->error, &watcher->scheduler->error);
+		
+		if (watcher->enable.active) {
+			ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
+			watcher->enable.active = 0;
+		} else {
+			ASYNC_ADDREF(&watcher->std);
 		}
-	} else {
-		watcher->ref_count--;
-
-		if (watcher->ref_count == 0 && watcher->unref_count) {
-			uv_unref((uv_handle_t *) &watcher->poll);
-		}
+	
+		uv_close((uv_handle_t *) &watcher->handle, close_poll);
 	}
 }
 
@@ -182,6 +168,11 @@ static zend_object *async_stream_watcher_object_create(zend_class_entry *ce)
 
 	zend_object_std_init(&watcher->std, ce);
 	watcher->std.handlers = &async_stream_watcher_handlers;
+
+	watcher->scheduler = async_task_scheduler_get();
+	
+	async_awaitable_queue_init(&watcher->reads, watcher->scheduler);
+	async_awaitable_queue_init(&watcher->writes, watcher->scheduler);
 
 	ZVAL_UNDEF(&watcher->error);
 	ZVAL_NULL(&watcher->resource);
@@ -203,10 +194,10 @@ static void async_stream_watcher_object_dtor(zend_object *object)
 		watcher->enable.active = 0;
 	}
 
-	if (!uv_is_closing((uv_handle_t *) &watcher->poll)) {
-		GC_ADDREF(&watcher->std);
+	if (!uv_is_closing((uv_handle_t *) &watcher->handle)) {
+		ASYNC_ADDREF(&watcher->std);
 
-		uv_close((uv_handle_t *) &watcher->poll, close_poll);
+		uv_close((uv_handle_t *) &watcher->handle, close_poll);
 	}
 }
 
@@ -218,6 +209,9 @@ static void async_stream_watcher_object_destroy(zend_object *object)
 
 	zval_ptr_dtor(&watcher->error);
 	zval_ptr_dtor(&watcher->resource);
+	
+	async_awaitable_queue_destroy(&watcher->reads);
+	async_awaitable_queue_destroy(&watcher->writes);
 
 	zend_object_std_dtor(&watcher->std);
 }
@@ -240,19 +234,16 @@ ZEND_METHOD(StreamWatcher, __construct)
 	ASYNC_CHECK_ERROR(fd < 0, "Cannot cast resource to file descriptor");
 
 	watcher->fd = fd;
-	watcher->scheduler = async_task_scheduler_get();
-
-	GC_ADDREF(&watcher->scheduler->std);
 
 	ZVAL_COPY(&watcher->resource, val);
 
 #ifdef PHP_WIN32
-	uv_poll_init_socket(&watcher->scheduler->loop, &watcher->poll, (uv_os_sock_t) fd);
+	uv_poll_init_socket(&watcher->scheduler->loop, &watcher->handle, (uv_os_sock_t) fd);
 #else
-	uv_poll_init(&watcher->scheduler->loop, &watcher->poll, fd);
+	uv_poll_init(&watcher->scheduler->loop, &watcher->handle, fd);
 #endif
 
-	watcher->poll.data = watcher;
+	watcher->handle.data = watcher;
 }
 
 ZEND_METHOD(StreamWatcher, close)
@@ -278,10 +269,10 @@ ZEND_METHOD(StreamWatcher, close)
 		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
 		watcher->enable.active = 0;
 	} else {
-		GC_ADDREF(&watcher->std);
+		ASYNC_ADDREF(&watcher->std);
 	}
 
-	uv_close((uv_handle_t *) &watcher->poll, close_poll);
+	uv_close((uv_handle_t *) &watcher->handle, close_poll);
 
 	zend_throw_error(NULL, "IO watcher has been closed");
 
@@ -328,7 +319,7 @@ ZEND_METHOD(StreamWatcher, awaitReadable)
 
 	if (events != watcher->events) {
 		if (!watcher->enable.active) {
-			GC_ADDREF(&watcher->std);
+			ASYNC_ADDREF(&watcher->std);
 
 			async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
 		}
@@ -336,7 +327,7 @@ ZEND_METHOD(StreamWatcher, awaitReadable)
 		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
 		watcher->enable.active = 0;
 
-		OBJ_RELEASE(&watcher->std);
+		ASYNC_DELREF(&watcher->std);
 	}
 
 	suspend(watcher, &watcher->reads, return_value, execute_data);
@@ -352,7 +343,7 @@ ZEND_METHOD(StreamWatcher, awaitReadable)
 
 		if (watcher->new_events != watcher->events) {
 			if (!watcher->enable.active) {
-				GC_ADDREF(&watcher->std);
+				ASYNC_ADDREF(&watcher->std);
 
 				async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
 			}
@@ -360,7 +351,7 @@ ZEND_METHOD(StreamWatcher, awaitReadable)
 			ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
 			watcher->enable.active = 0;
 
-			OBJ_RELEASE(&watcher->std);
+			ASYNC_DELREF(&watcher->std);
 		}
 	}
 }
@@ -396,7 +387,7 @@ ZEND_METHOD(StreamWatcher, awaitWritable)
 
 	if (events != watcher->events) {
 		if (!watcher->enable.active) {
-			GC_ADDREF(&watcher->std);
+			ASYNC_ADDREF(&watcher->std);
 
 			async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
 		}
@@ -404,7 +395,7 @@ ZEND_METHOD(StreamWatcher, awaitWritable)
 		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
 		watcher->enable.active = 0;
 
-		OBJ_RELEASE(&watcher->std);
+		ASYNC_DELREF(&watcher->std);
 	}
 
 	suspend(watcher, &watcher->writes, return_value, execute_data);
@@ -420,7 +411,7 @@ ZEND_METHOD(StreamWatcher, awaitWritable)
 
 		if (watcher->new_events != watcher->events) {
 			if (!watcher->enable.active) {
-				GC_ADDREF(&watcher->std);
+				ASYNC_ADDREF(&watcher->std);
 
 				async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
 			}
@@ -428,7 +419,7 @@ ZEND_METHOD(StreamWatcher, awaitWritable)
 			ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
 			watcher->enable.active = 0;
 
-			OBJ_RELEASE(&watcher->std);
+			ASYNC_DELREF(&watcher->std);
 		}
 	}
 }

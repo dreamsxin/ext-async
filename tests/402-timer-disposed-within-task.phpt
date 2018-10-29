@@ -30,4 +30,4 @@ var_dump(Context::current()->isBackground());
 bool(false)
 string(5) "START"
 bool(true)
-string(23) "Task has been destroyed"
+string(32) "Task scheduler has been disposed"

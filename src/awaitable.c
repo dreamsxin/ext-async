@@ -21,13 +21,35 @@
 zend_class_entry *async_awaitable_ce;
 
 
+void async_awaitable_queue_init(async_awaitable_queue *q, async_task_scheduler *scheduler)
+{
+	if (scheduler == NULL) {
+		q->scheduler = async_task_scheduler_get();
+	} else {
+		q->scheduler = scheduler;
+	}
+	
+	ASYNC_ADDREF(&q->scheduler->std);
+}
+
+void async_awaitable_queue_destroy(async_awaitable_queue *q)
+{
+	ZEND_ASSERT(q->scheduler != NULL);
+
+	ASYNC_DELREF(&q->scheduler->std);
+
+	q->scheduler = NULL;
+}
+
 async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_queue *q, void *obj, zval *data, async_awaitable_func func)
 {
 	async_awaitable_cb *cb;
+	
+	ZEND_ASSERT(q->scheduler != NULL);
 
 	cb = emalloc(sizeof(async_awaitable_cb));
 	ZEND_SECURE_ZERO(cb, sizeof(async_awaitable_cb));
-
+	
 	cb->object = obj;
 	cb->func = func;
 
@@ -35,6 +57,10 @@ async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_queue 
 		ZVAL_UNDEF(&cb->data);
 	} else {
 		ZVAL_COPY(&cb->data, data);
+	}
+	
+	if (q->first == NULL) {
+		ASYNC_Q_ENQUEUE(&q->scheduler->pending, q);
 	}
 
 	ASYNC_Q_ENQUEUE(q, cb);
@@ -44,16 +70,24 @@ async_awaitable_cb *async_awaitable_register_continuation(async_awaitable_queue 
 
 void async_awaitable_dispose_continuation(async_awaitable_queue *q, async_awaitable_cb *cb)
 {
+	ZEND_ASSERT(q->scheduler != NULL);
+
 	ASYNC_Q_DETACH(q, cb);
 
 	zval_ptr_dtor(&cb->data);
 
 	efree(cb);
+	
+	if (q->first == NULL) {
+		ASYNC_Q_DETACH(&q->scheduler->pending, q);
+	}
 }
 
 void async_awaitable_trigger_next_continuation(async_awaitable_queue *q, zval *result, zend_bool success)
 {
 	async_awaitable_cb *cb;
+	
+	ZEND_ASSERT(q->scheduler != NULL);
 
 	if (q->first != NULL) {
 		ASYNC_Q_DEQUEUE(q, cb);
@@ -63,11 +97,17 @@ void async_awaitable_trigger_next_continuation(async_awaitable_queue *q, zval *r
 
 		efree(cb);
 	}
+	
+	if (q->first == NULL) {
+		ASYNC_Q_DETACH(&q->scheduler->pending, q);
+	}
 }
 
 void async_awaitable_trigger_continuation(async_awaitable_queue *q, zval *result, zend_bool success)
 {
 	async_awaitable_cb *cb;
+	
+	ZEND_ASSERT(q->scheduler != NULL);
 
 	while (q->first != NULL) {
 		ASYNC_Q_DEQUEUE(q, cb);
@@ -77,6 +117,8 @@ void async_awaitable_trigger_continuation(async_awaitable_queue *q, zval *result
 
 		efree(cb);
 	}
+
+	ASYNC_Q_DETACH(&q->scheduler->pending, q);
 }
 
 static int async_awaitable_implement_interface(zend_class_entry *entry, zend_class_entry *implementor)

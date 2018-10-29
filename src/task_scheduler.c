@@ -27,6 +27,9 @@ zend_class_entry *async_task_scheduler_ce;
 static zend_object_handlers async_task_scheduler_handlers;
 
 
+static async_task_scheduler *async_task_scheduler_object_create();
+
+
 static void dispatch_tasks(uv_idle_t *idle)
 {
 	async_task_scheduler *scheduler;
@@ -53,10 +56,8 @@ static void dispatch_tasks(uv_idle_t *idle)
 
 		if (task->fiber.status == ASYNC_OP_RESOLVED || task->fiber.status == ASYNC_OP_FAILED) {
 			async_task_dispose(task);
-
-			OBJ_RELEASE(&task->fiber.std);
-		} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
-			ASYNC_Q_ENQUEUE(&scheduler->suspended, task);
+			
+			ASYNC_DELREF(&task->fiber.std);
 		}
 	}
 
@@ -80,31 +81,56 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 {
 	async_task_scheduler *prev;
 	async_task *task;
+	async_awaitable_queue *q;
+	async_cancel_cb *cancel;
+	
+	if (scheduler->disposed) {
+		return;
+	}
 
 	prev = ASYNC_G(current_scheduler);
 	ASYNC_G(current_scheduler) = scheduler;
+	
+	async_task_scheduler_run_loop(scheduler);
+	
+	scheduler->disposed = 1;
+	
+	while (scheduler->shutdown.first != NULL) {
+		ASYNC_Q_DEQUEUE(&scheduler->shutdown, cancel);
 
-	do {
+		cancel->func(cancel->object, &scheduler->error);
+	}
+
+	while (scheduler->pending.first != NULL) {
+		do {
+			ASYNC_Q_DEQUEUE(&scheduler->pending, q);
+			
+			async_awaitable_trigger_continuation(q, &scheduler->error, 0);
+		} while (scheduler->pending.first != NULL);
+		
 		async_task_scheduler_run_loop(scheduler);
-
+	
 		while (scheduler->ready.first != NULL) {
 			ASYNC_Q_DEQUEUE(&scheduler->ready, task);
-
+	
 			async_task_dispose(task);
-
-			OBJ_RELEASE(&task->fiber.std);
+	
+			ASYNC_DELREF(&task->fiber.std);
 		}
 
-		while (scheduler->suspended.first != NULL) {
-			ASYNC_Q_DEQUEUE(&scheduler->suspended, task);
+		while (scheduler->shutdown.first != NULL) {
+			ASYNC_Q_DEQUEUE(&scheduler->shutdown, cancel);
 
-			async_task_dispose(task);
-
-			OBJ_RELEASE(&task->fiber.std);
+			cancel->func(cancel->object, &scheduler->error);
 		}
-	} while (uv_loop_alive(&scheduler->loop));
-
+	}
+	
 	ASYNC_G(current_scheduler) = prev;
+}
+
+static void busy_timer(uv_timer_t *handle)
+{
+	// Dummy timer being used to keep the loop busy...
 }
 
 async_task_scheduler *async_task_scheduler_get()
@@ -122,19 +148,8 @@ async_task_scheduler *async_task_scheduler_get()
 	if (scheduler != NULL) {
 		return scheduler;
 	}
-
-	scheduler = emalloc(sizeof(async_task_scheduler));
-	ZEND_SECURE_ZERO(scheduler, sizeof(async_task_scheduler));
-
-	zend_object_std_init(&scheduler->std, async_task_scheduler_ce);
-	object_properties_init(&scheduler->std, async_task_scheduler_ce);
-
-	scheduler->std.handlers = &async_task_scheduler_handlers;
-
-	uv_loop_init(&scheduler->loop);
-	uv_idle_init(&scheduler->loop, &scheduler->idle);
-
-	scheduler->idle.data = scheduler;
+	
+	scheduler = async_task_scheduler_object_create();
 
 	ASYNC_G(scheduler) = scheduler;
 
@@ -158,11 +173,9 @@ zend_bool async_task_scheduler_enqueue(async_task *task)
 	if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {
 		task->operation = ASYNC_TASK_OPERATION_START;
 
-		GC_ADDREF(&task->fiber.std);
+		ASYNC_ADDREF(&task->fiber.std);
 	} else if (task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED) {
 		task->operation = ASYNC_TASK_OPERATION_RESUME;
-
-		ASYNC_Q_DETACH(&scheduler->suspended, task);
 	} else {
 		return 0;
 	}
@@ -239,9 +252,18 @@ static async_task_scheduler *async_task_scheduler_object_create()
 	zend_object_std_init(&scheduler->std, async_task_scheduler_ce);
 
 	scheduler->std.handlers = &async_task_scheduler_handlers;
+	
+	zend_throw_error(NULL, "Task scheduler has been disposed");
+		
+	ZVAL_OBJ(&scheduler->error, EG(exception));
+	EG(exception) = NULL;
 
 	uv_loop_init(&scheduler->loop);
 	uv_idle_init(&scheduler->loop, &scheduler->idle);
+	
+	uv_timer_init(&scheduler->loop, &scheduler->busy);
+	uv_timer_start(&scheduler->busy, busy_timer, 3600 * 1000, 3600 * 1000);	
+	uv_unref((uv_handle_t *) &scheduler->busy);
 
 	scheduler->idle.data = scheduler;
 
@@ -280,10 +302,13 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 
 	async_task_scheduler_dispose(scheduler);
 
+	uv_close((uv_handle_t *) &scheduler->busy, NULL);
 	uv_close((uv_handle_t *) &scheduler->idle, NULL);
-
+	
 	// Run loop again to cleanup idle watcher.
 	uv_run(&scheduler->loop, UV_RUN_DEFAULT);
+		
+	zval_ptr_dtor(&scheduler->error);
 
 	ZEND_ASSERT(!uv_loop_alive(&scheduler->loop));
 	ZEND_ASSERT(debug_handles(&scheduler->loop) == 0);
@@ -327,28 +352,10 @@ static void debug_scope(void *info_obj, zval *data, zval *result, zend_bool succ
 			size++;
 		}
 
-		task = info->scheduler->suspended.first;
-
-		while (task != NULL) {
-			task = task->next;
-			size++;
-		}
-
 		array_init_size(&args[0], size);
 
 		task = info->scheduler->ready.first;
 		i = 0;
-
-		while (task != NULL) {
-			ZVAL_ARR(&obj, async_task_get_debug_info(task, 0));
-
-			zend_hash_index_update(Z_ARRVAL_P(&args[0]), i, &obj);
-
-			task = task->next;
-			i++;
-		}
-
-		task = info->scheduler->suspended.first;
 
 		while (task != NULL) {
 			ZVAL_ARR(&obj, async_task_get_debug_info(task, 0));
@@ -384,8 +391,8 @@ static void exec_scope(zend_fcall_info fci, zend_fcall_info_cache fcc, debug_inf
 	zval retval;
 
 	scheduler = async_task_scheduler_object_create();
+	
 	prev = ASYNC_G(current_scheduler);
-
 	ASYNC_G(current_scheduler) = scheduler;
 
 	info->scheduler = scheduler;
@@ -406,9 +413,9 @@ static void exec_scope(zend_fcall_info fci, zend_fcall_info_cache fcc, debug_inf
 	status = task->fiber.status;
 	ZVAL_COPY(&retval, &task->result);
 
-	OBJ_RELEASE(&task->fiber.std);
-	OBJ_RELEASE(&scheduler->std);
-
+	ASYNC_DELREF(&task->fiber.std);
+	ASYNC_DELREF(&scheduler->std);
+	
 	ASYNC_G(current_scheduler) = prev;
 
 	if (status == ASYNC_FIBER_STATUS_FINISHED) {
@@ -452,9 +459,9 @@ ZEND_METHOD(TaskScheduler, run)
 	if (ZEND_NUM_ARGS() > 1) {
 		info.inspect = 1;
 	}
-
+	
 	info.context = async_context_get();
-
+	
 	exec_scope(fci, fcc, &info, return_value, execute_data);
 }
 
@@ -480,7 +487,7 @@ ZEND_METHOD(TaskScheduler, runWithContext)
 	if (ZEND_NUM_ARGS() > 2) {
 		info.inspect = 1;
 	}
-
+	
 	info.context = (async_context *) Z_OBJ_P(ctx);
 
 	exec_scope(fci, fcc, &info, return_value, execute_data);
@@ -557,7 +564,7 @@ void async_task_scheduler_shutdown()
 
 		async_task_scheduler_dispose(scheduler);
 
-		OBJ_RELEASE(&scheduler->std);
+		ASYNC_DELREF(&scheduler->std);
 	}
 }
 

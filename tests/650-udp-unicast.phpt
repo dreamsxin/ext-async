@@ -36,17 +36,34 @@ try {
     
     $data = $b->receive();
     
+    var_dump(isset($data->data));
+    var_dump(!empty($data->data));
+    var_dump(isset($data->foo));
+    
+    var_dump(@$data->foo);
+    
     var_dump($data->data);
     var_dump($data->address);
-    var_dump($data->port == $a->getPort());
+    var_dump($data->__debugInfo()['port'] == $a->getPort());
 } finally {
     $b->close();
 }
+
+$data = $data->withPeer('127.0.0.2', 8080);
+
+var_dump($data->address);
+var_dump($data->port);
 
 --EXPECT--
 string(4) "Test"
 string(9) "127.0.0.1"
 bool(true)
+bool(true)
+bool(true)
+bool(false)
+NULL
 string(9) "RECEIVED!"
 string(9) "127.0.0.1"
 bool(true)
+string(9) "127.0.0.2"
+int(8080)

@@ -33,4 +33,4 @@ Task::asyncWithContext(Context::current()->background(), function () use ($watch
 });
 
 --EXPECT--
-string(23) "Task has been destroyed"
+string(32) "Task scheduler has been disposed"

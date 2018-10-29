@@ -32,6 +32,7 @@ static zend_object_handlers async_cancellation_token_handlers;
 
 
 static async_context *async_context_object_create(async_context_var *var, zval *value);
+static zend_object *async_cancellation_handler_object_create(zend_class_entry *ce);
 static zend_object *async_cancellation_token_object_create(async_context *context);
 
 async_context *async_context_get()
@@ -84,8 +85,8 @@ static void init_cancellation(async_cancellation_handler *handler, async_context
 
 	handler->context = context;
 
-	GC_ADDREF(&prev->std);
-	GC_ADDREF(&handler->std);
+	ASYNC_ADDREF(&prev->std);
+	ASYNC_ADDREF(&handler->std);
 
 	// Connect cancellation to parent cancellation handler.
 	if (prev->cancel != NULL) {
@@ -110,7 +111,7 @@ static void close_timeout(uv_handle_t *handle)
 
 	ZEND_ASSERT(handler != NULL);
 
-	OBJ_RELEASE(&handler->std);
+	ASYNC_DELREF(&handler->std);
 }
 
 static void timed_out(uv_timer_t *timer)
@@ -168,7 +169,7 @@ static async_context *async_context_object_create(async_context_var *var, zval *
 
 	if (var != NULL) {
 		context->var = var;
-		GC_ADDREF(&var->std);
+		ASYNC_ADDREF(&var->std);
 	}
 
 	if (value == NULL) {
@@ -187,17 +188,17 @@ static void async_context_object_destroy(zend_object *object)
 	context = (async_context *) object;
 
 	if (context->var != NULL) {
-		OBJ_RELEASE(&context->var->std);
+		ASYNC_DELREF(&context->var->std);
 	}
 
 	zval_ptr_dtor(&context->value);
 
 	if (context->cancel != NULL) {
-		OBJ_RELEASE(&context->cancel->std);
+		ASYNC_DELREF(&context->cancel->std);
 	}
 
 	if (context->parent != NULL) {
-		OBJ_RELEASE(&context->parent->std);
+		ASYNC_DELREF(&context->parent->std);
 	}
 
 	zend_object_std_dtor(&context->std);
@@ -235,7 +236,7 @@ ZEND_METHOD(Context, with)
 		context->background = current->background;
 		context->cancel = current->cancel;
 
-		GC_ADDREF(&current->std);
+		ASYNC_ADDREF(&current->std);
 	}
 
 	ZVAL_OBJ(&obj, &context->std);
@@ -258,17 +259,11 @@ ZEND_METHOD(Context, withTimeout)
 
 	context = (async_context *) Z_OBJ_P(getThis());
 
-	handler = emalloc(sizeof(async_cancellation_handler));
-	ZEND_SECURE_ZERO(handler, sizeof(async_cancellation_handler));
-
-	zend_object_std_init(&handler->std, async_cancellation_handler_ce);
-	handler->std.handlers = &async_cancellation_handler_handlers;
-
-	ZVAL_UNDEF(&handler->error);
+	handler = (async_cancellation_handler *) async_cancellation_handler_object_create(async_cancellation_handler_ce);
 
 	init_cancellation(handler, context);
 
-	OBJ_RELEASE(&handler->std);
+	ASYNC_DELREF(&handler->std);
 
 	handler->scheduler = async_task_scheduler_get();
 
@@ -281,7 +276,7 @@ ZEND_METHOD(Context, withTimeout)
 
 	ZVAL_OBJ(&obj, &handler->context->std);
 
-	RETURN_ZVAL(&obj, 1, 1);
+	RETURN_ZVAL(&obj, 1, 0);
 }
 
 ZEND_METHOD(Context, shield)
@@ -299,7 +294,7 @@ ZEND_METHOD(Context, shield)
 	context->parent = prev;
 	context->background = prev->background;
 
-	GC_ADDREF(&prev->std);
+	ASYNC_ADDREF(&prev->std);
 
 	ZVAL_OBJ(&obj, &context->std);
 
@@ -401,7 +396,7 @@ ZEND_METHOD(Context, background)
 	context->parent = current;
 	context->background = 1;
 
-	GC_ADDREF(&current->std);
+	ASYNC_ADDREF(&current->std);
 
 	ZVAL_OBJ(&obj, &context->std);
 
@@ -551,7 +546,7 @@ static void async_cancellation_handler_object_dtor(zend_object *object)
 		uv_timer_stop(&handler->timer);
 
 		if (!uv_is_closing((uv_handle_t *) &handler->timer)) {
-			GC_ADDREF(&handler->std);
+			ASYNC_ADDREF(&handler->std);
 
 			uv_close((uv_handle_t *) &handler->timer, close_timeout);
 		}
@@ -573,10 +568,10 @@ static void async_cancellation_handler_object_destroy(zend_object *object)
 				ASYNC_Q_DETACH(&parent->cancel->callbacks, &handler->chain);
 			}
 
-			OBJ_RELEASE(&parent->std);
+			ASYNC_DELREF(&parent->std);
 		}
-
-		OBJ_RELEASE(&handler->context->std);
+		
+		ASYNC_DELREF(&handler->context->std);
 	}
 
 	zval_ptr_dtor(&handler->error);
@@ -696,7 +691,7 @@ static zend_object *async_cancellation_token_object_create(async_context *contex
 
 	token->context = context;
 
-	GC_ADDREF(&context->std);
+	ASYNC_ADDREF(&context->std);
 
 	return &token->std;
 }
@@ -707,7 +702,7 @@ static void async_cancellation_token_object_destroy(zend_object *object)
 
 	token = (async_cancellation_token *) object;
 
-	OBJ_RELEASE(&token->context->std);
+	ASYNC_DELREF(&token->context->std);
 
 	zend_object_std_dtor(&token->std);
 }
@@ -819,7 +814,7 @@ void async_context_shutdown()
 	context = ASYNC_G(context);
 
 	if (context != NULL) {
-		OBJ_RELEASE(&context->std);
+		ASYNC_DELREF(&context->std);
 	}
 }
 

@@ -17,7 +17,6 @@
 */
 
 #include "php_async.h"
-
 #include "async_task.h"
 #include "zend_inheritance.h"
 
@@ -25,6 +24,7 @@
 #include "win32/sockets.h"
 #endif
 
+zend_class_entry *async_socket_exception_ce;
 zend_class_entry *async_tcp_socket_ce;
 zend_class_entry *async_tcp_socket_reader_ce;
 zend_class_entry *async_tcp_socket_writer_ce;
@@ -44,6 +44,7 @@ static async_tcp_socket_reader *async_tcp_socket_reader_object_create(async_tcp_
 static async_tcp_socket_writer *async_tcp_socket_writer_object_create(async_tcp_socket *socket);
 
 static void write_to_socket(async_tcp_socket *socket, uv_buf_t *buffer, int num, zend_execute_data *execute_data);
+static void socket_disposed(uv_handle_t *handle);
 
 typedef struct _async_tcp_write {
 	uv_write_t request;
@@ -562,6 +563,31 @@ static int php_openssl_win_cert_verify_callback(X509_STORE_CTX *x509_store_ctx, 
 #endif
 
 
+static inline int socket_check_disposed(async_tcp_socket *socket)
+{
+	if (!socket->scheduler->disposed) {
+		return 0;
+	}
+	
+	if (Z_TYPE_P(&socket->read_error) == IS_UNDEF) {
+		ZVAL_COPY(&socket->read_error, &socket->scheduler->error);
+		
+		uv_read_stop((uv_stream_t *) &socket->handle);
+	}
+	
+	if (Z_TYPE_P(&socket->write_error) == IS_UNDEF) {
+		ZVAL_COPY(&socket->write_error, &socket->scheduler->error);
+	}
+	
+	if (!uv_is_closing((uv_handle_t *) &socket->handle)) {
+		ASYNC_ADDREF(&socket->std);
+		
+		uv_close((uv_handle_t *) &socket->handle, socket_disposed);
+	}
+	
+	return 1;
+}
+
 static uv_buf_t *assemble_write_buffers(async_tcp_socket *socket, zend_string *data, unsigned int *nbufs, zend_long *blen)
 {
 	uv_buf_t *buffers;
@@ -596,7 +622,7 @@ static uv_buf_t *assemble_write_buffers(async_tcp_socket *socket, zend_string *d
 			if (w < 1 && !ssl_error_continue(socket, w)) {
 				num = 0;
 
-				zend_throw_error(NULL, "SSL write operation failed [%d]: %s", w, ERR_reason_error_string(w));
+				zend_throw_exception_ex(async_stream_exception_ce, 0, "SSL write operation failed [%d]: %s", w, ERR_reason_error_string(w));
 				break;
 			}
 
@@ -692,7 +718,7 @@ static void socket_disposed(uv_handle_t *handle)
 		socket->buffer.base = NULL;
 	}
 
-	OBJ_RELEASE(&socket->std);
+	ASYNC_DELREF(&socket->std);
 }
 
 static void socket_connected(uv_connect_t *connect, int status)
@@ -713,7 +739,7 @@ static void socket_connected(uv_connect_t *connect, int status)
 		return;
 	}
 
-	zend_throw_error(NULL, "Failed to connect socket: %s", uv_strerror(status));
+	zend_throw_exception_ex(async_stream_exception_ce, 0, "Failed to connect socket: %s", uv_strerror(status));
 
 	ZVAL_OBJ(&val, EG(exception));
 	EG(exception) = NULL;
@@ -729,7 +755,7 @@ static void socket_shutdown(uv_shutdown_t *shutdown, int status)
 
 	efree(shutdown);
 
-	OBJ_RELEASE(&socket->std);
+	ASYNC_DELREF(&socket->std);
 }
 
 static void socket_read_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buffer)
@@ -793,7 +819,7 @@ static void socket_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buff
 		async_awaitable_trigger_continuation(&socket->reads, &data, 1);
 
 		if (Z_TYPE_P(&socket->write_error) != IS_UNDEF) {
-			GC_ADDREF(&socket->std);
+			ASYNC_ADDREF(&socket->std);
 
 			uv_close((uv_handle_t *) stream, socket_disposed);
 		}
@@ -849,7 +875,7 @@ static void socket_write_async(uv_write_t *req, int status)
 		zend_string_release(write->data);
 	}
 	
-	OBJ_RELEASE(&write->socket->std);
+	ASYNC_DELREF(&write->socket->std);
 	
 	efree(write);
 }
@@ -860,7 +886,7 @@ static void server_disposed(uv_handle_t *handle)
 
 	server = (async_tcp_server *) handle->data;
 
-	OBJ_RELEASE(&server->std);
+	ASYNC_DELREF(&server->std);
 }
 
 static void server_connected(uv_stream_t *stream, int status)
@@ -932,8 +958,10 @@ static uv_buf_t *try_write_to_socket(async_tcp_socket *socket, uv_buf_t *buffer,
 
 static void write_to_socket(async_tcp_socket *socket, uv_buf_t *buffer, int num, zend_execute_data *execute_data)
 {
+	async_context *context;
+	zend_bool cancelled;
+
 	uv_write_t write;
-	zval retval;
 
 	int bnum;
 	int result;
@@ -951,9 +979,11 @@ static void write_to_socket(async_tcp_socket *socket, uv_buf_t *buffer, int num,
 	result = uv_write(&write, (uv_stream_t *) &socket->handle, buffer, bnum, socket_write);
 
 	if (EXPECTED(result == 0)) {
-		ZVAL_UNDEF(&retval);
-		async_task_suspend(&socket->writes, &retval, execute_data, NULL);
-		zval_ptr_dtor(&retval);
+		context = async_context_get();
+	
+		ASYNC_REF_ENTER(context, socket);
+		async_task_suspend(&socket->writes, NULL, execute_data, &cancelled);
+		ASYNC_REF_EXIT(context, socket);
 	} else {
 		zend_throw_exception_ex(async_stream_exception_ce, 0, "Failed to queue socket write: %s", uv_strerror(result));
 	}
@@ -961,6 +991,8 @@ static void write_to_socket(async_tcp_socket *socket, uv_buf_t *buffer, int num,
 	if (bnum > 0) {
 		efree(buffer);
 	}
+	
+	socket_check_disposed(socket);
 }
 
 
@@ -973,8 +1005,13 @@ static async_tcp_socket *async_tcp_socket_object_create()
 
 	zend_object_std_init(&socket->std, async_tcp_socket_ce);
 	socket->std.handlers = &async_tcp_socket_handlers;
+	
+	socket->scheduler = async_task_scheduler_get();
+	
+	async_awaitable_queue_init(&socket->reads, socket->scheduler);
+	async_awaitable_queue_init(&socket->writes, socket->scheduler);
 
-	uv_tcp_init(async_task_scheduler_get_loop(), &socket->handle);
+	uv_tcp_init(&socket->scheduler->loop, &socket->handle);
 
 	socket->handle.data = socket;
 
@@ -994,7 +1031,7 @@ static void async_tcp_socket_object_dtor(zend_object *object)
 	socket = (async_tcp_socket *) object;
 
 	if (!uv_is_closing((uv_handle_t *) &socket->handle)) {
-		GC_ADDREF(&socket->std);
+		ASYNC_ADDREF(&socket->std);
 
 		uv_close((uv_handle_t *) &socket->handle, socket_disposed);
 	}
@@ -1020,7 +1057,7 @@ static void async_tcp_socket_object_destroy(zend_object *object)
 	}
 
 	if (socket->encryption != NULL) {
-		OBJ_RELEASE(&socket->encryption->std);
+		ASYNC_DELREF(&socket->encryption->std);
 	}
 #endif
 
@@ -1032,8 +1069,11 @@ static void async_tcp_socket_object_destroy(zend_object *object)
 	zval_ptr_dtor(&socket->write_error);
 
 	if (socket->server != NULL) {
-		OBJ_RELEASE(&socket->server->std);
+		ASYNC_DELREF(&socket->server->std);
 	}
+	
+	async_awaitable_queue_destroy(&socket->reads);
+	async_awaitable_queue_destroy(&socket->writes);
 
 	zend_object_std_dtor(&socket->std);
 }
@@ -1041,13 +1081,14 @@ static void async_tcp_socket_object_destroy(zend_object *object)
 ZEND_METHOD(Socket, connect)
 {
 	async_tcp_socket *socket;
-
+	async_context *context;
+	
+	zend_bool cancelled;
 	zend_string *name;
 	zend_long port;
 
 	zval *tls;
 	zval ip;
-	zval tmp;
 	zval obj;
 
 	uv_connect_t connect;
@@ -1075,23 +1116,27 @@ ZEND_METHOD(Socket, connect)
 	zval_ptr_dtor(&ip);
 
 	if (UNEXPECTED(code != 0)) {
-		zend_throw_error(NULL, "Failed to assemble IP address: %s", uv_strerror(code));
-		OBJ_RELEASE(&socket->std);
+		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to assemble IP address: %s", uv_strerror(code));
+		ASYNC_DELREF(&socket->std);
 		return;
 	}
 
 	code = uv_tcp_connect(&connect, &socket->handle, (const struct sockaddr *) &dest, socket_connected);
 
 	if (UNEXPECTED(code != 0)) {
-		zend_throw_error(NULL, "Failed to intialize socket connect operation: %s", uv_strerror(code));
-		OBJ_RELEASE(&socket->std);
+		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to intialize socket connect operation: %s", uv_strerror(code));
+		ASYNC_DELREF(&socket->std);
 		return;
 	}
+	
+	context = async_context_get();
 
-	async_task_suspend(&socket->reads, &tmp, execute_data, NULL);
+	ASYNC_REF_ENTER(context, socket);
+	async_task_suspend(&socket->reads, NULL, execute_data, &cancelled);
+	ASYNC_REF_EXIT(context, socket);
 
-	if (UNEXPECTED(EG(exception))) {
-		OBJ_RELEASE(&socket->std);
+	if (cancelled || socket->scheduler->disposed || UNEXPECTED(EG(exception))) {
+		ASYNC_DELREF(&socket->std);
 		return;
 	}
 
@@ -1099,10 +1144,10 @@ ZEND_METHOD(Socket, connect)
 #ifdef HAVE_ASYNC_SSL
 		socket->encryption = (async_tcp_client_encryption *) Z_OBJ_P(tls);
 
-		GC_ADDREF(&socket->encryption->std);
+		ASYNC_ADDREF(&socket->encryption->std);
 #else
-		zend_throw_error(NULL, "Socket encryption requires async extension to be compiled with SSL support");
-		OBJ_RELEASE(&socket->std);
+		zend_throw_exception_ex(async_socket_exception_ce, 0, "Socket encryption requires async extension to be compiled with SSL support");
+		ASYNC_DELREF(&socket->std);
 		return;
 #endif
 	}
@@ -1134,10 +1179,9 @@ ZEND_METHOD(Socket, pair)
 	domain = AF_UNIX;
 #endif
 
-	if (0 != socketpair(domain, SOCK_STREAM, IPPROTO_IP, tmp)) {
-		zend_throw_error(NULL, "Failed to create socket pair");
-		return;
-	}
+	i = socketpair(domain, SOCK_STREAM, IPPROTO_IP, tmp);
+	
+	ASYNC_CHECK_EXCEPTION(i != 0, async_socket_exception_ce, "Failed to create socket pair");
 
 	array_init_size(return_value, 2);
 
@@ -1199,7 +1243,7 @@ ZEND_METHOD(Socket, close)
 	zval_ptr_dtor(&ex);
 
 	if (!uv_is_closing((uv_handle_t *) &socket->handle)) {
-		GC_ADDREF(&socket->std);
+		ASYNC_ADDREF(&socket->std);
 
 		uv_close((uv_handle_t *) &socket->handle, socket_disposed);
 	}
@@ -1219,10 +1263,8 @@ ZEND_METHOD(Socket, setNodelay)
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 
 	code = uv_tcp_nodelay(&socket->handle, nodelay ? 1 : 0);
-
-	if (UNEXPECTED(code != 0 && code != UV_ENOTSUP)) {
-		zend_throw_error(NULL, "Failed to set TCP nodelay: %s", uv_strerror(code));
-	}
+	
+	ASYNC_CHECK_EXCEPTION(code != 0 && code != UV_ENOTSUP, async_socket_exception_ce, "Failed to set TCP nodelay: %s", uv_strerror(code));
 }
 
 static void assemble_fake_peer(zval *return_value)
@@ -1257,16 +1299,16 @@ static void assemble_peer(uv_tcp_t *tcp, zend_bool remote, zval *return_value, z
 		code = uv_tcp_getsockname(tcp, (struct sockaddr *) &addr, &len);
 	}
 
-	ASYNC_CHECK_ERROR(code != 0, "Failed to get peer name: %s", uv_strerror(code));
+	ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to get peer name: %s", uv_strerror(code));
 
 	if (addr.ss_family == AF_INET) {
 		code = uv_ip4_name((const struct sockaddr_in *) &addr, name, len);
-		ASYNC_CHECK_ERROR(code != 0, "Failed to assemble IP address: %s", uv_strerror(code));
+		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 
 		port = ntohs(((struct sockaddr_in *) &addr)->sin_port);
 	} else {
 		code = uv_ip6_name((const struct sockaddr_in6 *) &addr, name, len);
-		ASYNC_CHECK_ERROR(code != 0, "Failed to assemble IP address: %s", uv_strerror(code));
+		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 
 		port = ntohs(((struct sockaddr_in6 *) &addr)->sin6_port);
 	}
@@ -1315,6 +1357,7 @@ ZEND_METHOD(Socket, getRemotePeer)
 
 static inline void socket_call_read(async_tcp_socket *socket, zval *return_value, zend_execute_data *execute_data)
 {
+	async_context *context;
 	zend_bool cancelled;
 
 	zval *hint;
@@ -1333,7 +1376,7 @@ static inline void socket_call_read(async_tcp_socket *socket, zval *return_value
 	if (hint == NULL || Z_TYPE_P(hint) == IS_NULL) {
 		len = socket->buffer.size;
 	} else if (Z_LVAL_P(hint) < 1) {
-		zend_throw_error(NULL, "Invalid read length: %d", (int) Z_LVAL_P(hint));
+		zend_throw_exception_ex(async_socket_exception_ce, 0, "Invalid read length: %d", (int) Z_LVAL_P(hint));
 		return;
 	} else {
 		len = (size_t) Z_LVAL_P(hint);
@@ -1361,12 +1404,17 @@ static inline void socket_call_read(async_tcp_socket *socket, zval *return_value
 	if (socket->buffer.len == 0) {
 		code = uv_read_start((uv_stream_t *) &socket->handle, socket_read_alloc, socket_read);
 
-		if (UNEXPECTED(code != 0)) {
-			zend_throw_exception_ex(async_stream_exception_ce, 0, "Failed to start socket read: %s", uv_strerror(code));
+		ASYNC_CHECK_EXCEPTION(code != 0, async_stream_exception_ce, "Failed to start socket read: %s", uv_strerror(code));
+		
+		context = async_context_get();
+
+		ASYNC_REF_ENTER(context, socket);
+		async_task_suspend(&socket->reads, NULL, execute_data, &cancelled);
+		ASYNC_REF_EXIT(context, socket);
+		
+		if (socket_check_disposed(socket)) {			
 			return;
 		}
-
-		async_task_suspend(&socket->reads, return_value, execute_data, &cancelled);
 
 		if (cancelled) {
 			uv_read_stop((uv_stream_t *) &socket->handle);
@@ -1470,6 +1518,8 @@ ZEND_METHOD(Socket, writeAsync)
 	
 	zval *val;
 
+	val = NULL;
+
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
 		Z_PARAM_STR(data)
 		Z_PARAM_OPTIONAL
@@ -1479,7 +1529,7 @@ ZEND_METHOD(Socket, writeAsync)
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		limit = Z_LVAL_P(val);
 		
-		ASYNC_CHECK_ERROR(limit < 8192, "TCP buffer size must not be less than %d bytes", 8192);
+		ASYNC_CHECK_EXCEPTION(limit < 8192, async_socket_exception_ce, "TCP buffer size must not be less than %d bytes", 8192);
 	} else {
 		limit = 0;
 	}
@@ -1545,7 +1595,7 @@ ZEND_METHOD(Socket, writeAsync)
 	write->data = zend_string_copy(data);
 #endif
 	
-	GC_ADDREF(&socket->std);
+	ASYNC_ADDREF(&socket->std);
 	
 	RETURN_TRUE;
 }
@@ -1568,9 +1618,11 @@ ZEND_METHOD(Socket, writeStream)
 ZEND_METHOD(Socket, encrypt)
 {
 #ifndef HAVE_ASYNC_SSL
-	zend_throw_error(NULL, "Async extension was not compiled with SSL support");
+	zend_throw_exception_ex(async_socket_exception_ce, 0, "Async extension was not compiled with SSL support");
 #else
 	async_tcp_socket *socket;
+	async_context *context;
+	zend_bool cancelled;
 
 	X509 *cert;
 
@@ -1596,10 +1648,7 @@ ZEND_METHOD(Socket, encrypt)
 
 		SSL_CTX_set_verify_depth(socket->ctx, 10);
 	} else {
-		if (socket->server->encryption == NULL) {
-			zend_throw_error(NULL, "No encryption settings have been passed to TcpServer::listen()");
-			return;
-		}
+		ASYNC_CHECK_EXCEPTION(socket->server->encryption == NULL, async_socket_exception_ce, "No encryption settings have been passed to TcpServer::listen()");
 
 		socket->ctx = socket->server->ctx;
 	}
@@ -1639,40 +1688,41 @@ ZEND_METHOD(Socket, encrypt)
 	if (socket->server == NULL) {
 		code = SSL_do_handshake(socket->ssl);
 
-		if (!ssl_error_continue(socket, code)) {
-			zend_throw_error(NULL, "SSL handshake failed [%d]: %s", code, ERR_reason_error_string(code));
-			return;
-		}
+		ASYNC_CHECK_EXCEPTION(!ssl_error_continue(socket, code), async_socket_exception_ce, "SSL handshake failed [%d]: %s", code, ERR_reason_error_string(code));
 	}
 
-	zval retval;
-
 	uv_tcp_nodelay(&socket->handle, 1);
+	
+	context = async_context_get();
 
 	while (!SSL_is_init_finished(socket->ssl)) {
 		ssl_send_handshake_bytes(socket, execute_data);
 
 		ASYNC_RETURN_ON_ERROR();
 
-		uv_read_start((uv_stream_t *) &socket->handle, socket_read_alloc, socket_read);
+		code = uv_read_start((uv_stream_t *) &socket->handle, socket_read_alloc, socket_read);
+		
+		ASYNC_CHECK_EXCEPTION(code != 0, async_stream_exception_ce, "Failed to read from TCP socket: %s", uv_strerror(code));
 
-		ZVAL_UNDEF(&retval);
-		async_task_suspend(&socket->reads, &retval, execute_data, NULL);
-		zval_ptr_dtor(&retval);
-
-		ASYNC_RETURN_ON_ERROR();
-
-		if (socket->eof) {
-			zend_throw_error(NULL, "SSL handshake failed due to closed socket");
+		ASYNC_REF_ENTER(context, socket);
+		async_task_suspend(&socket->reads, NULL, execute_data, &cancelled);
+		ASYNC_REF_EXIT(context, socket);
+		
+		if (socket_check_disposed(socket)) {
 			return;
 		}
+		
+		if (cancelled) {
+			uv_read_stop((uv_stream_t *) &socket->handle);
+			return;
+		}
+		
+		ASYNC_RETURN_ON_ERROR();
+		ASYNC_CHECK_EXCEPTION(socket->eof, async_stream_closed_exception_ce, "SSL handshake failed due to closed socket");
 
 		code = SSL_do_handshake(socket->ssl);
 
-		if (!ssl_error_continue(socket, code)) {
-			zend_throw_error(NULL, "SSL handshake failed [%d]: %s", code, ERR_reason_error_string(code));
-			return;
-		}
+		ASYNC_CHECK_EXCEPTION(!ssl_error_continue(socket, code), async_socket_exception_ce, "SSL handshake failed [%d]: %s", code, ERR_reason_error_string(code));
 	}
 
 	ssl_send_handshake_bytes(socket, execute_data);
@@ -1684,7 +1734,7 @@ ZEND_METHOD(Socket, encrypt)
 
 		if (cert == NULL) {
 			X509_free(cert);
-			zend_throw_error(NULL, "Failed to access server SSL certificate");
+			zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to access server SSL certificate");
 			return;
 		}
 
@@ -1693,17 +1743,14 @@ ZEND_METHOD(Socket, encrypt)
 		result = SSL_get_verify_result(socket->ssl);
 
 		if (X509_V_OK != result && !(socket->encryption->allow_self_signed && result == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT)) {
-			zend_throw_error(NULL, "Failed to verify server SSL certificate [%ld]: %s", result, X509_verify_cert_error_string(result));
+			zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to verify server SSL certificate [%ld]: %s", result, X509_verify_cert_error_string(result));
 			return;
 		}
 	}
 
 	code = ssl_feed_data(socket);
 
-	if (code != 0) {
-		zend_throw_error(NULL, "SSL data feed failed [%d]: %s", code, ERR_reason_error_string(code));
-		return;
-	}
+	ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "SSL data feed failed [%d]: %s", code, ERR_reason_error_string(code));
 
 	uv_tcp_nodelay(&socket->handle, 0);
 #endif
@@ -1783,7 +1830,7 @@ static async_tcp_socket_reader *async_tcp_socket_reader_object_create(async_tcp_
 
 	reader->socket = socket;
 
-	GC_ADDREF(&socket->std);
+	ASYNC_ADDREF(&socket->std);
 
 	return reader;
 }
@@ -1794,7 +1841,7 @@ static void async_tcp_socket_reader_object_destroy(zend_object *object)
 
 	reader = (async_tcp_socket_reader *) object;
 
-	OBJ_RELEASE(&reader->socket->std);
+	ASYNC_DELREF(&reader->socket->std);
 
 	zend_object_std_dtor(&reader->std);
 }
@@ -1863,7 +1910,7 @@ static async_tcp_socket_writer *async_tcp_socket_writer_object_create(async_tcp_
 
 	writer->socket = socket;
 
-	GC_ADDREF(&socket->std);
+	ASYNC_ADDREF(&socket->std);
 
 	return writer;
 }
@@ -1874,7 +1921,7 @@ static void async_tcp_socket_writer_object_destroy(zend_object *object)
 
 	writer = (async_tcp_socket_writer *) object;
 
-	OBJ_RELEASE(&writer->socket->std);
+	ASYNC_DELREF(&writer->socket->std);
 
 	zend_object_std_dtor(&writer->std);
 }
@@ -1919,13 +1966,13 @@ ZEND_METHOD(SocketWriter, close)
 	shutdown = emalloc(sizeof(uv_shutdown_t));
 	ZEND_SECURE_ZERO(shutdown, sizeof(uv_shutdown_t));
 
-	GC_ADDREF(&socket->std);
+	ASYNC_ADDREF(&socket->std);
 
 	code = uv_shutdown(shutdown, (uv_stream_t *) &socket->handle, socket_shutdown);
 
 	if (UNEXPECTED(code != 0)) {
 		zend_throw_exception_ex(async_stream_exception_ce, 0, "Failed to initialize socket shutdown: %s", uv_strerror(code));
-		OBJ_RELEASE(&socket->std);
+		ASYNC_DELREF(&socket->std);
 	}
 }
 
@@ -1954,8 +2001,12 @@ static async_tcp_server *async_tcp_server_object_create()
 
 	zend_object_std_init(&server->std, async_tcp_server_ce);
 	server->std.handlers = &async_tcp_server_handlers;
+	
+	server->scheduler = async_task_scheduler_get();
 
-	uv_tcp_init(async_task_scheduler_get_loop(), &server->handle);
+	async_awaitable_queue_init(&server->accepts, server->scheduler);
+
+	uv_tcp_init(&server->scheduler->loop, &server->handle);
 
 	server->handle.data = server;
 
@@ -1970,10 +2021,8 @@ static void async_tcp_server_object_dtor(zend_object *object)
 
 	server = (async_tcp_server *) object;
 
-	uv_ref((uv_handle_t *) &server->handle);
-
 	if (!uv_is_closing((uv_handle_t *) &server->handle)) {
-		GC_ADDREF(&server->std);
+		ASYNC_ADDREF(&server->std);
 
 		uv_close((uv_handle_t *) &server->handle, server_disposed);
 	}
@@ -1993,13 +2042,15 @@ static void async_tcp_server_object_destroy(zend_object *object)
 	}
 
 	if (server->encryption != NULL) {
-		OBJ_RELEASE(&server->encryption->std);
+		ASYNC_DELREF(&server->encryption->std);
 	}
 #endif
 
 	if (server->name != NULL) {
 		zend_string_release(server->name);
 	}
+	
+	async_awaitable_queue_destroy(&server->accepts);
 
 	zend_object_std_dtor(&server->std);
 }
@@ -2035,10 +2086,7 @@ ZEND_METHOD(Server, listen)
 
 	zval_ptr_dtor(&ip);
 
-	if (UNEXPECTED(code != 0)) {
-		zend_throw_error(NULL, "Failed to assemble IP address: %s", uv_strerror(code));
-		return;
-	}
+	ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 
 	server = async_tcp_server_object_create();
 	server->name = zend_string_copy(name);
@@ -2047,16 +2095,16 @@ ZEND_METHOD(Server, listen)
 	code = uv_tcp_bind(&server->handle, (const struct sockaddr *) &bind, 0);
 
 	if (UNEXPECTED(code != 0)) {
-		zend_throw_error(NULL, "Failed to bind server: %s", uv_strerror(code));
-		OBJ_RELEASE(&server->std);
+		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to bind server: %s", uv_strerror(code));
+		ASYNC_DELREF(&server->std);
 		return;
 	}
 
 	code = uv_listen((uv_stream_t *) &server->handle, 128, server_connected);
 
 	if (UNEXPECTED(code != 0)) {
-		zend_throw_error(NULL, "Server failed to listen: %s", uv_strerror(code));
-		OBJ_RELEASE(&server->std);
+		zend_throw_exception_ex(async_socket_exception_ce, 0, "Server failed to listen: %s", uv_strerror(code));
+		ASYNC_DELREF(&server->std);
 		return;
 	}
 
@@ -2066,7 +2114,7 @@ ZEND_METHOD(Server, listen)
 #ifdef HAVE_ASYNC_SSL
 		server->encryption = (async_tcp_server_encryption *) Z_OBJ_P(tls);
 
-		GC_ADDREF(&server->encryption->std);
+		ASYNC_ADDREF(&server->encryption->std);
 
 		server->ctx = ssl_create_context();
 
@@ -2079,8 +2127,8 @@ ZEND_METHOD(Server, listen)
 		SSL_CTX_set_tlsext_servername_callback(server->ctx, ssl_servername_cb);
 		SSL_CTX_set_tlsext_servername_arg(server->ctx, server);
 #else
-		zend_throw_error(NULL, "Serevr encryption requires async extension to be compiled with SSL support");
-		OBJ_RELEASE(&server->std);
+		zend_throw_exception_ex(async_socket_exception_ce, 0, "Serevr encryption requires async extension to be compiled with SSL support");
+		ASYNC_DELREF(&server->std);
 		return;
 #endif
 	}
@@ -2109,7 +2157,7 @@ ZEND_METHOD(Server, close)
 		return;
 	}
 
-	zend_throw_error(NULL, "Server has been closed");
+	zend_throw_exception_ex(async_socket_exception_ce, 0, "Server has been closed");
 
 	ZVAL_OBJ(&server->error, EG(exception));
 	EG(exception) = NULL;
@@ -2122,7 +2170,7 @@ ZEND_METHOD(Server, close)
 	async_awaitable_trigger_continuation(&server->accepts, &server->error, 0);
 
 	if (!uv_is_closing((uv_handle_t *) &server->handle)) {
-		GC_ADDREF(&server->std);
+		ASYNC_ADDREF(&server->std);
 
 		uv_close((uv_handle_t *) &server->handle, server_disposed);
 	}
@@ -2184,7 +2232,9 @@ ZEND_METHOD(Server, accept)
 {
 	async_tcp_server *server;
 	async_tcp_socket *socket;
+	async_context *context;
 
+	zend_bool cancelled;
 	zval obj;
 	int code;
 
@@ -2202,13 +2252,41 @@ ZEND_METHOD(Server, accept)
 
 			return;
 		}
+		
+		context = async_context_get();
+		
+		if (!context->background) {
+			server->ref_count++;
+			
+			if (server->ref_count == 1) {
+				uv_ref((uv_handle_t *) &server->handle);
+			}
+		}
 
-		uv_ref((uv_handle_t *) &server->handle);
-
-		async_task_suspend(&server->accepts, return_value, execute_data, NULL);
-
-		if (server->accepts.first == NULL) {
-			uv_unref((uv_handle_t *) &server->handle);
+		async_task_suspend(&server->accepts, NULL, execute_data, &cancelled);
+		
+		if (!context->background) {
+			server->ref_count--;
+			
+			if (server->ref_count == 0) {
+				uv_unref((uv_handle_t *) &server->handle);
+			}
+		}
+		
+		if (server->scheduler->disposed && Z_TYPE_P(&server->error) == IS_UNDEF) {
+			ZVAL_COPY(&server->error, &server->scheduler->error);
+			
+			if (!uv_is_closing((uv_handle_t *) &server->handle)) {
+				ASYNC_ADDREF(&server->std);
+		
+				uv_close((uv_handle_t *) &server->handle, server_disposed);
+			}
+			
+			return;
+		}
+		
+		if (cancelled) {
+			return;
 		}
 	} else {
 		server->pending--;
@@ -2219,14 +2297,14 @@ ZEND_METHOD(Server, accept)
 	code = uv_accept((uv_stream_t *) &server->handle, (uv_stream_t *) &socket->handle);
 
 	if (UNEXPECTED(code != 0)) {
-		zend_throw_error(NULL, "Failed to accept socket connection: %s", uv_strerror(code));
-		OBJ_RELEASE(&socket->std);
+		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to accept socket connection: %s", uv_strerror(code));
+		ASYNC_DELREF(&socket->std);
 		return;
 	}
 
 	socket->server = server;
 
-	GC_ADDREF(&server->std);
+	ASYNC_ADDREF(&server->std);
 
 	ZVAL_OBJ(&obj, &socket->std);
 
@@ -2339,7 +2417,7 @@ ZEND_METHOD(ClientEncryption, withVerifyDepth)
 		Z_PARAM_LONG(depth)
 	ZEND_PARSE_PARAMETERS_END();
 
-	ASYNC_CHECK_ERROR(depth < 1, "Verify depth must not be less than 1");
+	ASYNC_CHECK_EXCEPTION(depth < 1, async_socket_exception_ce, "Verify depth must not be less than 1");
 
 	encryption = clone_client_encryption((async_tcp_client_encryption *) Z_OBJ_P(getThis()));
 	encryption->verify_depth = (int) depth;
@@ -2556,9 +2634,19 @@ static const zend_function_entry async_tcp_server_encryption_functions[] = {
 };
 
 
+static const zend_function_entry empty_funcs[] = {
+	ZEND_FE_END
+};
+
+
 void async_tcp_ce_register()
 {
 	zend_class_entry ce;
+	
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\SocketException", empty_funcs);
+	async_socket_exception_ce = zend_register_internal_class(&ce);
+
+	zend_do_inheritance(async_socket_exception_ce, async_stream_exception_ce);
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\TcpSocket", async_tcp_socket_functions);
 	async_tcp_socket_ce = zend_register_internal_class(&ce);

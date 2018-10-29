@@ -17,9 +17,7 @@
 */
 
 #include "php_async.h"
-
 #include "async_helper.h"
-
 #include "zend_inheritance.h"
 
 zend_class_entry *async_process_builder_ce;
@@ -202,12 +200,36 @@ static void dispose_process(uv_handle_t *handle)
 
 	async_awaitable_trigger_continuation(&proc->observers, &proc->exit_code, 1);
 
-	OBJ_RELEASE(&proc->std);
+	ASYNC_DELREF(&proc->std);
+}
+
+static void close_process(async_process *proc);
+
+static void shutdown_process(void *obj, zval *error)
+{
+	async_process *proc;
+
+	proc = (async_process *) obj;
+
+	proc->cancel.object = NULL;
+	proc->cancel.func = NULL;
+
+	uv_process_kill(&proc->handle, ASYNC_SIGNAL_SIGKILL);
+
+	ASYNC_ADDREF(&proc->std);
+
+	close_process(proc);
 }
 
 static void create_readable_state(async_process *process, async_readable_pipe_state *state, int i)
 {
-	uv_pipe_init(async_task_scheduler_get_loop(), &state->handle, 0);
+	async_task_scheduler *scheduler;
+	
+	scheduler = async_task_scheduler_get();
+
+	async_awaitable_queue_init(&state->reads, scheduler);
+
+	uv_pipe_init(&scheduler->loop, &state->handle, 0);
 
 	state->handle.data = state;
 	state->process = process;
@@ -219,7 +241,7 @@ static void create_readable_state(async_process *process, async_readable_pipe_st
 	state->buffer.base = emalloc(sizeof(char) * state->buffer.size);
 }
 
-static void dispose_read_state(uv_handle_t * handle)
+static void dispose_read_state(uv_handle_t *handle)
 {
 	async_readable_pipe_state *state;
 
@@ -232,13 +254,19 @@ static void dispose_read_state(uv_handle_t * handle)
 	if (state->process->pipes == 0 && Z_LVAL_P(&state->process->exit_code) >= 0) {
 		uv_close((uv_handle_t *) &state->process->handle, dispose_process);
 	} else {
-		OBJ_RELEASE(&state->process->std);
+		ASYNC_DELREF(&state->process->std);
 	}
 }
 
 static void create_writable_state(async_process *process, async_writable_pipe_state *state, int i)
 {
-	uv_pipe_init(async_task_scheduler_get_loop(), &state->handle, 0);
+	async_task_scheduler *scheduler;
+	
+	scheduler = async_task_scheduler_get();
+
+	async_awaitable_queue_init(&state->writes, scheduler);
+
+	uv_pipe_init(&scheduler->loop, &state->handle, 0);
 
 	state->handle.data = state;
 	state->process = process;
@@ -259,13 +287,15 @@ static void dispose_write_state(uv_handle_t * handle)
 	if (state->process->pipes == 0 && Z_LVAL_P(&state->process->exit_code) >= 0) {
 		uv_close((uv_handle_t *) &state->process->handle, dispose_process);
 	} else {
-		OBJ_RELEASE(&state->process->std);
+		ASYNC_DELREF(&state->process->std);
 	}
 }
 
 static void close_process(async_process *proc)
 {
 	zval data;
+
+	ASYNC_Q_DETACH(&proc->scheduler->shutdown, &proc->cancel);
 
 	if (proc->options.stdio[0].flags & UV_CREATE_PIPE) {
 		if (proc->stdin_state.writes.first != NULL) {
@@ -278,10 +308,12 @@ static void close_process(async_process *proc)
 		}
 
 		if (!uv_is_closing((uv_handle_t *) &proc->stdin_state.handle)) {
-			GC_ADDREF(&proc->std);
+			ASYNC_ADDREF(&proc->std);
 
 			uv_close((uv_handle_t *) &proc->stdin_state.handle, dispose_write_state);
 		}
+		
+		async_awaitable_queue_destroy(&proc->stdin_state.writes);
 	}
 
 	if (proc->options.stdio[1].flags & UV_CREATE_PIPE) {
@@ -294,10 +326,12 @@ static void close_process(async_process *proc)
 		}
 
 		if (!uv_is_closing((uv_handle_t *) &proc->stdout_state.handle)) {
-			GC_ADDREF(&proc->std);
+			ASYNC_ADDREF(&proc->std);
 
 			uv_close((uv_handle_t *) &proc->stdout_state.handle, dispose_read_state);
 		}
+		
+		async_awaitable_queue_destroy(&proc->stdout_state.reads);
 	}
 
 	if (proc->options.stdio[2].flags & UV_CREATE_PIPE) {
@@ -310,16 +344,18 @@ static void close_process(async_process *proc)
 		}
 
 		if (!uv_is_closing((uv_handle_t *) &proc->stderr_state.handle)) {
-			GC_ADDREF(&proc->std);
+			ASYNC_ADDREF(&proc->std);
 
 			uv_close((uv_handle_t *) &proc->stderr_state.handle, dispose_read_state);
 		}
+		
+		async_awaitable_queue_destroy(&proc->stderr_state.reads);
 	}
 
-	if (proc->pipes == 0) {
+	if (proc->pipes == 0 && !uv_is_closing((uv_handle_t *) &proc->handle)) {
 		uv_close((uv_handle_t *) &proc->handle, dispose_process);
 	} else {
-		OBJ_RELEASE(&proc->std);
+		ASYNC_DELREF(&proc->std);
 	}
 }
 
@@ -333,7 +369,7 @@ static void async_process_exit(uv_process_t *handle, int64_t status, int signal)
 	ZVAL_LONG(&proc->exit_code, status);
 
 	if (proc->pipes == 0) {
-		GC_ADDREF(&proc->std);
+		ASYNC_ADDREF(&proc->std);
 
 		close_process(proc);
 	}
@@ -424,9 +460,11 @@ static void pipe_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buffer
 
 		async_awaitable_trigger_continuation(&state->reads, &data, 1);
 
-		GC_ADDREF(&state->process->std);
+		if (!uv_is_closing((uv_handle_t *) stream)) {
+			ASYNC_ADDREF(&state->process->std);
 
-		uv_close((uv_handle_t *) stream, dispose_read_state);
+			uv_close((uv_handle_t *) stream, dispose_read_state);
+		}
 
 		return;
 	}
@@ -640,7 +678,9 @@ ZEND_METHOD(ProcessBuilder, execute)
 {
 	async_process_builder *builder;
 	async_process *proc;
+	async_context *context;
 
+	zend_bool cancelled;
 	uint32_t i;
 	uint32_t count;
 	zval *params;
@@ -666,7 +706,7 @@ ZEND_METHOD(ProcessBuilder, execute)
 
 	prepare_process(builder, proc, params, count, return_value, execute_data);
 
-	code = uv_spawn(async_task_scheduler_get_loop(), &proc->handle, &proc->options);
+	code = uv_spawn(&proc->scheduler->loop, &proc->handle, &proc->options);
 
 	efree(proc->options.args);
 
@@ -683,10 +723,20 @@ ZEND_METHOD(ProcessBuilder, execute)
 	if (code != 0) {
 		zend_throw_error(NULL, "Failed to launch process \"%s\": %s", ZSTR_VAL(builder->command), uv_strerror(code));
 	} else {
-		async_task_suspend(&proc->observers, return_value, execute_data, NULL);
+		context = async_context_get();
+
+		if (context->background) {
+			uv_unref((uv_handle_t *) &proc->handle);
+		}
+
+		async_task_suspend(&proc->observers, USED_RET() ? return_value : NULL, execute_data, &cancelled);
+
+		if (cancelled) {
+			uv_process_kill(&proc->handle, ASYNC_SIGNAL_SIGKILL);
+		}
 	}
 
-	OBJ_RELEASE(&proc->std);
+	ASYNC_DELREF(&proc->std);
 }
 
 ZEND_METHOD(ProcessBuilder, start)
@@ -723,7 +773,7 @@ ZEND_METHOD(ProcessBuilder, start)
 		create_readable_state(proc, &proc->stderr_state, 2);
 	}
 
-	code = uv_spawn(async_task_scheduler_get_loop(), &proc->handle, &proc->options);
+	code = uv_spawn(&proc->scheduler->loop, &proc->handle, &proc->options);
 
 	efree(proc->options.args);
 
@@ -740,9 +790,13 @@ ZEND_METHOD(ProcessBuilder, start)
 	if (code != 0) {
 		zend_throw_error(NULL, "Failed to launch process \"%s\": %s", ZSTR_VAL(builder->command), uv_strerror(code));
 
-		OBJ_RELEASE(&proc->std);
+		ASYNC_DELREF(&proc->std);
 		return;
 	}
+
+	uv_unref((uv_handle_t *) &proc->handle);
+
+	ASYNC_Q_ENQUEUE(&proc->scheduler->shutdown, &proc->cancel);
 
 	ZVAL_LONG(&proc->pid, proc->handle.pid);
 
@@ -815,6 +869,13 @@ static async_process *async_process_object_create()
 	proc->std.handlers = &async_process_handlers;
 
 	proc->handle.data = proc;
+	
+	proc->scheduler = async_task_scheduler_get();
+
+	proc->cancel.object = proc;
+	proc->cancel.func = shutdown_process;
+
+	async_awaitable_queue_init(&proc->observers, proc->scheduler);
 
 	ZVAL_UNDEF(&proc->pid);
 	ZVAL_LONG(&proc->exit_code, -1);
@@ -837,7 +898,7 @@ static void async_process_object_dtor(zend_object *object)
 	}
 
 	if (!uv_is_closing((uv_handle_t *) &proc->handle)) {
-		GC_ADDREF(&proc->std);
+		ASYNC_ADDREF(&proc->std);
 
 		close_process(proc);
 	}
@@ -849,12 +910,16 @@ static void async_process_object_destroy(zend_object *object)
 
 	proc = (async_process *) object;
 
+	ASYNC_Q_DETACH(&proc->scheduler->shutdown, &proc->cancel);
+
 	zval_ptr_dtor(&proc->pid);
 	zval_ptr_dtor(&proc->exit_code);
 
 	zval_ptr_dtor(&proc->stdin_state.error);
 	zval_ptr_dtor(&proc->stdout_state.error);
 	zval_ptr_dtor(&proc->stderr_state.error);
+	
+	async_awaitable_queue_destroy(&proc->observers);
 
 	zend_object_std_dtor(&proc->std);
 }
@@ -977,15 +1042,14 @@ ZEND_METHOD(Process, signal)
 
 	code = uv_process_kill(&proc->handle, (int) signum);
 
-	if (code != 0) {
-		zend_throw_error(NULL, "Failed to signal process: %s", uv_strerror(code));
-		return;
-	}
+	ASYNC_CHECK_ERROR(code != 0, "Failed to signal process: %s", uv_strerror(code));
 }
 
 ZEND_METHOD(Process, awaitExit)
 {
 	async_process *proc;
+	async_context *context;
+	zend_bool cancelled;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
@@ -994,7 +1058,18 @@ ZEND_METHOD(Process, awaitExit)
 	if (Z_LVAL_P(&proc->exit_code) >= 0) {
 		RETURN_ZVAL(&proc->exit_code, 1, 0);
 	}
-	async_task_suspend(&proc->observers, return_value, execute_data, NULL);
+	
+	context = async_context_get();
+
+	if (!context->background) {
+		uv_ref((uv_handle_t *) &proc->handle);
+	}
+
+	async_task_suspend(&proc->observers, USED_RET() ? return_value : NULL, execute_data, &cancelled);
+
+	if (!context->background) {
+		uv_unref((uv_handle_t *) &proc->handle);
+	}
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_process_debug_info, 0)
@@ -1047,7 +1122,7 @@ static async_readable_pipe *async_readable_pipe_object_create(async_process *pro
 
 	pipe->state = state;
 
-	GC_ADDREF(&pipe->state->process->std);
+	ASYNC_ADDREF(&pipe->state->process->std);
 
 	return pipe;
 }
@@ -1058,7 +1133,7 @@ static void async_readable_pipe_object_destroy(zend_object *object)
 
 	pipe = (async_readable_pipe *) object;
 
-	OBJ_RELEASE(&pipe->state->process->std);
+	ASYNC_DELREF(&pipe->state->process->std);
 
 	zend_object_std_dtor(&pipe->std);
 }
@@ -1095,9 +1170,11 @@ ZEND_METHOD(ReadablePipe, close)
 	if (pipe->state->eof == 0) {
 		pipe->state->eof = 1;
 
-		GC_ADDREF(&pipe->std);
+		if (!uv_is_closing((uv_handle_t *) &pipe->state->handle)) {
+			ASYNC_ADDREF(&pipe->std);
 
-		uv_close((uv_handle_t *) &pipe->state->handle, dispose_write_state);
+			uv_close((uv_handle_t *) &pipe->state->handle, dispose_write_state);
+		}
 	}
 
 	async_awaitable_trigger_continuation(&pipe->state->reads, &pipe->state->error, 0);
@@ -1106,11 +1183,13 @@ ZEND_METHOD(ReadablePipe, close)
 ZEND_METHOD(ReadablePipe, read)
 {
 	async_readable_pipe *pipe;
+	async_context *context;
 	zend_bool cancelled;
 
 	zval *hint;
 	zval chunk;
 	size_t len;
+	int code;
 
 	hint = NULL;
 
@@ -1140,19 +1219,22 @@ ZEND_METHOD(ReadablePipe, read)
 		return;
 	}
 
-	if (pipe->state->reads.first != NULL) {
-		zend_throw_exception(async_pending_read_exception_ce, "Cannot read from pipe while another read is pending", 0);
-		return;
-	}
+	ASYNC_CHECK_EXCEPTION(pipe->state->reads.first != NULL, async_pending_read_exception_ce, "Cannot read from pipe while another read is pending");
 
 	if (pipe->state->eof) {
 		return;
 	}
 
 	if (pipe->state->buffer.len == 0) {
-		uv_read_start((uv_stream_t *) &pipe->state->handle, pipe_read_alloc, pipe_read);
+		code = uv_read_start((uv_stream_t *) &pipe->state->handle, pipe_read_alloc, pipe_read);
+		
+		ASYNC_CHECK_EXCEPTION(code != 0, async_stream_exception_ce, "Failed to read from process pipe: %s", uv_strerror(code));
+		
+		context = async_context_get();
 
-		async_task_suspend(&pipe->state->reads, return_value, execute_data, &cancelled);
+		ASYNC_REF_ENTER(context, pipe->state);
+		async_task_suspend(&pipe->state->reads, NULL, execute_data, &cancelled);
+		ASYNC_REF_EXIT(context, pipe->state);
 
 		if (cancelled) {
 			uv_read_stop((uv_stream_t *) &pipe->state->handle);
@@ -1201,7 +1283,7 @@ static async_writable_pipe *async_writable_pipe_object_create(async_process *pro
 
 	pipe->state = state;
 
-	GC_ADDREF(&process->std);
+	ASYNC_ADDREF(&process->std);
 
 	return pipe;
 }
@@ -1212,7 +1294,7 @@ static void async_writable_pipe_object_destroy(zend_object *object)
 
 	pipe = (async_writable_pipe *) object;
 
-	OBJ_RELEASE(&pipe->state->process->std);
+	ASYNC_DELREF(&pipe->state->process->std);
 
 	zend_object_std_dtor(&pipe->std);
 }
@@ -1241,17 +1323,20 @@ ZEND_METHOD(WritablePipe, close)
 	ZVAL_OBJ(&pipe->state->error, EG(exception));
 	EG(exception) = NULL;
 
-	GC_ADDREF(&pipe->state->process->std);
+	if (!uv_is_closing((uv_handle_t *) &pipe->state->handle)) {
+		ASYNC_ADDREF(&pipe->state->process->std);
+
+		uv_close((uv_handle_t *) &pipe->state->handle, dispose_write_state);
+	}
 
 	async_awaitable_trigger_continuation(&pipe->state->writes, &pipe->state->error, 0);
-
-	uv_close((uv_handle_t *) &pipe->state->handle, dispose_write_state);
 }
 
 ZEND_METHOD(WritablePipe, write)
 {
 	async_writable_pipe *pipe;
 
+	zend_bool cancelled;
 	zend_string *data;
 	uv_write_t write;
 	uv_buf_t buffer[1];
@@ -1283,11 +1368,9 @@ ZEND_METHOD(WritablePipe, write)
 
 			if (result == UV_EAGAIN) {
 				break;
-			} else if (result < 0) {
-				zend_throw_exception_ex(async_stream_exception_ce, 0, "Pipe write error: %s", uv_strerror(result));
-
-				return;
 			}
+			
+			ASYNC_CHECK_EXCEPTION(result < 0, async_stream_exception_ce, "Pipe write error: %s", uv_strerror(result));
 
 			if (result == buffer[0].len) {
 				return;
@@ -1298,9 +1381,11 @@ ZEND_METHOD(WritablePipe, write)
 		} while (1);
 	}
 
-	uv_write(&write, (uv_stream_t *) &pipe->state->handle, buffer, 1, pipe_write);
+	result = uv_write(&write, (uv_stream_t *) &pipe->state->handle, buffer, 1, pipe_write);
 
-	async_task_suspend(&pipe->state->writes, return_value, execute_data, NULL);
+	ASYNC_CHECK_EXCEPTION(result != 0, async_stream_exception_ce, "Pipe write error: %s", uv_strerror(result));
+
+	async_task_suspend(&pipe->state->writes, NULL, execute_data, &cancelled);
 }
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_writable_pipe_close, 0, 0, IS_VOID, 0)

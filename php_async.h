@@ -112,6 +112,7 @@ ASYNC_API extern zend_class_entry *async_process_builder_ce;
 ASYNC_API extern zend_class_entry *async_process_ce;
 ASYNC_API extern zend_class_entry *async_readable_pipe_ce;
 ASYNC_API extern zend_class_entry *async_readable_stream_ce;
+ASYNC_API extern zend_class_entry *async_socket_exception_ce;
 ASYNC_API extern zend_class_entry *async_stream_closed_exception_ce;
 ASYNC_API extern zend_class_entry *async_stream_exception_ce;
 ASYNC_API extern zend_class_entry *async_signal_watcher_ce;
@@ -166,6 +167,7 @@ typedef struct _async_deferred_transform            async_deferred_transform;
 typedef struct _async_enable_cb                     async_enable_cb;
 typedef struct _async_enable_queue                  async_enable_queue;
 typedef struct _async_fiber                         async_fiber;
+typedef struct _async_operation_queue               async_operation_queue;
 typedef struct _async_process_builder               async_process_builder;
 typedef struct _async_process                       async_process;
 typedef struct _async_readable_pipe                 async_readable_pipe;
@@ -252,8 +254,11 @@ struct _async_awaitable_cb {
 };
 
 struct _async_awaitable_queue {
+	async_task_scheduler *scheduler;
 	async_awaitable_cb *first;
 	async_awaitable_cb *last;
+	async_awaitable_queue *prev;
+	async_awaitable_queue *next;
 };
 
 struct _async_cancel_cb {
@@ -360,7 +365,7 @@ struct _async_deferred {
 	/* Result (or error) value in case of resolved deferred. */
 	zval result;
 
-	/* Context instance (only needed if cancellation is available). */
+	/* Context instance being used to create the deferred. */
 	async_context *context;
 
 	/* Inlined cancellation handler (saves additional memory allocation). */
@@ -434,6 +439,11 @@ struct _async_fiber {
 	size_t line;
 };
 
+struct _async_operation_queue {
+	async_awaitable_queue *first;
+	async_awaitable_queue *last;
+};
+
 struct _async_process_builder {
 	/* Fiber PHP object handle. */
 	zend_object std;
@@ -479,6 +489,8 @@ struct _async_readable_pipe_state {
 	uv_pipe_t handle;
 
 	async_byte_buffer buffer;
+	zend_uchar ref_count;
+	zend_uchar unref_count;
 
 	async_awaitable_queue reads;
 };
@@ -486,6 +498,9 @@ struct _async_readable_pipe_state {
 struct _async_process {
 	/* Fiber PHP object handle. */
 	zend_object std;
+
+	/* Task scheduler providing the event loop. */
+	async_task_scheduler *scheduler;
 
 	/* Process handle providing access to the running process instance. */
 	uv_process_t handle;
@@ -504,6 +519,9 @@ struct _async_process {
 	async_readable_pipe_state stderr_state;
 
 	zend_uchar pipes;
+
+	/* Inlined cancel callback being used to dispose of the process. */
+	async_cancel_cb cancel;
 
 	/* Exit code / process termination observers. */
 	async_awaitable_queue observers;
@@ -525,7 +543,7 @@ struct _async_signal_watcher {
 
 	int signum;
 
-	uv_signal_t signal;
+	uv_signal_t handle;
 
 	async_awaitable_queue observers;
 
@@ -553,7 +571,7 @@ struct _async_stream_watcher {
 	php_socket_t fd;
 
 	/* Libuv poll instance being used to receive events. */
-	uv_poll_t poll;
+	uv_poll_t handle;
 
 	/* Queue of tasks wanting to be notified when the stream is readable. */
 	async_awaitable_queue reads;
@@ -640,24 +658,37 @@ struct _async_task_scheduler {
 
 	/* Is set while the scheduler is in the process of dispatching tasks. */
 	zend_bool dispatching;
+	
+	/* Is set when the scheduler has been disposed. */
+	zend_bool disposed;
+	
+	/* Error object to be used for disposal. */
+	zval error;
 
 	/* Tasks ready to be started or resumed. */
 	async_task_queue ready;
-
-	/* Tasks that are suspended. */
-	async_task_queue suspended;
+	
+	/* Pending async operations. */
+	async_operation_queue pending;
 
 	/* Libuv event loop. */
 	uv_loop_t loop;
 
 	/* Idle handler being used to dispatch tasks from within a running event loop. */
 	uv_idle_t idle;
+	
+	/* Timer being used to keep the loop busy when needed. */
+	uv_timer_t busy;
+	zend_ulong busy_count;
 
 	/* Is set to 0 when the idle handler must be activated when something changes. */
 	zend_bool changes;
 
 	/* Queue of callbacks that are executed due to handle state change. */
 	async_enable_queue enable;
+
+	/** Queue of shutdown callbacks that need to be executed when the scheduler is disposed. */
+	async_cancel_queue shutdown;
 };
 
 struct _async_tcp_cert {
@@ -694,6 +725,9 @@ struct _async_tcp_client_encryption {
 struct _async_tcp_server {
 	/* PHP object handle. */
 	zend_object std;
+	
+	/* Task scheduler being used. */
+	async_task_scheduler *scheduler;
 
 	/* UV TCP handle. */
 	uv_tcp_t handle;
@@ -709,6 +743,9 @@ struct _async_tcp_server {
 
 	/* Error being used to close the server. */
 	zval error;
+	
+	/* Number of referenced accept operations. */
+	zend_uchar ref_count;
 
 	/* Queue of tasks waiting to accept a socket connection. */
 	async_awaitable_queue accepts;
@@ -737,6 +774,9 @@ struct _async_tcp_socket {
 	/* UV TCP handle. */
 	uv_tcp_t handle;
 
+	/* Task scheduler being used. */
+	async_task_scheduler *scheduler;
+
 	/* Hostname or IP address that was used to establish the connection. */
 	zend_string *name;
 
@@ -754,6 +794,9 @@ struct _async_tcp_socket {
 
 	/* Internal read buffer of the socket. */
 	async_byte_buffer buffer;
+	
+	zend_uchar ref_count;
+	zend_uchar unref_count;
 
 	/* Queue of pending read tasks (only one task is allowed). */
 	async_awaitable_queue reads;
@@ -806,7 +849,7 @@ struct _async_timer {
 	uint64_t delay;
 
 	/* UV timer handle. */
-	uv_timer_t timer;
+	uv_timer_t handle;
 
 	/* Queued timeout continuations. */
 	async_awaitable_queue timeouts;
@@ -836,12 +879,15 @@ struct _async_udp_socket {
 	zend_object std;
 	
 	uv_udp_t handle;
+	async_task_scheduler *scheduler;
 	
 	zend_string *name;
 	zend_string *ip;
 	zend_long port;
 	
 	zval error;
+	zend_ulong ref_count;
+	zend_ulong unref_count;
 	
 	async_awaitable_queue receivers;
 	async_awaitable_queue senders;
@@ -866,6 +912,9 @@ ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, 
 
 ASYNC_API uv_loop_t *async_task_scheduler_get_loop();
 ASYNC_API async_task_scheduler *async_task_scheduler_get();
+
+void async_awaitable_queue_init(async_awaitable_queue *q, async_task_scheduler *scheduler);
+ASYNC_API void async_awaitable_queue_destroy(async_awaitable_queue *q);
 
 ASYNC_API void async_gethostbyname(char *name, zval *return_value, zend_execute_data *execute_data);
 
@@ -920,11 +969,58 @@ ZEND_TSRMLS_CACHE_EXTERN()
 	EG(current_execute_data) = exec; \
 } while (0)
 
+#define ASYNC_REF_ENTER(ctx, obj) do { \
+	if ((ctx)->background) { \
+		(obj)->unref_count++; \
+		if ((obj)->unref_count == 1 && !(obj)->ref_count) { \
+			uv_unref((uv_handle_t *) &(obj)->handle); \
+		} \
+	} else { \
+		(obj)->ref_count++; \
+		if ((obj)->ref_count == 1 && (obj)->unref_count) { \
+			uv_ref((uv_handle_t *) &(obj)->handle); \
+		} \
+	} \
+} while (0)
+
+#define ASYNC_REF_EXIT(ctx, obj) do { \
+	if ((ctx)->background) { \
+		(obj)->unref_count--; \
+		if ((obj)->unref_count == 0 && (obj)->ref_count) { \
+			uv_ref((uv_handle_t *) &(obj)->handle); \
+		} \
+	} else { \
+		(obj)->ref_count--; \
+		if ((obj)->ref_count == 0 && (obj)->unref_count) { \
+			uv_unref((uv_handle_t *) &(obj)->handle); \
+		} \
+	} \
+} while (0)
+
+#define ASYNC_BUSY_ENTER(scheduler) do { \
+	if (++(scheduler)->busy_count == 1) { \
+		uv_ref((uv_handle_t *) &(scheduler)->busy); \
+	} \
+} while(0)
+
+#define ASYNC_BUSY_EXIT(scheduler) do { \
+	if (--(scheduler)->busy_count == 0) { \
+		uv_unref((uv_handle_t *) &(scheduler)->busy); \
+	} \
+} while(0)
+
 #ifdef __GNUC__
 
 #define ASYNC_CHECK_ERROR(expr, message, ...) do { \
     if (UNEXPECTED(expr)) { \
     	zend_throw_error(NULL, message, ##__VA_ARGS__); \
+    	return; \
+    } \
+} while (0)
+
+#define ASYNC_CHECK_EXCEPTION(expr, ce, message, ...) do { \
+    if (UNEXPECTED(expr)) { \
+    	zend_throw_exception_ex(ce, 0, message, ##__VA_ARGS__); \
     	return; \
     } \
 } while (0)
@@ -944,6 +1040,13 @@ ZEND_TSRMLS_CACHE_EXTERN()
     } \
 } while (0)
 
+#define ASYNC_CHECK_EXCEPTION(expr, ce, message, ...) do { \
+    if (UNEXPECTED(expr)) { \
+    	zend_throw_exception_ex(ce, 0, message, __VA_ARGS__); \
+    	return; \
+    } \
+} while (0)
+
 #define ASYNC_CHECK_FATAL(expr, message, ...) do { \
 	if (UNEXPECTED(expr)) { \
 		zend_error_noreturn(E_CORE_ERROR, message, __VA_ARGS__); \
@@ -958,8 +1061,18 @@ ZEND_TSRMLS_CACHE_EXTERN()
 	} \
 } while (0)
 
+#define ASYNC_ADDREF(obj) do { \
+	/* php_printf("REF [%s]: %d -> %d / %s:%d\n", ZSTR_VAL((obj)->ce->name), (int) GC_REFCOUNT(obj), 1 + (int) GC_REFCOUNT(obj), __FILE__, __LINE__); */ \
+	GC_ADDREF(obj); \
+} while (0)
+
+#define ASYNC_DELREF(obj) do { \
+	/* php_printf("UNREF [%s]: %d -> %d / %s:%d\n", ZSTR_VAL((obj)->ce->name), (int) GC_REFCOUNT(obj), ((int) GC_REFCOUNT(obj)) - 1, __FILE__, __LINE__); */ \
+	OBJ_RELEASE(obj); \
+} while (0)
+
 /*
- * Queue macros require a "q" pointer with fields "first" and "last" of same ponter type as "v".
+ * Queue macros require a "q" pointer with fields "first" and "last" of same pointer type as "v".
  * The "v" pointer must have fields "prev" and "next" of the same pointer type as "v".
  */
 
