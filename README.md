@@ -311,6 +311,51 @@ interface DuplexStream extends ReadableStream, WritableStream
 
 The network API provides access to stream and datagram sockets.
 
+### Socket
+
+```php
+namespace Concurrent\Network;
+
+interface Socket
+{
+    public function close(?\Throwable $e = null): void { }
+
+    public function getAddress(): string;
+
+    public function getPort(): ?int;
+    
+    public function setOption(int $option, $value): bool;
+}
+```
+
+### SocketStream
+
+```php
+namespace Concurrent\Network;
+
+use Concurrent\Stream\DuplexStream;
+
+interface SocketStream extends Socket, DuplexStream
+{
+    public function getRemoteAddress(): string;
+
+    public function getRemotePort(): ?int;
+    
+    public function writeAsync(string $data): int { }
+}
+```
+
+### Server
+
+```php
+namespace Concurrent\Network;
+
+interface Server extends Socket
+{
+    public function accept(): SocketStream;
+}
+```
+
 ### TcpSocket
 
 A `TcpSocket` wraps a TCP network conneciton. It implements `DuplexStream` to provide access based on the stream API. Closing a TCP socket will close both read and write sides of the stream. You can use `writeStream()` to aquire the writer and call `close()` on it to signal the remote peer that the stream is half-closed, you can still read data from the remote peer until the stream is closed by the remote peer.
@@ -318,35 +363,16 @@ A `TcpSocket` wraps a TCP network conneciton. It implements `DuplexStream` to pr
 ```php
 namespace Concurrent\Network;
 
-use Concurrent\Stream\DuplexStream;
-use Concurrent\Stream\ReadableStream;
-use Concurrent\Stream\WritableStream;
-
-final class TcpSocket implements DuplexStream
+final class TcpSocket implements SocketStream
 {
-    public static function connect(string $host, int $port, ?ClientEncryption $encryption = null): TcpSocket { }
+    public const NODELAY;
+    public const KEEPALIVE;
+
+    public static function connect(string $host, int $port, ?TlsClientEncryption $tls = null): TcpSocket { }
     
     public static function pair(): array { }
     
-    public function close(?\Throwable $e = null): void { }
-    
-    public function setNodelay(bool $enable): void { }
-    
-    public function getLocalPeer(): array { }
-    
-    public function getRemotePeer(): array { }
-    
     public function encrypt(): void { }
-    
-    public function read(?int $length = null): ?string { }
-    
-    public function readStream(): ReadableStream { }
-    
-    public function write(string $data): void { }
-    
-    public function writeAsync(string $data, ?int $size = null): bool { }
-    
-    public function writeStream(): WritableStream { }
 }
 ```
 
@@ -357,51 +383,43 @@ A `TcpServer` listens on a local port for incoming TCP connection attempts until
 ```php
 namespace Concurrent\Network;
 
-final class TcpServer
+final class TcpServer implements Server
 {
-    public static function listen(string $host, int $port, ?ServerEncryption $encryption = null): TcpServer { }
+    public const SIMULTANEOUS_ACCEPTS;
     
-    public function close(?\Throwable $e = null): void { }
-    
-    public function getHost(): string { }
-    
-    public function getPort(): int { }
-    
-    public function getPeer(): array { }
-    
-    public function accept(): TcpSocket { }
+    public static function listen(string $host, int $port, ?TlsServerEncryption $tls = null): TcpServer { }
 }
 ```
 
-### ClientEncryption
+### TlsClientEncryption
 
 Configures an encrypted (TLS) socket client.
 
 ```php
 namespace Concurrent\Network;
 
-final class ClientEncryption
+final class TlsClientEncryption
 {
-    public function withAllowSelfSigned(bool $allow): ClientEncryption { }
+    public function withAllowSelfSigned(bool $allow): TlsClientEncryption { }
     
-    public function withVerifyDepth(int $depth): ClientEncryption { }
+    public function withVerifyDepth(int $depth): TlsClientEncryption { }
     
-    public function withPeerName(string $name): ClientEncryption { }
+    public function withPeerName(string $name): TlsClientEncryption { }
 }
 ```
 
-### ServerEncryption
+### TlsServerEncryption
 
 Configures an encrypted (TLS) socket server.
 
 ```php
 namespace Concurrent\Network;
 
-final class ServerEncryption
+final class TlsServerEncryption
 {
-    public function withDefaultCertificate(string $cert, string $key, ?string $passphrase = null): ServerEncryption { }
+    public function withDefaultCertificate(string $cert, string $key, ?string $passphrase = null): TlsServerEncryption { }
     
-    public function withCertificate(string $host, string $cert, string $key, ?string $passphrase = null): ServerEncryption { }
+    public function withCertificate(string $host, string $cert, string $key, ?string $passphrase = null): TlsServerEncryption { }
 }
 ```
 
@@ -412,25 +430,21 @@ Provides UDP networking capabilities.
 ```php
 namespace Concurrent\Network;
 
-final class UdpSocket
+final class UdpSocket implements Socket
 {
+    public const TTL;
+    public const MULTICAST_LOOP;
+    public const MULTICAST_TTL;
+    
     public static function bind(string $address, int $port): UdpSocket { }
     
     public static function multicast(string $group, int $port): UdpSocket { }
-    
-    public function close(?\Throwable $e = null): void { }
-    
-    public function getHost(): string { }
-    
-    public function getPort(): int { }
-    
-    public function getPeer(): array { }
     
     public function receive(): UdpDatagram { }
     
     public function send(UdpDatagram $datagram): void { }
     
-    public function sendAsync(UdpDatagram $datagram, ?int $size = null): bool { }
+    public function sendAsync(UdpDatagram $datagram): int { }
 }
 ```
 

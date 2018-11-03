@@ -31,7 +31,7 @@ Task::async(function () use ($a) {
 });
 
 try {
-    $b->setNoDelay(true);
+    $b->setOption(TcpSocket::NODELAY, true);
 
     $chunk = str_repeat('A', 7000);
 

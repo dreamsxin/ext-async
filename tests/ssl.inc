@@ -8,18 +8,18 @@ function sslPair(): array
 {
     $file = dirname(__DIR__) . '/examples/cert/localhost.';
     
-    $encryption = new ServerEncryption();
-    $encryption = $encryption->withDefaultCertificate($file . 'crt', $file . 'key', 'localhost');
+    $tls = new TlsServerEncryption();
+    $tls = $tls->withDefaultCertificate($file . 'crt', $file . 'key', 'localhost');
     
-    $server = TcpServer::listen('localhost', 0, $encryption);
+    $server = TcpServer::listen('localhost', 0, $tls);
     
     try {
         $t = Task::async(function () use ($server) {
-            $encryption = new ClientEncryption();
-            $encryption = $encryption->withAllowSelfSigned(true);
-            $encryption = $encryption->withVerifyDepth(5);
+            $tls = new TlsClientEncryption();
+            $tls = $tls->withAllowSelfSigned(true);
+            $tls = $tls->withVerifyDepth(5);
             
-            $socket = TcpSocket::connect($server->getHost(), $server->getPort(), $encryption);
+            $socket = TcpSocket::connect($server->getAddress(), $server->getPort(), $tls);
             
             try {
                 $socket->encrypt();

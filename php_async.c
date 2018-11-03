@@ -138,19 +138,21 @@ PHP_MINIT_FUNCTION(async)
 
 #endif
 
+	async_stream_ce_register();
+	async_socket_ce_register();
+
 	async_awaitable_ce_register();
 	async_context_ce_register();
 	async_deferred_ce_register();
 	async_fiber_ce_register();
+	async_process_ce_register();
 	async_signal_watcher_ce_register();
-	async_stream_ce_register();
+	async_ssl_ce_register();
 	async_stream_watcher_ce_register();
 	async_task_ce_register();
 	async_task_scheduler_ce_register();
-	async_timer_ce_register();
-
-	async_process_ce_register();
 	async_tcp_ce_register();
+	async_timer_ce_register();
 	async_udp_socket_ce_register();
 
 	REGISTER_INI_ENTRIES();

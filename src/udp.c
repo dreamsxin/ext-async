@@ -31,6 +31,9 @@ static zend_object_handlers async_udp_datagram_handlers;
 
 static zend_object *async_udp_datagram_object_create(zend_class_entry *ce);
 
+#define ASYNC_UDP_SOCKET_CONST(name, value) \
+	zend_declare_class_constant_long(async_udp_socket_ce, name, sizeof(name)-1, (zend_long)value);
+
 typedef struct _async_udp_send {
 	uv_udp_send_t request;
 	async_udp_socket *socket;
@@ -383,7 +386,7 @@ ZEND_METHOD(UdpSocket, close)
 	}
 }
 
-ZEND_METHOD(UdpSocket, getHost)
+ZEND_METHOD(UdpSocket, getAddress)
 {
 	async_udp_socket *socket;
 
@@ -407,25 +410,38 @@ ZEND_METHOD(UdpSocket, getPort)
 	RETURN_LONG(socket->port);
 }
 
-ZEND_METHOD(UdpSocket, getPeer)
+ZEND_METHOD(UdpSocket, setOption)
 {
 	async_udp_socket *socket;
-	
-	zval tmp;
-	
-	ZEND_PARSE_PARAMETERS_NONE();
-	
+
+	zend_long option;
+	zval *val;
+
+	int code;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 2)
+		Z_PARAM_LONG(option)
+		Z_PARAM_ZVAL(val)
+	ZEND_PARSE_PARAMETERS_END();
+
 	socket = (async_udp_socket *) Z_OBJ_P(getThis());
-	
-	if (USED_RET()) {
-		array_init_size(return_value, 2);
-		
-		ZVAL_STR(&tmp, socket->ip);
-		zend_hash_index_update(Z_ARRVAL_P(return_value), 0, &tmp);
-	
-		ZVAL_LONG(&tmp, socket->port);
-		zend_hash_index_update(Z_ARRVAL_P(return_value), 1, &tmp);
+	code = 0;
+
+	switch ((int) option) {
+	case ASYNC_SOCKET_UDP_TTL:
+		code = uv_udp_set_ttl(&socket->handle, (int) Z_LVAL_P(val));
+		break;
+	case ASYNC_SOCKET_UDP_MULTICAST_LOOP:
+		code = uv_udp_set_multicast_loop(&socket->handle, Z_LVAL_P(val) ? 1 : 0);
+		break;
+	case ASYNC_SOCKET_UDP_MULTICAST_TTL:
+		code = uv_udp_set_multicast_ttl(&socket->handle, (int) Z_LVAL_P(val));
+		break;
 	}
+
+	ASYNC_CHECK_EXCEPTION(code != 0 && code != UV_ENOTSUP, async_socket_exception_ce, "Failed to set socket option: %s", uv_strerror(code));
+
+	RETURN_LONG((code == 0) ? 1 : 0);
 }
 
 ZEND_METHOD(UdpSocket, receive)
@@ -562,30 +578,16 @@ ZEND_METHOD(UdpSocket, sendAsync)
 	async_udp_socket *socket;
 	async_udp_datagram *datagram;
 	async_udp_send *send;
-	zend_long limit;
 	
 	struct sockaddr_in dest;
 	uv_buf_t buffers[1];
 	int code;
 	
 	zval *val;
-	zval *val2;
 	
-	val2 = NULL;
-	
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_ZVAL(val)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val2)
 	ZEND_PARSE_PARAMETERS_END();
-	
-	if (val2 != NULL && Z_TYPE_P(val2) != IS_NULL) {
-		limit = Z_LVAL_P(val2);
-		
-		ASYNC_CHECK_EXCEPTION(limit < 1024, async_socket_exception_ce, "UDP buffer size must not be less than %d bytes", 1024);
-	} else {
-		limit = 0;
-	}
 	
 	socket = (async_udp_socket *) Z_OBJ_P(getThis());
 	datagram = (async_udp_datagram *) Z_OBJ_P(val);
@@ -610,14 +612,10 @@ ZEND_METHOD(UdpSocket, sendAsync)
 	    code = uv_udp_try_send(&socket->handle, buffers, 1, (const struct sockaddr *)&dest);
 	    
 	    if (code >= 0) {
-	        RETURN_TRUE;
+	        RETURN_LONG(0);
 	    }
 	    
 	    ASYNC_CHECK_EXCEPTION(code != UV_EAGAIN, async_socket_exception_ce, "Failed to send UDP data: %s", uv_strerror(code));
-	}
-	
-	if (limit > 0 && (socket->handle.send_queue_size + buffers[0].len) > limit) {
-		RETURN_FALSE;
 	}
 	
 	send = emalloc(sizeof(async_udp_send));
@@ -641,7 +639,7 @@ ZEND_METHOD(UdpSocket, sendAsync)
 	ASYNC_ADDREF(&datagram->std);
 	ASYNC_ADDREF(&send->context->std);
 	
-	RETURN_TRUE;
+	RETURN_LONG(socket->handle.send_queue_size);
 }
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_udp_socket_bind, 0, 2, Concurrent\\Network\\UdpSocket, 0)
@@ -658,13 +656,15 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_close, 0, 0, IS_VOID,
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_get_host, 0, 0, IS_STRING, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_get_address, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_get_port, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_get_peer, 0, 0, IS_ARRAY, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_set_option, 0, 2, _IS_BOOL, 0)
+	ZEND_ARG_TYPE_INFO(0, option, IS_LONG, 0)
+	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_udp_socket_receive, 0, 0, Concurrent\\Network\\UdpDatagram, 0)
@@ -674,18 +674,17 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_send, 0, 1, IS_VOID, 
 	ZEND_ARG_OBJ_INFO(0, datagram, Concurrent\\Network\\UdpDatagram, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_send_async, 0, 1, _IS_BOOL, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_send_async, 0, 1, IS_LONG, 0)
 	ZEND_ARG_OBJ_INFO(0, datagram, Concurrent\\Network\\UdpDatagram, 0)
-	ZEND_ARG_TYPE_INFO(0, limit, IS_LONG, 1)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_udp_socket_functions[] = {
 	ZEND_ME(UdpSocket, bind, arginfo_udp_socket_bind, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(UdpSocket, multicast, arginfo_udp_socket_multicast, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(UdpSocket, close, arginfo_udp_socket_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(UdpSocket, getHost, arginfo_udp_socket_get_host, ZEND_ACC_PUBLIC)
+	ZEND_ME(UdpSocket, getAddress, arginfo_udp_socket_get_address, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, getPort, arginfo_udp_socket_get_port, ZEND_ACC_PUBLIC)
-	ZEND_ME(UdpSocket, getPeer, arginfo_udp_socket_get_peer, ZEND_ACC_PUBLIC)
+	ZEND_ME(UdpSocket, setOption, arginfo_udp_socket_set_option, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, receive, arginfo_udp_socket_receive, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, send, arginfo_udp_socket_send, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, sendAsync, arginfo_udp_socket_send_async, ZEND_ACC_PUBLIC)
@@ -899,6 +898,12 @@ void async_udp_socket_ce_register()
 	async_udp_socket_handlers.dtor_obj = async_udp_socket_object_dtor;
 	async_udp_socket_handlers.clone_obj = NULL;
 	
+	zend_class_implements(async_udp_socket_ce, 1, async_socket_ce);
+
+	ASYNC_UDP_SOCKET_CONST("TTL", ASYNC_SOCKET_UDP_TTL);
+	ASYNC_UDP_SOCKET_CONST("MULTICAST_LOOP", ASYNC_SOCKET_UDP_MULTICAST_LOOP);
+	ASYNC_UDP_SOCKET_CONST("MULTICAST_TTL", ASYNC_SOCKET_UDP_MULTICAST_TTL);
+
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\UdpDatagram", async_udp_datagram_functions);
 	async_udp_datagram_ce = zend_register_internal_class(&ce);
 	async_udp_datagram_ce->ce_flags |= ZEND_ACC_FINAL;

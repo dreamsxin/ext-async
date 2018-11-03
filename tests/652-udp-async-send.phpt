@@ -24,10 +24,10 @@ Task::async(function () use ($a) {
         for ($i = 0; $i < 3; $i++) {
             $timer->awaitTimeout();
             
-            $b->sendAsync(new UdpDatagram((string) $i, $a->getHost(), $a->getPort()));
+            $b->sendAsync(new UdpDatagram((string) $i, $a->getAddress(), $a->getPort()));
         }
         
-        $b->send(new UdpDatagram((string) $i, $a->getHost(), $a->getPort()));
+        $b->send(new UdpDatagram((string) $i, $a->getAddress(), $a->getPort()));
     } finally {
         $b->close();
     }

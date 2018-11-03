@@ -14,15 +14,11 @@ use Concurrent\Task;
 $server = TcpServer::listen('127.0.0.1', 0);
 
 try {
-    $host = $server->getHost();
+    $host = $server->getAddress();
     $port = $server->getPort();
-    $peer = $server->getPeer();
     
     var_dump($host);
     var_dump($port > 0);
-    
-    var_dump($peer[0] == $host);
-    var_dump($peer[1] == $port);
     
     Task::async(function () use ($host, $port) {
         $socket = TcpSocket::connect($host, $port);
@@ -30,15 +26,11 @@ try {
         var_dump('CONNECTED');
         
         try {
-            $local = $socket->getLocalPeer();
+            var_dump($socket->getAddress() == $host);
+            var_dump($socket->getPort() > 0);
             
-            var_dump($local[0] == $host);
-            var_dump($local[1] > 0);
-            
-            $remote = $socket->getRemotePeer();
-            
-            var_dump($remote[0] == $host);
-            var_dump($remote[1] == $port);
+            var_dump($socket->getRemoteAddress() == $host);
+            var_dump($socket->getRemotePort() == $port);
             
             var_dump($socket->read());
             $socket->write('World!');
@@ -66,8 +58,6 @@ try {
 
 --EXPECT--
 string(9) "127.0.0.1"
-bool(true)
-bool(true)
 bool(true)
 string(6) "LISTEN"
 string(8) "ACCEPTED"

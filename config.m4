@@ -25,6 +25,8 @@ if test "$PHP_ASYNC" != "no"; then
     src/helper.c \
     src/process.c \
     src/signal_watcher.c \
+    src/socket.c \
+    src/ssl.c \
     src/stream.c \
     src/stream_watcher.c \
     src/task.c \

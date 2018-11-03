@@ -3,16 +3,16 @@
 namespace Concurrent\Network;
 
 if ($_SERVER['argv'][1] ?? null) {
-    $encryption = new ClientEncryption();
-    $encryption = $encryption->withAllowSelfSigned(true);
+    $tls = new TlsClientEncryption();
+    $tls = $tls->withAllowSelfSigned(true);
 } else {
-    $encryption = null;
+    $tls = null;
 }
 
-$socket = TcpSocket::connect('localhost', 8080, $encryption);
+$socket = TcpSocket::connect('localhost', 8080, $tls);
 
 try {
-    if ($encryption) {
+    if ($tls) {
         var_dump('Negotiate TLS');
         $socket->encrypt();
         var_dump('TLS established');

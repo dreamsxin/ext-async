@@ -24,20 +24,15 @@
 #include "win32/sockets.h"
 #endif
 
-zend_class_entry *async_socket_exception_ce;
 zend_class_entry *async_tcp_socket_ce;
 zend_class_entry *async_tcp_socket_reader_ce;
 zend_class_entry *async_tcp_socket_writer_ce;
 zend_class_entry *async_tcp_server_ce;
-zend_class_entry *async_tcp_client_encryption_ce;
-zend_class_entry *async_tcp_server_encryption_ce;
 
 static zend_object_handlers async_tcp_socket_handlers;
 static zend_object_handlers async_tcp_socket_reader_handlers;
 static zend_object_handlers async_tcp_socket_writer_handlers;
 static zend_object_handlers async_tcp_server_handlers;
-static zend_object_handlers async_tcp_client_encryption_handlers;
-static zend_object_handlers async_tcp_server_encryption_handlers;
 
 static async_tcp_socket *async_tcp_socket_object_create();
 static async_tcp_socket_reader *async_tcp_socket_reader_object_create(async_tcp_socket *socket);
@@ -45,6 +40,12 @@ static async_tcp_socket_writer *async_tcp_socket_writer_object_create(async_tcp_
 
 static void write_to_socket(async_tcp_socket *socket, uv_buf_t *buffer, int num, zend_execute_data *execute_data);
 static void socket_disposed(uv_handle_t *handle);
+
+#define ASYNC_TCP_SOCKET_CONST(name, value) \
+	zend_declare_class_constant_long(async_tcp_socket_ce, name, sizeof(name)-1, (zend_long)value);
+
+#define ASYNC_TCP_SERVER_CONST(name, value) \
+	zend_declare_class_constant_long(async_tcp_server_ce, name, sizeof(name)-1, (zend_long)value);
 
 typedef struct _async_tcp_write {
 	uv_write_t request;
@@ -57,7 +58,7 @@ typedef struct _async_tcp_write {
 
 #ifdef HAVE_ASYNC_SSL
 
-static int async_index;
+#include "async_ssl.h"
 
 typedef struct _socket_buffer socket_buffer;
 
@@ -66,68 +67,6 @@ struct _socket_buffer {
 	char *base;
 	socket_buffer *next;
 };
-
-#ifdef PHP_WIN32
-#include "win32/winutil.h"
-#include "win32/time.h"
-#include <Wincrypt.h>
-/* These are from Wincrypt.h, they conflict with OpenSSL */
-#undef X509_NAME
-#undef X509_CERT_PAIR
-#undef X509_EXTENSIONS
-#endif
-
-static int ssl_error_continue(async_tcp_socket *socket, int code)
-{
-	int error = SSL_get_error(socket->ssl, code);
-
-	switch (error) {
-	case SSL_ERROR_NONE:
-	case SSL_ERROR_WANT_READ:
-	case SSL_ERROR_WANT_WRITE:
-		return 1;
-	}
-
-	return 0;
-}
-
-static int ssl_cert_passphrase_cb(char *buf, int size, int rwflag, void *obj)
-{
-	async_tcp_cert *cert;
-
-	cert = (async_tcp_cert *) obj;
-
-	if (cert == NULL || cert->passphrase == NULL) {
-		return 0;
-	}
-
-	strcpy(buf, ZSTR_VAL(cert->passphrase));
-
-	return ZSTR_LEN(cert->passphrase);
-}
-
-static SSL_CTX *ssl_create_context()
-{
-	SSL_CTX *ctx;
-
-	int options;
-	char *cadir;
-
-	options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3;
-	options |= SSL_OP_NO_COMPRESSION | SSL_OP_NO_TICKET;
-	options &= ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS;
-
-	ctx = SSL_CTX_new(SSLv23_method());
-
-	SSL_CTX_set_options(ctx, options);
-	SSL_CTX_set_cipher_list(ctx, "HIGH:!SSLv2:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!RC4:!ADH");
-
-	// Use default X509 cert directory.
-	cadir = getenv(X509_get_default_cert_dir_env());
-	SSL_CTX_load_verify_locations(ctx, NULL, (cadir == NULL) ? X509_get_default_cert_dir() : cadir);
-
-	return ctx;
-}
 
 static void ssl_send_handshake_bytes(async_tcp_socket *socket, zend_execute_data *execute_data)
 {
@@ -176,392 +115,42 @@ static int ssl_feed_data(async_tcp_socket *socket)
 	return 0;
 }
 
-static zend_bool ssl_match_hostname(const char *subjectname, const char *certname)
-{
-	char *wildcard = NULL;
-	ptrdiff_t prefix_len;
-	size_t suffix_len, subject_len;
-
-	if (strcasecmp(subjectname, certname) == 0) {
-		return 1;
-	}
-
-	if (!(wildcard = strchr(certname, '*')) || memchr(certname, '.', wildcard - certname)) {
-		return 0;
-	}
-
-	prefix_len = wildcard - certname;
-	if (prefix_len && strncasecmp(subjectname, certname, prefix_len) != 0) {
-		return 0;
-	}
-
-	suffix_len = strlen(wildcard + 1);
-	subject_len = strlen(subjectname);
-
-	if (suffix_len <= subject_len) {
-		return strcasecmp(wildcard + 1, subjectname + subject_len - suffix_len) == 0 && memchr(subjectname + prefix_len, '.', subject_len - suffix_len - prefix_len) == NULL;
-	}
-
-	return strcasecmp(wildcard + 2, subjectname + subject_len - suffix_len);
-}
-
-#define ASYNC_SSL_RETURN_VERIFY_ERROR(ctx) do { \
-	X509_STORE_CTX_set_error(ctx, X509_V_ERR_APPLICATION_VERIFICATION); \
-	return 0; \
-} while (0);
-
-static int ssl_check_san_names(async_tcp_socket *socket, X509 *cert, X509_STORE_CTX *ctx)
-{
-	GENERAL_NAMES *names;
-	GENERAL_NAME *entry;
-
-	zend_string *peer_name;
-	unsigned char *cn;
-
-	int count;
-	int i;
-
-	names = X509_get_ext_d2i(cert, NID_subject_alt_name, 0, 0);
-
-	if (names == NULL) {
-		return 0;
-	}
-
-	for (count = sk_GENERAL_NAME_num(names), i = 0; i < count; i++) {
-		entry = sk_GENERAL_NAME_value(names, i);
-
-		if (entry == NULL || GEN_DNS != entry->type) {
-			continue;
-		}
-
-		ASN1_STRING_to_UTF8(&cn, entry->d.dNSName);
-
-		if ((size_t) ASN1_STRING_length(entry->d.dNSName) != strlen((const char *) cn)) {
-			OPENSSL_free(cn);
-			break;
-		}
-
-		if (socket->encryption != NULL && socket->encryption->peer_name != NULL) {
-			peer_name = socket->encryption->peer_name;
-		} else {
-			peer_name = socket->name;
-		}
-
-		if (ssl_match_hostname(ZSTR_VAL(peer_name), (const char *) cn)) {
-			OPENSSL_free(cn);
-			sk_GENERAL_NAME_pop_free(names, GENERAL_NAME_free);
-			return 1;
-		}
-
-		OPENSSL_free(cn);
-	}
-
-	sk_GENERAL_NAME_pop_free(names, GENERAL_NAME_free);
-
-	return 0;
-}
-
-static int ssl_verify_callback(int preverify, X509_STORE_CTX *ctx)
-{
-	async_tcp_socket *socket;
-	zend_string *peer_name;
-	SSL *ssl;
-
-	X509 *cert;
-	X509_NAME_ENTRY *entry;
-	ASN1_STRING *str;
-
-	unsigned char *cn;
-
-	int depth;
-	int err;
-	int i;
-
-	cert = X509_STORE_CTX_get_current_cert(ctx);
-	depth = X509_STORE_CTX_get_error_depth(ctx);
-	err = X509_STORE_CTX_get_error(ctx);
-
-	ssl = X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
-	socket = (async_tcp_socket *) SSL_get_ex_data(ssl, async_index);
-
-	if (depth == 0 && err == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT) {
-		if (socket->encryption != NULL && socket->encryption->allow_self_signed) {
-			err = 0;
-			preverify = 1;
-			X509_STORE_CTX_set_error(ctx, X509_V_OK);
-		}
-	}
-
-	if (depth > socket->encryption->verify_depth) {
-		X509_STORE_CTX_set_error(ctx, X509_V_ERR_CERT_CHAIN_TOO_LONG);
-		return 0;
-	}
-
-	if (!cert || err || socket == NULL) {
-		return preverify;
-	}
-
-	if (depth == 0) {
-		if (ssl_check_san_names(socket, cert, ctx)) {
-			return preverify;
-		}
-
-		if ((i = X509_NAME_get_index_by_NID(X509_get_subject_name((X509 *) cert), NID_commonName, -1)) < 0) {
-			ASYNC_SSL_RETURN_VERIFY_ERROR(ctx);
-		}
-
-		if (NULL == (entry = X509_NAME_get_entry(X509_get_subject_name((X509 *) cert), i))) {
-			ASYNC_SSL_RETURN_VERIFY_ERROR(ctx);
-		}
-
-		if (NULL == (str = X509_NAME_ENTRY_get_data(entry))) {
-			ASYNC_SSL_RETURN_VERIFY_ERROR(ctx);
-		}
-
-		ASN1_STRING_to_UTF8(&cn, str);
-
-		if ((size_t) ASN1_STRING_length(str) != strlen((const char *) cn)) {
-			OPENSSL_free(cn);
-			ASYNC_SSL_RETURN_VERIFY_ERROR(ctx);
-		}
-
-		if (socket->encryption != NULL && socket->encryption->peer_name != NULL) {
-			peer_name = socket->encryption->peer_name;
-		} else {
-			peer_name = socket->name;
-		}
-
-		if (!ssl_match_hostname(ZSTR_VAL(peer_name), (const char *) cn)) {
-			OPENSSL_free(cn);
-			ASYNC_SSL_RETURN_VERIFY_ERROR(ctx);
-		}
-
-		OPENSSL_free(cn);
-	}
-
-	return preverify;
-}
-
-static int ssl_servername_cb(SSL *ssl, int *ad, void *arg)
-{
-	async_tcp_server *server;
-	async_tcp_cert *cert;
-	zend_string *key;
-
-	const char *name;
-
-	if (ssl == NULL) {
-		return SSL_TLSEXT_ERR_NOACK;
-	}
-
-	name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
-
-	if (name == NULL || name[0] == '\0') {
-		return SSL_TLSEXT_ERR_NOACK;
-	}
-
-	server = (async_tcp_server *) arg;
-	key = zend_string_init(name, strlen(name), 0);
-
-	cert = server->encryption->certs.first;
-
-	while (cert != NULL) {
-		if (zend_string_equals(key, cert->host)) {
-			SSL_set_SSL_CTX(ssl, cert->ctx);
-			break;
-		}
-
-		cert = cert->next;
-	}
-
-	zend_string_release(key);
-
-	return SSL_TLSEXT_ERR_OK;
-}
-
-#ifdef PHP_WIN32
-
-#define RETURN_CERT_VERIFY_FAILURE(code) X509_STORE_CTX_set_error(x509_store_ctx, code); return 0;
-
-#define PHP_X509_NAME_ENTRY_TO_UTF8(ne, i, out) \
-ASN1_STRING_to_UTF8(&out, X509_NAME_ENTRY_get_data(X509_NAME_get_entry(ne, i)))
-
-#define php_win_err_free(err) if (err && err[0]) free(err);
-
-static int php_openssl_win_cert_verify_callback(X509_STORE_CTX *x509_store_ctx, void *arg) /* {{{ */
-{
-	PCCERT_CONTEXT cert_ctx = NULL;
-	PCCERT_CHAIN_CONTEXT cert_chain_ctx = NULL;
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	X509 *cert = x509_store_ctx->cert;
-#else
-	X509 *cert = X509_STORE_CTX_get0_cert(x509_store_ctx);
 #endif
 
-	async_tcp_socket *socket;
-	SSL* ssl;
-	zend_bool is_self_signed = 0;
 
+static void assemble_peer(uv_tcp_t *tcp, zend_bool remote, zend_string **address, uint16_t *port)
+{
+	struct sockaddr_storage addr;
 
-	ssl = X509_STORE_CTX_get_ex_data(x509_store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
-	socket = (async_tcp_socket *) SSL_get_ex_data(ssl, async_index);
+	char name[64];
 
-	{ /* First convert the x509 struct back to a DER encoded buffer and let Windows decode it into a form it can work with */
-		unsigned char *der_buf = NULL;
-		int der_len;
+	int len;
+	int code;
 
-		der_len = i2d_X509(cert, &der_buf);
-		if (der_len < 0) {
-			unsigned long err_code, e;
-			char err_buf[512];
+	len = sizeof(struct sockaddr_storage);
 
-			while ((e = ERR_get_error()) != 0) {
-				err_code = e;
-			}
-
-			php_error_docref(NULL, E_WARNING, "Error encoding X509 certificate: %d: %s", err_code, ERR_error_string(err_code, err_buf));
-			RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
-		}
-
-		cert_ctx = CertCreateCertificateContext(X509_ASN_ENCODING, der_buf, der_len);
-		OPENSSL_free(der_buf);
-
-		if (cert_ctx == NULL) {
-			char *err = php_win_err();
-			php_error_docref(NULL, E_WARNING, "Error creating certificate context: %s", err);
-			php_win_err_free(err);
-			RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
-		}
+	if (remote) {
+		code = uv_tcp_getpeername(tcp, (struct sockaddr *) &addr, &len);
+	} else {
+		code = uv_tcp_getsockname(tcp, (struct sockaddr *) &addr, &len);
 	}
 
-	{ /* Next fetch the relevant cert chain from the store */
-		CERT_ENHKEY_USAGE enhkey_usage = {0};
-		CERT_USAGE_MATCH cert_usage = {0};
-		CERT_CHAIN_PARA chain_params = {sizeof(CERT_CHAIN_PARA)};
-		LPSTR usages[] = {szOID_PKIX_KP_SERVER_AUTH, szOID_SERVER_GATED_CRYPTO, szOID_SGC_NETSCAPE};
-		DWORD chain_flags = 0;
-		unsigned long allowed_depth;
-		unsigned int i;
+	ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to get peer name: %s", uv_strerror(code));
 
-		enhkey_usage.cUsageIdentifier = 3;
-		enhkey_usage.rgpszUsageIdentifier = usages;
-		cert_usage.dwType = USAGE_MATCH_TYPE_OR;
-		cert_usage.Usage = enhkey_usage;
-		chain_params.RequestedUsage = cert_usage;
-		chain_flags = CERT_CHAIN_CACHE_END_CERT | CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT;
+	if (addr.ss_family == AF_INET) {
+		code = uv_ip4_name((const struct sockaddr_in *) &addr, name, len);
+		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 
-		if (!CertGetCertificateChain(NULL, cert_ctx, NULL, NULL, &chain_params, chain_flags, NULL, &cert_chain_ctx)) {
-			char *err = php_win_err();
-			php_error_docref(NULL, E_WARNING, "Error getting certificate chain: %s", err);
-			php_win_err_free(err);
-			CertFreeCertificateContext(cert_ctx);
-			RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
-		}
+		*port = ntohs(((struct sockaddr_in *) &addr)->sin_port);
+	} else {
+		code = uv_ip6_name((const struct sockaddr_in6 *) &addr, name, len);
+		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 
-		/* check if the cert is self-signed */
-		if (cert_chain_ctx->cChain > 0 && cert_chain_ctx->rgpChain[0]->cElement > 0
-			&& (cert_chain_ctx->rgpChain[0]->rgpElement[0]->TrustStatus.dwInfoStatus & CERT_TRUST_IS_SELF_SIGNED) != 0) {
-			is_self_signed = 1;
-		}
-
-		/* check the depth */
-		allowed_depth = socket->encryption->verify_depth;
-
-		for (i = 0; i < cert_chain_ctx->cChain; i++) {
-			if (cert_chain_ctx->rgpChain[i]->cElement > allowed_depth) {
-				CertFreeCertificateChain(cert_chain_ctx);
-				CertFreeCertificateContext(cert_ctx);
-				RETURN_CERT_VERIFY_FAILURE(X509_V_ERR_CERT_CHAIN_TOO_LONG);
-			}
-		}
+		*port = ntohs(((struct sockaddr_in6 *) &addr)->sin6_port);
 	}
-
-	{ /* Then verify it against a policy */
-		SSL_EXTRA_CERT_CHAIN_POLICY_PARA ssl_policy_params = {sizeof(SSL_EXTRA_CERT_CHAIN_POLICY_PARA)};
-		CERT_CHAIN_POLICY_PARA chain_policy_params = {sizeof(CERT_CHAIN_POLICY_PARA)};
-		CERT_CHAIN_POLICY_STATUS chain_policy_status = {sizeof(CERT_CHAIN_POLICY_STATUS)};
-		LPWSTR server_name = NULL;
-		BOOL verify_result;
-
-		{ /* This looks ridiculous and it is - but we validate the name ourselves using the peer_name
-		     ctx option, so just use the CN from the cert here */
-
-			X509_NAME *cert_name;
-			unsigned char *cert_name_utf8;
-			int index, cert_name_utf8_len;
-			DWORD num_wchars;
-
-			cert_name = X509_get_subject_name(cert);
-			index = X509_NAME_get_index_by_NID(cert_name, NID_commonName, -1);
-			if (index < 0) {
-				php_error_docref(NULL, E_WARNING, "Unable to locate certificate CN");
-				CertFreeCertificateChain(cert_chain_ctx);
-				CertFreeCertificateContext(cert_ctx);
-				RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
-			}
-
-			cert_name_utf8_len = PHP_X509_NAME_ENTRY_TO_UTF8(cert_name, index, cert_name_utf8);
-
-			num_wchars = MultiByteToWideChar(CP_UTF8, 0, (char*)cert_name_utf8, -1, NULL, 0);
-			if (num_wchars == 0) {
-				php_error_docref(NULL, E_WARNING, "Unable to convert %s to wide character string", cert_name_utf8);
-				OPENSSL_free(cert_name_utf8);
-				CertFreeCertificateChain(cert_chain_ctx);
-				CertFreeCertificateContext(cert_ctx);
-				RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
-			}
-
-			server_name = emalloc((num_wchars * sizeof(WCHAR)) + sizeof(WCHAR));
-
-			num_wchars = MultiByteToWideChar(CP_UTF8, 0, (char*)cert_name_utf8, -1, server_name, num_wchars);
-			if (num_wchars == 0) {
-				php_error_docref(NULL, E_WARNING, "Unable to convert %s to wide character string", cert_name_utf8);
-				efree(server_name);
-				OPENSSL_free(cert_name_utf8);
-				CertFreeCertificateChain(cert_chain_ctx);
-				CertFreeCertificateContext(cert_ctx);
-				RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
-			}
-
-			OPENSSL_free(cert_name_utf8);
-		}
-
-		ssl_policy_params.dwAuthType = (socket->server == NULL) ? AUTHTYPE_CLIENT : AUTHTYPE_SERVER;
-		ssl_policy_params.pwszServerName = server_name;
-		chain_policy_params.pvExtraPolicyPara = &ssl_policy_params;
-
-		verify_result = CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, cert_chain_ctx, &chain_policy_params, &chain_policy_status);
-
-		efree(server_name);
-		CertFreeCertificateChain(cert_chain_ctx);
-		CertFreeCertificateContext(cert_ctx);
-
-		if (!verify_result) {
-			char *err = php_win_err();
-			php_error_docref(NULL, E_WARNING, "Error verifying certificate chain policy: %s", err);
-			php_win_err_free(err);
-			RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
-		}
-
-		if (chain_policy_status.dwError != 0) {
-			/* The chain does not match the policy */
-			if (is_self_signed && chain_policy_status.dwError == CERT_E_UNTRUSTEDROOT
-				&& socket->encryption->allow_self_signed) {
-				/* allow self-signed certs */
-				X509_STORE_CTX_set_error(x509_store_ctx, X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT);
-			} else {
-				RETURN_CERT_VERIFY_FAILURE(SSL_R_CERTIFICATE_VERIFY_FAILED);
-			}
-		}
-	}
-
-	return 1;
+	
+	*address = zend_string_init(name, strlen(name), 0);
 }
-/* }}} */
-#endif
-
-#endif
-
 
 static inline int socket_check_disposed(async_tcp_socket *socket)
 {
@@ -619,7 +208,7 @@ static uv_buf_t *assemble_write_buffers(async_tcp_socket *socket, zend_string *d
 		while (remaining > 0) {
 			w = SSL_write(socket->ssl, tmp, remaining);
 
-			if (w < 1 && !ssl_error_continue(socket, w)) {
+			if (w < 1 && !async_ssl_error_continue(socket->ssl, w)) {
 				num = 0;
 
 				zend_throw_exception_ex(async_stream_exception_ce, 0, "SSL write operation failed [%d]: %s", w, ERR_reason_error_string(w));
@@ -1064,6 +653,14 @@ static void async_tcp_socket_object_destroy(zend_object *object)
 	if (socket->name != NULL) {
 		zend_string_release(socket->name);
 	}
+	
+	if (socket->local_addr != NULL) {
+		zend_string_release(socket->local_addr);
+	}
+	
+	if (socket->remote_addr != NULL) {
+		zend_string_release(socket->remote_addr);
+	}
 
 	zval_ptr_dtor(&socket->read_error);
 	zval_ptr_dtor(&socket->write_error);
@@ -1078,7 +675,7 @@ static void async_tcp_socket_object_destroy(zend_object *object)
 	zend_object_std_dtor(&socket->std);
 }
 
-ZEND_METHOD(Socket, connect)
+ZEND_METHOD(TcpSocket, connect)
 {
 	async_tcp_socket *socket;
 	async_context *context;
@@ -1142,22 +739,28 @@ ZEND_METHOD(Socket, connect)
 
 	if (tls != NULL && Z_TYPE_P(tls) != IS_NULL) {
 #ifdef HAVE_ASYNC_SSL
-		socket->encryption = (async_tcp_client_encryption *) Z_OBJ_P(tls);
+		socket->encryption = async_clone_client_encryption((async_tls_client_encryption *) Z_OBJ_P(tls));
+		socket->encryption->mode = ASYNC_SSL_MODE_CLIENT;
 
-		ASYNC_ADDREF(&socket->encryption->std);
+		if (socket->encryption->peer_name == NULL) {
+			socket->encryption->peer_name = zend_string_copy(socket->name);
+		}
 #else
 		zend_throw_exception_ex(async_socket_exception_ce, 0, "Socket encryption requires async extension to be compiled with SSL support");
 		ASYNC_DELREF(&socket->std);
 		return;
 #endif
 	}
+	
+	assemble_peer(&socket->handle, 0, &socket->local_addr, &socket->local_port);
+	assemble_peer(&socket->handle, 1, &socket->remote_addr, &socket->remote_port);
 
 	ZVAL_OBJ(&obj, &socket->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(Socket, pair)
+ZEND_METHOD(TcpSocket, pair)
 {
 	async_tcp_socket *socket;
 
@@ -1193,10 +796,13 @@ ZEND_METHOD(Socket, pair)
 		ZVAL_OBJ(&sockets[i], &socket->std);
 
 		zend_hash_index_update(Z_ARRVAL_P(return_value), i, &sockets[i]);
+		
+		socket->local_addr = zend_string_init("127.0.0.1", sizeof("127.0.0.1")-1, 0);
+		socket->remote_addr = zend_string_init("127.0.0.1", sizeof("127.0.0.1")-1, 0);
 	}
 }
 
-ZEND_METHOD(Socket, close)
+ZEND_METHOD(TcpSocket, close)
 {
 	async_tcp_socket *socket;
 
@@ -1249,110 +855,79 @@ ZEND_METHOD(Socket, close)
 	}
 }
 
-ZEND_METHOD(Socket, setNodelay)
+ZEND_METHOD(TcpSocket, getAddress)
 {
 	async_tcp_socket *socket;
 
-	zend_bool nodelay;
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
+	
+	RETURN_STR(socket->local_addr);
+}
+
+ZEND_METHOD(TcpSocket, getPort)
+{
+	async_tcp_socket *socket;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
+	
+	RETURN_LONG(socket->local_port);
+}
+
+ZEND_METHOD(TcpSocket, getRemoteAddress)
+{
+	async_tcp_socket *socket;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
+	
+	RETURN_STR(socket->remote_addr);
+}
+
+ZEND_METHOD(TcpSocket, getRemotePort)
+{
+	async_tcp_socket *socket;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
+	
+	RETURN_LONG(socket->remote_port);
+}
+
+ZEND_METHOD(TcpSocket, setOption)
+{
+	async_tcp_socket *socket;
+
+	zend_long option;
+	zval *val;
+
 	int code;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_BOOL(nodelay)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 2)
+		Z_PARAM_LONG(option)
+		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
 
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
+	code = 0;
 
-	code = uv_tcp_nodelay(&socket->handle, nodelay ? 1 : 0);
-	
-	ASYNC_CHECK_EXCEPTION(code != 0 && code != UV_ENOTSUP, async_socket_exception_ce, "Failed to set TCP nodelay: %s", uv_strerror(code));
-}
-
-static void assemble_fake_peer(zval *return_value)
-{
-	zval tmp;
-
-	array_init_size(return_value, 2);
-	ZVAL_STRINGL(&tmp, "127.0.0.1", sizeof("127.0.0.1") - 1);
-	zend_hash_index_update(Z_ARRVAL_P(return_value), 0, &tmp);
-
-	ZVAL_LONG(&tmp, 0);
-	zend_hash_index_update(Z_ARRVAL_P(return_value), 1, &tmp);
-}
-
-static void assemble_peer(uv_tcp_t *tcp, zend_bool remote, zval *return_value, zend_execute_data *execute_data)
-{
-	struct sockaddr_storage addr;
-
-	char name[64];
-	int port;
-
-	int len;
-	int code;
-
-	zval tmp;
-
-	len = sizeof(struct sockaddr_storage);
-
-	if (remote) {
-		code = uv_tcp_getpeername(tcp, (struct sockaddr *) &addr, &len);
-	} else {
-		code = uv_tcp_getsockname(tcp, (struct sockaddr *) &addr, &len);
+	switch ((int) option) {
+	case ASYNC_SOCKET_TCP_NODELAY:
+		code = uv_tcp_nodelay(&socket->handle, Z_LVAL_P(val) ? 1 : 0);
+		break;
+	case ASYNC_SOCKET_TCP_KEEPALIVE:
+		code = uv_tcp_keepalive(&socket->handle, Z_LVAL_P(val) ? 1 : 0, (unsigned int) Z_LVAL_P(val));
+		break;
 	}
 
-	ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to get peer name: %s", uv_strerror(code));
+	ASYNC_CHECK_EXCEPTION(code != 0 && code != UV_ENOTSUP, async_socket_exception_ce, "Failed to set socket option: %s", uv_strerror(code));
 
-	if (addr.ss_family == AF_INET) {
-		code = uv_ip4_name((const struct sockaddr_in *) &addr, name, len);
-		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
-
-		port = ntohs(((struct sockaddr_in *) &addr)->sin_port);
-	} else {
-		code = uv_ip6_name((const struct sockaddr_in6 *) &addr, name, len);
-		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
-
-		port = ntohs(((struct sockaddr_in6 *) &addr)->sin6_port);
-	}
-
-	array_init_size(return_value, 2);
-	ZVAL_STRING(&tmp, name);
-	zend_hash_index_update(Z_ARRVAL_P(return_value), 0, &tmp);
-
-	ZVAL_LONG(&tmp, port);
-	zend_hash_index_update(Z_ARRVAL_P(return_value), 1, &tmp);
-}
-
-ZEND_METHOD(Socket, getLocalPeer)
-{
-	async_tcp_socket *socket;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
-
-	if (USED_RET()) {
-		if (socket->name == NULL) {
-			assemble_fake_peer(return_value);
-		} else {
-			assemble_peer(&socket->handle, 0, return_value, execute_data);
-		}
-	}
-}
-
-ZEND_METHOD(Socket, getRemotePeer)
-{
-	async_tcp_socket *socket;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
-
-	if (USED_RET()) {
-		if (socket->name == NULL) {
-			assemble_fake_peer(return_value);
-		} else {
-			assemble_peer(&socket->handle, 1, return_value, execute_data);
-		}
-	}
+	RETURN_LONG((code == 0) ? 1 : 0);
 }
 
 static inline void socket_call_read(async_tcp_socket *socket, zval *return_value, zend_execute_data *execute_data)
@@ -1436,7 +1011,7 @@ static inline void socket_call_read(async_tcp_socket *socket, zval *return_value
 	RETURN_ZVAL(&chunk, 1, 1);
 }
 
-ZEND_METHOD(Socket, read)
+ZEND_METHOD(TcpSocket, read)
 {
 	async_tcp_socket *socket;
 
@@ -1445,7 +1020,7 @@ ZEND_METHOD(Socket, read)
 	socket_call_read(socket, return_value, execute_data);
 }
 
-ZEND_METHOD(Socket, readStream)
+ZEND_METHOD(TcpSocket, readStream)
 {
 	async_tcp_socket *socket;
 
@@ -1493,7 +1068,7 @@ static inline void socket_call_write(async_tcp_socket *socket, zval *return_valu
 	disassemble_write_buffers(socket, buffers, nbufs);
 }
 
-ZEND_METHOD(Socket, write)
+ZEND_METHOD(TcpSocket, write)
 {
 	async_tcp_socket *socket;
 
@@ -1502,12 +1077,11 @@ ZEND_METHOD(Socket, write)
 	socket_call_write(socket, return_value, execute_data);
 }
 
-ZEND_METHOD(Socket, writeAsync)
+ZEND_METHOD(TcpSocket, writeAsync)
 {
 	async_tcp_socket *socket;
 	async_tcp_write *write;
 	zend_string *data;
-	zend_long limit;
 	
 	uv_buf_t *buffers;
 	uv_buf_t *tmp;
@@ -1515,24 +1089,10 @@ ZEND_METHOD(Socket, writeAsync)
 	zend_long len;
 	int code;
 	int num;
-	
-	zval *val;
 
-	val = NULL;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_STR(data)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
-	
-	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
-		limit = Z_LVAL_P(val);
-		
-		ASYNC_CHECK_EXCEPTION(limit < 8192, async_socket_exception_ce, "TCP buffer size must not be less than %d bytes", 8192);
-	} else {
-		limit = 0;
-	}
 	
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 	
@@ -1551,17 +1111,7 @@ ZEND_METHOD(Socket, writeAsync)
 	if (tmp == NULL) {
 		disassemble_write_buffers(socket, buffers, nbufs);
 		
-		RETURN_TRUE;
-	}
-	
-	if (limit > 0 && (socket->handle.write_queue_size + len) > limit) {
-		if (tmp != NULL) {
-			efree(tmp);
-		}
-	
-		disassemble_write_buffers(socket, buffers, nbufs);
-		
-		RETURN_FALSE;
+		RETURN_LONG(0);
 	}
 	
 	write = emalloc(sizeof(async_tcp_write));
@@ -1597,10 +1147,10 @@ ZEND_METHOD(Socket, writeAsync)
 	
 	ASYNC_ADDREF(&socket->std);
 	
-	RETURN_TRUE;
+	RETURN_LONG(socket->handle.write_queue_size);
 }
 
-ZEND_METHOD(Socket, writeStream)
+ZEND_METHOD(TcpSocket, writeStream)
 {
 	async_tcp_socket *socket;
 
@@ -1615,7 +1165,7 @@ ZEND_METHOD(Socket, writeStream)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(Socket, encrypt)
+ZEND_METHOD(TcpSocket, encrypt)
 {
 #ifndef HAVE_ASYNC_SSL
 	zend_throw_exception_ex(async_socket_exception_ce, 0, "Async extension was not compiled with SSL support");
@@ -1634,19 +1184,12 @@ ZEND_METHOD(Socket, encrypt)
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 
 	if (socket->server == NULL) {
-		socket->ctx = ssl_create_context();
+		socket->ctx = async_ssl_create_context();
 
 		SSL_CTX_set_default_passwd_cb_userdata(socket->ctx, NULL);
-		SSL_CTX_set_default_passwd_cb(socket->ctx, ssl_cert_passphrase_cb);
-
-#ifdef PHP_WIN32
-		SSL_CTX_set_verify(socket->ctx, SSL_VERIFY_PEER, NULL);
-		SSL_CTX_set_cert_verify_callback(socket->ctx, php_openssl_win_cert_verify_callback, (void *)socket);
-#else
-		SSL_CTX_set_verify(socket->ctx, SSL_VERIFY_PEER, ssl_verify_callback);
-#endif
-
 		SSL_CTX_set_verify_depth(socket->ctx, 10);
+		
+		async_ssl_setup_verify_callback(socket->ctx, socket->encryption);
 	} else {
 		ASYNC_CHECK_EXCEPTION(socket->server->encryption == NULL, async_socket_exception_ce, "No encryption settings have been passed to TcpServer::listen()");
 
@@ -1662,7 +1205,8 @@ ZEND_METHOD(Socket, encrypt)
 
 	SSL_set_bio(socket->ssl, socket->rbio, socket->wbio);
 	SSL_set_read_ahead(socket->ssl, 1);
-	SSL_set_ex_data(socket->ssl, async_index, socket);
+	
+	async_ssl_setup_encryption(socket->ssl, socket->encryption);
 
 	if (socket->server != NULL) {
 		SSL_set_accept_state(socket->ssl);
@@ -1688,7 +1232,7 @@ ZEND_METHOD(Socket, encrypt)
 	if (socket->server == NULL) {
 		code = SSL_do_handshake(socket->ssl);
 
-		ASYNC_CHECK_EXCEPTION(!ssl_error_continue(socket, code), async_socket_exception_ce, "SSL handshake failed [%d]: %s", code, ERR_reason_error_string(code));
+		ASYNC_CHECK_EXCEPTION(!async_ssl_error_continue(socket->ssl, code), async_socket_exception_ce, "SSL handshake failed [%d]: %s", code, ERR_reason_error_string(code));
 	}
 
 	uv_tcp_nodelay(&socket->handle, 1);
@@ -1722,7 +1266,7 @@ ZEND_METHOD(Socket, encrypt)
 
 		code = SSL_do_handshake(socket->ssl);
 
-		ASYNC_CHECK_EXCEPTION(!ssl_error_continue(socket, code), async_socket_exception_ce, "SSL handshake failed [%d]: %s", code, ERR_reason_error_string(code));
+		ASYNC_CHECK_EXCEPTION(!async_ssl_error_continue(socket->ssl, code), async_socket_exception_ce, "SSL handshake failed [%d]: %s", code, ERR_reason_error_string(code));
 	}
 
 	ssl_send_handshake_bytes(socket, execute_data);
@@ -1759,7 +1303,7 @@ ZEND_METHOD(Socket, encrypt)
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_connect, 0, 2, Concurrent\\Network\\TcpSocket, 0)
 	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
-	ZEND_ARG_OBJ_INFO(0, encryption, Concurrent\\Network\\ClientEncryption, 1)
+	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsClientEncryption, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_pair, 0, 0, IS_ARRAY, 0)
@@ -1769,14 +1313,21 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_close, 0, 0, IS_VOID,
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_set_nodelay, 0, 1, IS_VOID, 0)
-	ZEND_ARG_TYPE_INFO(0, enable, _IS_BOOL, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_address, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_local_peer, 0, 0, IS_ARRAY, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_port, 0, 0, IS_LONG, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_remote_peer, 0, 0, IS_ARRAY, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_remote_address, 0, 0, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_remote_port, 0, 0, IS_LONG, 1)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_set_option, 0, 2, _IS_BOOL, 0)
+	ZEND_ARG_TYPE_INFO(0, option, IS_LONG, 0)
+	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_read, 0, 0, IS_STRING, 1)
@@ -1790,9 +1341,8 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_write, 0, 1, IS_VOID,
 	ZEND_ARG_TYPE_INFO(0, data, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_write_async, 0, 1, _IS_BOOL, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_write_async, 0, 1, IS_LONG, 0)
 	ZEND_ARG_TYPE_INFO(0, data, IS_STRING, 0)
-	ZEND_ARG_TYPE_INFO(0, limit, IS_LONG, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_write_stream, 0, 0, Concurrent\\Stream\\WritableStream, 0)
@@ -1802,18 +1352,20 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_encrypt, 0, 0, IS_VOI
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_tcp_socket_functions[] = {
-	ZEND_ME(Socket, connect, arginfo_tcp_socket_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Socket, pair, arginfo_tcp_socket_pair, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Socket, close, arginfo_tcp_socket_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(Socket, setNodelay, arginfo_tcp_socket_set_nodelay, ZEND_ACC_PUBLIC)
-	ZEND_ME(Socket, getLocalPeer, arginfo_tcp_socket_get_local_peer, ZEND_ACC_PUBLIC)
-	ZEND_ME(Socket, getRemotePeer, arginfo_tcp_socket_get_remote_peer, ZEND_ACC_PUBLIC)
-	ZEND_ME(Socket, read, arginfo_tcp_socket_read, ZEND_ACC_PUBLIC)
-	ZEND_ME(Socket, readStream, arginfo_tcp_socket_read_stream, ZEND_ACC_PUBLIC)
-	ZEND_ME(Socket, write, arginfo_tcp_socket_write, ZEND_ACC_PUBLIC)
-	ZEND_ME(Socket, writeAsync, arginfo_tcp_socket_write_async, ZEND_ACC_PUBLIC)
-	ZEND_ME(Socket, writeStream, arginfo_tcp_socket_write_stream, ZEND_ACC_PUBLIC)
-	ZEND_ME(Socket, encrypt, arginfo_tcp_socket_encrypt, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, connect, arginfo_tcp_socket_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(TcpSocket, pair, arginfo_tcp_socket_pair, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(TcpSocket, close, arginfo_tcp_socket_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getAddress, arginfo_tcp_socket_get_address, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getPort, arginfo_tcp_socket_get_port, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, setOption, arginfo_tcp_socket_set_option, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getRemoteAddress, arginfo_tcp_socket_get_remote_address, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getRemotePort, arginfo_tcp_socket_get_remote_port, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, read, arginfo_tcp_socket_read, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, readStream, arginfo_tcp_socket_read_stream, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, write, arginfo_tcp_socket_write, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, writeAsync, arginfo_tcp_socket_write_async, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, writeStream, arginfo_tcp_socket_write_stream, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, encrypt, arginfo_tcp_socket_encrypt, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -1846,7 +1398,7 @@ static void async_tcp_socket_reader_object_destroy(zend_object *object)
 	zend_object_std_dtor(&reader->std);
 }
 
-ZEND_METHOD(SocketReader, close)
+ZEND_METHOD(TcpSocketReader, close)
 {
 	async_tcp_socket_reader *reader;
 	async_tcp_socket *socket;
@@ -1882,7 +1434,7 @@ ZEND_METHOD(SocketReader, close)
 	async_awaitable_trigger_continuation(&socket->reads, &socket->read_error, 0);
 }
 
-ZEND_METHOD(SocketReader, read)
+ZEND_METHOD(TcpSocketReader, read)
 {
 	async_tcp_socket_reader *reader;
 
@@ -1892,8 +1444,8 @@ ZEND_METHOD(SocketReader, read)
 }
 
 static const zend_function_entry async_tcp_socket_reader_functions[] = {
-	ZEND_ME(SocketReader, close, arginfo_tcp_socket_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(SocketReader, read, arginfo_tcp_socket_read, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocketReader, close, arginfo_tcp_socket_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocketReader, read, arginfo_tcp_socket_read, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -1926,7 +1478,7 @@ static void async_tcp_socket_writer_object_destroy(zend_object *object)
 	zend_object_std_dtor(&writer->std);
 }
 
-ZEND_METHOD(SocketWriter, close)
+ZEND_METHOD(TcpSocketWriter, close)
 {
 	async_tcp_socket_writer *writer;
 	async_tcp_socket *socket;
@@ -1976,7 +1528,7 @@ ZEND_METHOD(SocketWriter, close)
 	}
 }
 
-ZEND_METHOD(SocketWriter, write)
+ZEND_METHOD(TcpSocketWriter, write)
 {
 	async_tcp_socket_writer *writer;
 
@@ -1986,8 +1538,8 @@ ZEND_METHOD(SocketWriter, write)
 }
 
 static const zend_function_entry async_tcp_socket_writer_functions[] = {
-	ZEND_ME(SocketWriter, close, arginfo_tcp_socket_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(SocketWriter, write, arginfo_tcp_socket_write, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocketWriter, close, arginfo_tcp_socket_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocketWriter, write, arginfo_tcp_socket_write, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -2050,12 +1602,16 @@ static void async_tcp_server_object_destroy(zend_object *object)
 		zend_string_release(server->name);
 	}
 	
+	if (server->addr != NULL) {
+		zend_string_release(server->addr);
+	}
+	
 	async_awaitable_queue_destroy(&server->accepts);
 
 	zend_object_std_dtor(&server->std);
 }
 
-ZEND_METHOD(Server, listen)
+ZEND_METHOD(TcpServer, listen)
 {
 	async_tcp_server *server;
 
@@ -2112,33 +1668,33 @@ ZEND_METHOD(Server, listen)
 
 	if (tls != NULL && Z_TYPE_P(tls) != IS_NULL) {
 #ifdef HAVE_ASYNC_SSL
-		server->encryption = (async_tcp_server_encryption *) Z_OBJ_P(tls);
+		server->encryption = (async_tls_server_encryption *) Z_OBJ_P(tls);
 
 		ASYNC_ADDREF(&server->encryption->std);
 
-		server->ctx = ssl_create_context();
+		server->ctx = async_ssl_create_context();
 
-		SSL_CTX_set_default_passwd_cb(server->ctx, ssl_cert_passphrase_cb);
 		SSL_CTX_set_default_passwd_cb_userdata(server->ctx, &server->encryption->cert);
 
 		SSL_CTX_use_certificate_file(server->ctx, ZSTR_VAL(server->encryption->cert.file), SSL_FILETYPE_PEM);
 		SSL_CTX_use_PrivateKey_file(server->ctx, ZSTR_VAL(server->encryption->cert.key), SSL_FILETYPE_PEM);
 
-		SSL_CTX_set_tlsext_servername_callback(server->ctx, ssl_servername_cb);
-		SSL_CTX_set_tlsext_servername_arg(server->ctx, server);
+		async_ssl_setup_sni(server->ctx, server->encryption);
 #else
 		zend_throw_exception_ex(async_socket_exception_ce, 0, "Serevr encryption requires async extension to be compiled with SSL support");
 		ASYNC_DELREF(&server->std);
 		return;
 #endif
 	}
+	
+	assemble_peer(&server->handle, 0, &server->addr, &server->port);
 
 	ZVAL_OBJ(&obj, &server->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(Server, close)
+ZEND_METHOD(TcpServer, close)
 {
 	async_tcp_server *server;
 
@@ -2176,7 +1732,7 @@ ZEND_METHOD(Server, close)
 	}
 }
 
-ZEND_METHOD(Server, getHost)
+ZEND_METHOD(TcpServer, getAddress)
 {
 	async_tcp_server *server;
 
@@ -2187,48 +1743,46 @@ ZEND_METHOD(Server, getHost)
 	RETURN_STR(server->name);
 }
 
-ZEND_METHOD(Server, getPort)
-{
-	async_tcp_server *server;
-
-	zend_long port;
-	zval tmp;
-	zval *entry;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	server = (async_tcp_server *) Z_OBJ_P(getThis());
-	port = server->port;
-
-	if (port == 0) {
-		assemble_peer(&server->handle, 0, &tmp, execute_data);
-		
-		ASYNC_RETURN_ON_ERROR();
-
-		entry = zend_hash_index_find(Z_ARRVAL_P(&tmp), 1);
-		port = Z_LVAL_P(entry);
-
-		zval_ptr_dtor(&tmp);
-		zval_ptr_dtor(entry);
-	}
-
-	RETURN_LONG(port);
-}
-
-ZEND_METHOD(Server, getPeer)
+ZEND_METHOD(TcpServer, getPort)
 {
 	async_tcp_server *server;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	server = (async_tcp_server *) Z_OBJ_P(getThis());
-
-	if (USED_RET()) {
-		assemble_peer(&server->handle, 0, return_value, execute_data);
-	}
+	
+	RETURN_LONG(server->port);
 }
 
-ZEND_METHOD(Server, accept)
+ZEND_METHOD(TcpServer, setOption)
+{
+	async_tcp_server *server;
+
+	zend_long option;
+	zval *val;
+
+	int code;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 2)
+		Z_PARAM_LONG(option)
+		Z_PARAM_ZVAL(val)
+	ZEND_PARSE_PARAMETERS_END();
+
+	server = (async_tcp_server *) Z_OBJ_P(getThis());
+	code = 0;
+
+	switch ((int) option) {
+	case ASYNC_SOCKET_TCP_SIMULTANEOUS_ACCEPTS:
+		code = uv_tcp_simultaneous_accepts(&server->handle, Z_LVAL_P(val) ? 1 : 0);
+		break;
+	}
+
+	ASYNC_CHECK_EXCEPTION(code != 0 && code != UV_ENOTSUP, async_socket_exception_ce, "Failed to set socket option: %s", uv_strerror(code));
+
+	RETURN_LONG((code == 0) ? 1 : 0);
+}
+
+ZEND_METHOD(TcpServer, accept)
 {
 	async_tcp_server *server;
 	async_tcp_socket *socket;
@@ -2303,6 +1857,9 @@ ZEND_METHOD(Server, accept)
 	}
 
 	socket->server = server;
+	
+	assemble_peer(&socket->handle, 0, &socket->local_addr, &socket->local_port);
+	assemble_peer(&socket->handle, 1, &socket->remote_addr, &socket->remote_port);
 
 	ASYNC_ADDREF(&server->std);
 
@@ -2314,327 +1871,34 @@ ZEND_METHOD(Server, accept)
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_listen, 0, 2, Concurrent\\Network\\TcpServer, 0)
 	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
-	ZEND_ARG_OBJ_INFO(0, encryption, Concurrent\\Network\\ServerEncryption, 1)
+	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_close, 0, 0, IS_VOID, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_get_host, 0, 0, IS_STRING, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_get_address, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_get_port, 0, 0, IS_LONG, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_get_port, 0, 0, IS_LONG, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_get_peer, 0, 0, IS_ARRAY, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_set_option, 0, 2, _IS_BOOL, 0)
+	ZEND_ARG_TYPE_INFO(0, option, IS_LONG, 0)
+	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_accept, 0, 0, Concurrent\\Network\\TcpSocket, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_accept, 0, 0, Concurrent\\Network\\SocketStream, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_tcp_server_functions[] = {
-	ZEND_ME(Server, listen, arginfo_tcp_server_listen, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Server, close, arginfo_tcp_server_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(Server, getHost, arginfo_tcp_server_get_host, ZEND_ACC_PUBLIC)
-	ZEND_ME(Server, getPort, arginfo_tcp_server_get_port, ZEND_ACC_PUBLIC)
-	ZEND_ME(Server, getPeer, arginfo_tcp_server_get_peer, ZEND_ACC_PUBLIC)
-	ZEND_ME(Server, accept, arginfo_tcp_server_accept, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
-};
-
-
-static zend_object *async_tcp_client_encryption_object_create(zend_class_entry *ce)
-{
-	async_tcp_client_encryption *encryption;
-
-	encryption = emalloc(sizeof(async_tcp_client_encryption));
-	ZEND_SECURE_ZERO(encryption, sizeof(async_tcp_client_encryption));
-
-	zend_object_std_init(&encryption->std, ce);
-	encryption->std.handlers = &async_tcp_client_encryption_handlers;
-
-	encryption->verify_depth = 10;
-
-	return &encryption->std;
-}
-
-static async_tcp_client_encryption *clone_client_encryption(async_tcp_client_encryption *encryption)
-{
-	async_tcp_client_encryption *result;
-
-	result = (async_tcp_client_encryption *) async_tcp_client_encryption_object_create(async_tcp_client_encryption_ce);
-	result->allow_self_signed = encryption->allow_self_signed;
-	result->verify_depth = encryption->verify_depth;
-
-	if (encryption->peer_name != NULL) {
-		result->peer_name = zend_string_copy(encryption->peer_name);
-	}
-
-	return result;
-}
-
-static void async_tcp_client_encryption_object_destroy(zend_object *object)
-{
-	async_tcp_client_encryption *encryption;
-
-	encryption = (async_tcp_client_encryption *) object;
-
-	if (encryption->peer_name != NULL) {
-		zend_string_release(encryption->peer_name);
-	}
-
-	zend_object_std_dtor(&encryption->std);
-}
-
-ZEND_METHOD(ClientEncryption, withAllowSelfSigned)
-{
-	async_tcp_client_encryption *encryption;
-
-	zend_bool allow;
-	zval obj;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_BOOL(allow)
-	ZEND_PARSE_PARAMETERS_END();
-
-	encryption = clone_client_encryption((async_tcp_client_encryption *) Z_OBJ_P(getThis()));
-	encryption->allow_self_signed = allow;
-
-	ZVAL_OBJ(&obj, &encryption->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
-}
-
-ZEND_METHOD(ClientEncryption, withVerifyDepth)
-{
-	async_tcp_client_encryption *encryption;
-
-	zend_long depth;
-	zval obj;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_LONG(depth)
-	ZEND_PARSE_PARAMETERS_END();
-
-	ASYNC_CHECK_EXCEPTION(depth < 1, async_socket_exception_ce, "Verify depth must not be less than 1");
-
-	encryption = clone_client_encryption((async_tcp_client_encryption *) Z_OBJ_P(getThis()));
-	encryption->verify_depth = (int) depth;
-
-	ZVAL_OBJ(&obj, &encryption->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
-}
-
-ZEND_METHOD(ClientEncryption, withPeerName)
-{
-	async_tcp_client_encryption *encryption;
-
-	zend_string *name;
-	zval obj;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_STR(name)
-	ZEND_PARSE_PARAMETERS_END();
-
-	encryption = clone_client_encryption((async_tcp_client_encryption *) Z_OBJ_P(getThis()));
-	encryption->peer_name = zend_string_copy(name);
-
-	ZVAL_OBJ(&obj, &encryption->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
-}
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_client_encryption_with_allow_self_signed, 0, 1, Concurrent\\Network\\ClientEncryption, 0)
-	ZEND_ARG_TYPE_INFO(0, allow, _IS_BOOL, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_client_encryption_with_verify_depth, 0, 1, Concurrent\\Network\\ClientEncryption, 0)
-	ZEND_ARG_TYPE_INFO(0, depth, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_client_encryption_with_peer_name, 0, 1, Concurrent\\Network\\ClientEncryption, 0)
-	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-static const zend_function_entry async_tcp_client_encryption_functions[] = {
-	ZEND_ME(ClientEncryption, withAllowSelfSigned, arginfo_tcp_client_encryption_with_allow_self_signed, ZEND_ACC_PUBLIC)
-	ZEND_ME(ClientEncryption, withVerifyDepth, arginfo_tcp_client_encryption_with_verify_depth, ZEND_ACC_PUBLIC)
-	ZEND_ME(ClientEncryption, withPeerName, arginfo_tcp_client_encryption_with_peer_name, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
-};
-
-
-static zend_object *async_tcp_server_encryption_object_create(zend_class_entry *ce)
-{
-	async_tcp_server_encryption *encryption;
-
-	encryption = emalloc(sizeof(async_tcp_server_encryption));
-	ZEND_SECURE_ZERO(encryption, sizeof(async_tcp_server_encryption));
-
-	zend_object_std_init(&encryption->std, ce);
-	encryption->std.handlers = &async_tcp_server_encryption_handlers;
-
-	return &encryption->std;
-}
-
-static async_tcp_server_encryption *clone_server_encryption(async_tcp_server_encryption *encryption)
-{
-	async_tcp_server_encryption *result;
-
-	result = (async_tcp_server_encryption *) async_tcp_server_encryption_object_create(async_tcp_server_encryption_ce);
-
-	if (encryption->cert.file != NULL) {
-		result->cert.file = zend_string_copy(encryption->cert.file);
-	}
-
-	if (encryption->cert.key != NULL) {
-		result->cert.key = zend_string_copy(encryption->cert.key);
-	}
-
-	if (encryption->cert.passphrase != NULL) {
-		result->cert.passphrase = zend_string_copy(encryption->cert.passphrase);
-	}
-
-	return result;
-}
-
-static void async_tcp_server_encryption_object_destroy(zend_object *object)
-{
-	async_tcp_server_encryption *encryption;
-
-	encryption = (async_tcp_server_encryption *) object;
-
-	if (encryption->cert.file != NULL) {
-		zend_string_release(encryption->cert.file);
-	}
-
-	if (encryption->cert.key != NULL) {
-		zend_string_release(encryption->cert.key);
-	}
-
-	if (encryption->cert.passphrase != NULL) {
-		zend_string_release(encryption->cert.passphrase);
-	}
-
-#ifdef HAVE_ASYNC_SSL
-	if (encryption->cert.ctx != NULL) {
-		SSL_CTX_free(encryption->cert.ctx);
-	}
-#endif
-
-	zend_object_std_dtor(&encryption->std);
-}
-
-ZEND_METHOD(ServerEncryption, withDefaultCertificate)
-{
-	async_tcp_server_encryption *encryption;
-
-	zend_string *file;
-	zend_string *key;
-	zend_string *passphrase;
-
-	zval obj;
-
-	passphrase = NULL;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 3)
-		Z_PARAM_STR(file)
-		Z_PARAM_STR(key)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_STR(passphrase)
-	ZEND_PARSE_PARAMETERS_END();
-
-	encryption = clone_server_encryption((async_tcp_server_encryption *) Z_OBJ_P(getThis()));
-
-	encryption->cert.file = zend_string_copy(file);
-	encryption->cert.key = zend_string_copy(key);
-
-	if (passphrase != NULL) {
-		encryption->cert.passphrase = zend_string_copy(passphrase);
-	}
-
-	ZVAL_OBJ(&obj, &encryption->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
-}
-
-ZEND_METHOD(ServerEncryption, withCertificate)
-{
-	async_tcp_server_encryption *encryption;
-	async_tcp_cert *cert;
-	async_tcp_cert *current;
-
-	zend_string *host;
-	zend_string *file;
-	zend_string *key;
-	zend_string *passphrase;
-
-	zval obj;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 3, 4)
-		Z_PARAM_STR(host)
-		Z_PARAM_STR(file)
-		Z_PARAM_STR(key)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_STR(passphrase)
-	ZEND_PARSE_PARAMETERS_END();
-
-	encryption = clone_server_encryption((async_tcp_server_encryption *) Z_OBJ_P(getThis()));
-
-	cert = emalloc(sizeof(async_tcp_cert));
-	ZEND_SECURE_ZERO(cert, sizeof(async_tcp_cert));
-
-	cert->host = zend_string_copy(host);
-	cert->file = zend_string_copy(file);
-	cert->key = zend_string_copy(key);
-
-	if (passphrase != NULL) {
-		cert->passphrase = zend_string_copy(passphrase);
-	}
-
-#ifdef HAVE_ASYNC_SSL
-	cert->ctx = ssl_create_context();
-
-	SSL_CTX_set_default_passwd_cb(cert->ctx, ssl_cert_passphrase_cb);
-	SSL_CTX_set_default_passwd_cb_userdata(cert->ctx, cert);
-
-	SSL_CTX_use_certificate_file(cert->ctx, ZSTR_VAL(cert->file), SSL_FILETYPE_PEM);
-	SSL_CTX_use_PrivateKey_file(cert->ctx, ZSTR_VAL(cert->key), SSL_FILETYPE_PEM);
-#endif
-
-	current = encryption->certs.first;
-
-	while (current != NULL) {
-		if (zend_string_equals(current->host, cert->host)) {
-			ASYNC_Q_DETACH(&encryption->certs, current);
-			break;
-		}
-
-		current = current->next;
-	}
-
-	ASYNC_Q_ENQUEUE(&encryption->certs, cert);
-
-	ZVAL_OBJ(&obj, &encryption->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
-}
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_encryption_with_default_certificate, 0, 2, Concurrent\\Network\\ServerEncryption, 0)
-	ZEND_ARG_TYPE_INFO(0, cert, IS_STRING, 0)
-	ZEND_ARG_TYPE_INFO(0, key, IS_STRING, 0)
-	ZEND_ARG_TYPE_INFO(0, passphrase, IS_STRING, 1)
-ZEND_END_ARG_INFO()
-
-static const zend_function_entry async_tcp_server_encryption_functions[] = {
-	ZEND_ME(ServerEncryption, withDefaultCertificate, arginfo_tcp_server_encryption_with_default_certificate, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
-};
-
-
-static const zend_function_entry empty_funcs[] = {
+	ZEND_ME(TcpServer, listen, arginfo_tcp_server_listen, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(TcpServer, close, arginfo_tcp_server_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpServer, getAddress, arginfo_tcp_server_get_address, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpServer, getPort, arginfo_tcp_server_get_port, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpServer, setOption, arginfo_tcp_server_set_option, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpServer, accept, arginfo_tcp_server_accept, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -2643,23 +1907,21 @@ void async_tcp_ce_register()
 {
 	zend_class_entry ce;
 	
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\SocketException", empty_funcs);
-	async_socket_exception_ce = zend_register_internal_class(&ce);
-
-	zend_do_inheritance(async_socket_exception_ce, async_stream_exception_ce);
-
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\TcpSocket", async_tcp_socket_functions);
 	async_tcp_socket_ce = zend_register_internal_class(&ce);
 	async_tcp_socket_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_tcp_socket_ce->serialize = zend_class_serialize_deny;
 	async_tcp_socket_ce->unserialize = zend_class_unserialize_deny;
 
-	zend_class_implements(async_tcp_socket_ce, 1, async_duplex_stream_ce);
+	zend_class_implements(async_tcp_socket_ce, 1, async_socket_stream_ce);
 
 	memcpy(&async_tcp_socket_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_tcp_socket_handlers.dtor_obj = async_tcp_socket_object_dtor;
 	async_tcp_socket_handlers.free_obj = async_tcp_socket_object_destroy;
 	async_tcp_socket_handlers.clone_obj = NULL;
+
+	ASYNC_TCP_SOCKET_CONST("NODELAY", ASYNC_SOCKET_TCP_NODELAY);
+	ASYNC_TCP_SOCKET_CONST("KEEPALIVE", ASYNC_SOCKET_TCP_KEEPALIVE);
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\TcpSocketReader", async_tcp_socket_reader_functions);
 	async_tcp_socket_reader_ce = zend_register_internal_class(&ce);
@@ -2690,33 +1952,15 @@ void async_tcp_ce_register()
 	async_tcp_server_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_tcp_server_ce->serialize = zend_class_serialize_deny;
 	async_tcp_server_ce->unserialize = zend_class_unserialize_deny;
+	
+	zend_class_implements(async_tcp_server_ce, 1, async_server_ce);
 
 	memcpy(&async_tcp_server_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_tcp_server_handlers.dtor_obj = async_tcp_server_object_dtor;
 	async_tcp_server_handlers.free_obj = async_tcp_server_object_destroy;
 	async_tcp_server_handlers.clone_obj = NULL;
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\ClientEncryption", async_tcp_client_encryption_functions);
-	async_tcp_client_encryption_ce = zend_register_internal_class(&ce);
-	async_tcp_client_encryption_ce->ce_flags |= ZEND_ACC_FINAL;
-	async_tcp_client_encryption_ce->create_object = async_tcp_client_encryption_object_create;
-
-	memcpy(&async_tcp_client_encryption_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	async_tcp_client_encryption_handlers.free_obj = async_tcp_client_encryption_object_destroy;
-	async_tcp_client_encryption_handlers.clone_obj = NULL;
-
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\ServerEncryption", async_tcp_server_encryption_functions);
-	async_tcp_server_encryption_ce = zend_register_internal_class(&ce);
-	async_tcp_server_encryption_ce->ce_flags |= ZEND_ACC_FINAL;
-	async_tcp_server_encryption_ce->create_object = async_tcp_server_encryption_object_create;
-
-	memcpy(&async_tcp_server_encryption_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	async_tcp_server_encryption_handlers.free_obj = async_tcp_server_encryption_object_destroy;
-	async_tcp_server_encryption_handlers.clone_obj = NULL;
-
-#ifdef HAVE_ASYNC_SSL
-	async_index = SSL_get_ex_new_index(0, "ext-async", NULL, NULL, NULL);
-#endif
+	ASYNC_TCP_SERVER_CONST("SIMULTANEOUS_ACCEPTS", ASYNC_SOCKET_TCP_SIMULTANEOUS_ACCEPTS);
 }
 
 

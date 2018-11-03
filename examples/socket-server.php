@@ -3,25 +3,25 @@
 namespace Concurrent\Network;
 
 if (($_SERVER['argv'][1] ?? null)) {
-    $encryption = new ServerEncryption();
-    $encryption = $encryption->withDefaultCertificate(__DIR__ . '/cert/localhost.crt', __DIR__ . '/cert/localhost.key', 'localhost');
+    $tls = new TlsServerEncryption();
+    $tls = $tls->withDefaultCertificate(__DIR__ . '/cert/localhost.crt', __DIR__ . '/cert/localhost.key', 'localhost');
 } else {
-    $encryption = null;
+    $tls = null;
 }
 
-$server = TcpServer::listen('localhost', 8080, $encryption);
+$server = TcpServer::listen('localhost', 8080, $tls);
 
 try {
-    var_dump($server->getHost(), $server->getPort(), $server->getPeer());
+    var_dump($server->getAddress(), $server->getPort());
     
     for ($i = 0; $i < 3; $i++) {
         $socket = $server->accept();
         
-        \Concurrent\Task::async(function () use ($socket, $encryption) {
+        \Concurrent\Task::async(function () use ($socket, $tls) {
             var_dump('CLIENT CONNECTED');
             
             try {
-                if ($encryption) {
+                if ($tls) {
                     var_dump('Negotiate TLS');
                     $socket->encrypt();
                     var_dump('TLS established');

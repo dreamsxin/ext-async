@@ -2,21 +2,20 @@
 
 namespace Concurrent\Network;
 
-$encryption = ($_SERVER['argv'][1] ?? null) ? new ClientEncryption() : null;
+$tls = ($_SERVER['argv'][1] ?? null) ? new TlsClientEncryption() : null;
 
-// $socket = TcpSocket::connect('google.com', $encryption ? 443 : 80, $encryption);
-$socket = TcpSocket::connect('httpbin.org', $encryption ? 443 : 80, $encryption);
+$socket = TcpSocket::connect('httpbin.org', $tls ? 443 : 80, $tls);
 
 try {
-    var_dump($socket->getLocalPeer(), $socket->getRemotePeer());
+    var_dump($socket->getAddress(), $socket->getPort());
+    var_dump($socket->getRemoteAddress(), $socket->getRemotePort());
     
-    $socket->setNodelay(true);
+    $socket->setOption(TcpSocket::NODELAY, true);
     
-    if ($encryption) {
+    if ($tls) {
         $socket->encrypt();
     }
     
-//     $socket->write("GET / HTTP/1.0\r\nHost: google.com\r\nConnection: close\r\n\r\n");
     $socket->write("GET /status/201 HTTP/1.0\r\nHost: httpbin.org\r\nConnection: close\r\n\r\n");
     
     while (null !== ($chunk = $socket->read())) {

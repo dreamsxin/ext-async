@@ -13,21 +13,21 @@ use Concurrent\Task;
 
 $file = dirname(__DIR__) . '/examples/cert/localhost.';
 
-$encryption = new ServerEncryption();
-$encryption = $encryption->withDefaultCertificate($file . 'crt', $file . 'key', 'localhost');
+$tls = new TlsServerEncryption();
+$tls = $tls->withDefaultCertificate($file . 'crt', $file . 'key', 'localhost');
 
-$server = TcpServer::listen('127.0.0.1', 0, $encryption);
+$server = TcpServer::listen('127.0.0.1', 0, $tls);
 
 try {
-    $host = $server->getHost();
+    $host = $server->getAddress();
     $port = $server->getPort();
     
     Task::async(function () use ($host, $port) {
-        $encryption = new ClientEncryption();
-        $encryption = $encryption->withPeerName('localhost');
-        $encryption = $encryption->withAllowSelfSigned(true);
+        $tls = new TlsClientEncryption();
+        $tls = $tls->withPeerName('localhost');
+        $tls = $tls->withAllowSelfSigned(true);
         
-        $socket = TcpSocket::connect($host, $port, $encryption);
+        $socket = TcpSocket::connect($host, $port, $tls);
         
         var_dump('CONNECTED');
         

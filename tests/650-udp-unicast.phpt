@@ -30,7 +30,7 @@ Task::async(function () use ($a, $b) {
 });
 
 try {
-    $b->send(new UdpDatagram('Test', '127.0.0.1', $a->getPeer()[1]));
+    $b->send(new UdpDatagram('Test', '127.0.0.1', $a->getPort()));
     
     (new Timer(50))->awaitTimeout();
     
