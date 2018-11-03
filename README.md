@@ -313,12 +313,14 @@ The network API provides access to stream and datagram sockets.
 
 ### Socket
 
+Defines the basic API that every socket-based component exposes.
+
 ```php
 namespace Concurrent\Network;
 
 interface Socket
 {
-    public function close(?\Throwable $e = null): void { }
+    public function close(?\Throwable $e = null): void;
 
     public function getAddress(): string;
 
@@ -329,6 +331,8 @@ interface Socket
 ```
 
 ### SocketStream
+
+Defines the API being provided by reliable connected socket streams.
 
 ```php
 namespace Concurrent\Network;
@@ -341,11 +345,13 @@ interface SocketStream extends Socket, DuplexStream
 
     public function getRemotePort(): ?int;
     
-    public function writeAsync(string $data): int { }
+    public function writeAsync(string $data): int;
 }
 ```
 
 ### Server
+
+Provides the minimal API being exposed by reliable socket servers.
 
 ```php
 namespace Concurrent\Network;
