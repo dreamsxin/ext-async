@@ -439,7 +439,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_stream_watcher_await_writable, 0
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_stream_watcher_functions[] = {
-	ZEND_ME(StreamWatcher, __construct, arginfo_stream_watcher_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(StreamWatcher, __construct, arginfo_stream_watcher_ctor, ZEND_ACC_PUBLIC)
 	ZEND_ME(StreamWatcher, close, arginfo_stream_watcher_close, ZEND_ACC_PUBLIC)
 	ZEND_ME(StreamWatcher, awaitReadable, arginfo_stream_watcher_await_readable, ZEND_ACC_PUBLIC)
 	ZEND_ME(StreamWatcher, awaitWritable, arginfo_stream_watcher_await_writable, ZEND_ACC_PUBLIC)

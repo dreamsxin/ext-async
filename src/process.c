@@ -114,8 +114,6 @@ static char **populate_env(HashTable *add, zend_bool inherit)
 
 #else
 
-extern char **environ;
-
 static char **populate_env(HashTable *add, zend_bool inherit)
 {
 	char **env;
@@ -130,7 +128,9 @@ static char **populate_env(HashTable *add, zend_bool inherit)
 	count = 0;
 
 	if (inherit) {
-		while (NULL != environ[count]) {
+		char **tmp;
+		
+		for (tmp = environ; tmp != NULL && *tmp != NULL; tmp++) {
 			count++;
 		}
 	}
@@ -846,7 +846,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_builder_start, 0, 0, Conc
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_process_builder_functions[] = {
-	ZEND_ME(ProcessBuilder, __construct, arginfo_process_builder_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(ProcessBuilder, __construct, arginfo_process_builder_ctor, ZEND_ACC_PUBLIC)
 	ZEND_ME(ProcessBuilder, setDirectory, arginfo_process_builder_set_directory, ZEND_ACC_PUBLIC)
 	ZEND_ME(ProcessBuilder, inheritEnv, arginfo_process_builder_inherit_env, ZEND_ACC_PUBLIC)
 	ZEND_ME(ProcessBuilder, setEnv, arginfo_process_builder_set_env, ZEND_ACC_PUBLIC)

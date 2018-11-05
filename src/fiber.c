@@ -483,7 +483,7 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_yield, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry fiber_functions[] = {
-	ZEND_ME(Fiber, __construct, arginfo_fiber_create, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(Fiber, __construct, arginfo_fiber_create, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, __debugInfo, arginfo_fiber_debug_info, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, status, arginfo_fiber_status, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, start, arginfo_fiber_start, ZEND_ACC_PUBLIC)

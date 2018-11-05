@@ -334,7 +334,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_watcher_is_supported, 0, 
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_signal_watcher_functions[] = {
-	ZEND_ME(SignalWatcher, __construct, arginfo_signal_watcher_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(SignalWatcher, __construct, arginfo_signal_watcher_ctor, ZEND_ACC_PUBLIC)
 	ZEND_ME(SignalWatcher, close, arginfo_signal_watcher_close, ZEND_ACC_PUBLIC)
 	ZEND_ME(SignalWatcher, awaitSignal, arginfo_signal_watcher_await_signal, ZEND_ACC_PUBLIC)
 	ZEND_ME(SignalWatcher, isSupported, arginfo_signal_watcher_is_supported, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)

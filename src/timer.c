@@ -278,7 +278,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_timer_await_timeout, 0, 0, IS_VO
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_timer_functions[] = {
-	ZEND_ME(Timer, __construct, arginfo_timer_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(Timer, __construct, arginfo_timer_ctor, ZEND_ACC_PUBLIC)
 	ZEND_ME(Timer, close, arginfo_timer_close, ZEND_ACC_PUBLIC)
 	ZEND_ME(Timer, awaitTimeout, arginfo_timer_await_timeout, ZEND_ACC_PUBLIC)
 	ZEND_FE_END

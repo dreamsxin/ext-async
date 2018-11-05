@@ -801,7 +801,7 @@ ZEND_BEGIN_ARG_INFO(arginfo_task_wakeup, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry task_functions[] = {
-	ZEND_ME(Task, __construct, arginfo_task_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
+	ZEND_ME(Task, __construct, arginfo_task_ctor, ZEND_ACC_PRIVATE)
 	ZEND_ME(Task, __debugInfo, arginfo_task_debug_info, ZEND_ACC_PUBLIC)
 	ZEND_ME(Task, isRunning, arginfo_task_is_running, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, async, arginfo_task_async, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)

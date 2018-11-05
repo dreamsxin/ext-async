@@ -436,7 +436,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_current, 0, 0, Concurrent
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_context_functions[] = {
-	ZEND_ME(Context, __construct, arginfo_context_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
+	ZEND_ME(Context, __construct, arginfo_context_ctor, ZEND_ACC_PRIVATE)
 	ZEND_ME(Context, isBackground, arginfo_context_is_background, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, with, arginfo_context_with, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, withTimeout, arginfo_context_with_timeout, ZEND_ACC_PUBLIC)
@@ -515,7 +515,7 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_context_var_get, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_context_var_functions[] = {
-	ZEND_ME(ContextVar, __construct, arginfo_context_var_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(ContextVar, __construct, arginfo_context_var_ctor, ZEND_ACC_PUBLIC)
 	ZEND_ME(ContextVar, get, arginfo_context_var_get, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
@@ -672,7 +672,7 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_cancellation_handler_cancel, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_cancellation_handler_functions[] = {
-	ZEND_ME(CancellationHandler, __construct, arginfo_cancellation_handler_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(CancellationHandler, __construct, arginfo_cancellation_handler_ctor, ZEND_ACC_PUBLIC)
 	ZEND_ME(CancellationHandler, context, arginfo_cancellation_handler_context, ZEND_ACC_PUBLIC)
 	ZEND_ME(CancellationHandler, cancel, arginfo_cancellation_handler_cancel, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
@@ -752,7 +752,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_cancellation_token_throw_if_canc
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_cancellation_token_functions[] = {
-	ZEND_ME(CancellationToken, __construct, arginfo_cancellation_token_ctor, ZEND_ACC_PRIVATE | ZEND_ACC_CTOR)
+	ZEND_ME(CancellationToken, __construct, arginfo_cancellation_token_ctor, ZEND_ACC_PRIVATE)
 	ZEND_ME(CancellationToken, isCancelled, arginfo_cancellation_token_is_cancelled, ZEND_ACC_PUBLIC)
 	ZEND_ME(CancellationToken, throwIfCancelled, arginfo_cancellation_token_throw_if_cancelled, ZEND_ACC_PUBLIC)
 	ZEND_FE_END

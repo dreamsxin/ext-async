@@ -875,7 +875,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_udp_datagram_with_peer, 0, 2, Con
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_udp_datagram_functions[] = {
-	ZEND_ME(UdpDatagram, __construct, arginfo_udp_datagram_ctor, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+	ZEND_ME(UdpDatagram, __construct, arginfo_udp_datagram_ctor, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpDatagram, __debugInfo, arginfo_udp_datagram_debug_info, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpDatagram, withData, arginfo_udp_datagram_with_data, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpDatagram, withPeer, arginfo_udp_datagram_with_peer, ZEND_ACC_PUBLIC)
