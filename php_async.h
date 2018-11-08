@@ -135,6 +135,7 @@ void async_awaitable_ce_register();
 void async_context_ce_register();
 void async_deferred_ce_register();
 void async_fiber_ce_register();
+void async_filesystem_ce_register();
 void async_process_ce_register();
 void async_signal_watcher_ce_register();
 void async_socket_ce_register();
@@ -148,6 +149,7 @@ void async_timer_ce_register();
 void async_udp_socket_ce_register();
 
 void async_fiber_ce_unregister();
+void async_filesystem_ce_unregister();
 
 void async_context_shutdown();
 void async_fiber_shutdown();
@@ -933,7 +935,10 @@ ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, 
 ASYNC_API uv_loop_t *async_task_scheduler_get_loop();
 ASYNC_API async_task_scheduler *async_task_scheduler_get();
 
-void async_awaitable_queue_init(async_awaitable_queue *q, async_task_scheduler *scheduler);
+ASYNC_API async_awaitable_queue *async_awaitable_queue_alloc(async_task_scheduler *scheduler);
+ASYNC_API void async_awaitable_queue_dispose(async_awaitable_queue *q);
+
+ASYNC_API void async_awaitable_queue_init(async_awaitable_queue *q, async_task_scheduler *scheduler);
 ASYNC_API void async_awaitable_queue_destroy(async_awaitable_queue *q);
 
 ASYNC_API void async_gethostbyname(char *name, zval *return_value, zend_execute_data *execute_data);

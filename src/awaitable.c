@@ -21,6 +21,33 @@
 zend_class_entry *async_awaitable_ce;
 
 
+async_awaitable_queue *async_awaitable_queue_alloc(async_task_scheduler *scheduler)
+{
+	async_awaitable_queue *q;
+	
+	q = emalloc(sizeof(async_awaitable_queue));
+	ZEND_SECURE_ZERO(q, sizeof(async_awaitable_queue));
+	
+	if (scheduler == NULL) {
+		q->scheduler = async_task_scheduler_get();
+	} else {
+		q->scheduler = scheduler;
+	}
+	
+	ASYNC_ADDREF(&q->scheduler->std);
+	
+	return q;
+}
+
+void async_awaitable_queue_dispose(async_awaitable_queue *q)
+{
+	ZEND_ASSERT(q->scheduler != NULL);
+
+	ASYNC_DELREF(&q->scheduler->std);
+	
+	efree(q);
+}
+
 void async_awaitable_queue_init(async_awaitable_queue *q, async_task_scheduler *scheduler)
 {
 	if (scheduler == NULL) {

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PHP_VERSION=7.3.0RC2
+PHP_VERSION=php-7.3.0RC5
 
 sudo apt-get update
 sudo apt-get install gdb git gcc make pkg-config autoconf libtool bison libxml2-dev libssl-dev curl -y
@@ -12,7 +12,7 @@ cd /usr/local/php
 sudo mkdir cli
 
 sudo mkdir php-src
-sudo curl -LSs https://github.com/php/php-src/archive/php-$PHP_VERSION.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
+sudo curl -LSs https://github.com/php/php-src/archive/$PHP_VERSION.tar.gz | sudo tar -xz -C "php-src" --strip-components 1
 
 pushd php-src
 
@@ -23,6 +23,8 @@ sudo ./configure \
     --with-openssl \
     --with-zlib \
     --without-pear \
+    --disable-all \
+    --enable-cli \
     --enable-debug \
     --enable-mbstring \
     --enable-pcntl \
@@ -47,7 +49,7 @@ cd /vagrant
 sudo phpize --clean
 sudo phpize
 sudo ./configure
-sudo make install
+sudo make install -B
 
 sudo echo "extension=\"async.so\"" >> /usr/local/php/cli/php.ini
 

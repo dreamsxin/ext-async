@@ -17,11 +17,12 @@ if test "$PHP_ASYNC" != "no"; then
   ])
 
   async_source_files="php_async.c \
-    src/fiber.c \
-    src/fiber_stack.c \
     src/awaitable.c \
     src/context.c \
     src/deferred.c \
+    src/fiber.c \
+    src/fiber_stack.c \
+    src/filesystem.c \
     src/helper.c \
     src/process.c \
     src/signal_watcher.c \

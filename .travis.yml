@@ -4,7 +4,7 @@ compiler:
   - gcc
 
 php:
-  - nightly
+  - 7.3
 
 sudo: false
 
@@ -22,7 +22,7 @@ env:
 matrix:
   fast_finish: true
   allow_failures:
-    - php: nightly
+    - php: 7.3
       env: TEST_PHP_ARGS="-q -m --show-mem"
 
 before_install:

@@ -145,6 +145,7 @@ PHP_MINIT_FUNCTION(async)
 	async_context_ce_register();
 	async_deferred_ce_register();
 	async_fiber_ce_register();
+	async_filesystem_ce_register();
 	async_process_ce_register();
 	async_signal_watcher_ce_register();
 	async_ssl_ce_register();
@@ -166,6 +167,7 @@ PHP_MINIT_FUNCTION(async)
 
 PHP_MSHUTDOWN_FUNCTION(async)
 {
+	async_filesystem_ce_unregister();
 	async_fiber_ce_unregister();
 
 	UNREGISTER_INI_ENTRIES();

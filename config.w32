@@ -13,11 +13,12 @@ if (PHP_ASYNC != 'no') {
 		
 	var async_source_files = [
 		'php_async.c',
-		'src\\fiber.c',
-		'src\\fiber_winfib.c',
 		'src\\awaitable.c',
 		'src\\context.c',
 		'src\\deferred.c',
+		'src\\fiber.c',
+		'src\\fiber_winfib.c',
+		'src\\filesystem.c',
 		'src\\helper.c',
 		'src\\process.c',
 		'src\\signal_watcher.c',
