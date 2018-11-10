@@ -79,11 +79,22 @@
 
 static php_stream_wrapper orig_file_wrapper;
 
+typedef struct _async_dirstream_entry async_dirstream_entry;
+
+struct _async_dirstream_entry {
+	async_dirstream_entry *prev;
+	async_dirstream_entry *next;
+
+	/* Uses the struct hack to avoid additional memory allocations. */
+	char name[1];
+};
+
 typedef struct {
-	uv_fs_t *dir;
-	uv_dirent_t current;
-	int index;
-	zend_bool finished;
+	async_dirstream_entry *first;
+	async_dirstream_entry *last;
+	async_dirstream_entry *entry;
+	zend_off_t offset;
+	zend_off_t size;
 	async_task_scheduler *scheduler;
 } async_dirstream_data;
 
@@ -206,50 +217,71 @@ static size_t async_dirstream_read(php_stream *stream, char *buf, size_t count)
 	async_dirstream_data *data;
 	php_stream_dirent *ent;
 	
-	int code;
-	
 	data = (async_dirstream_data *) stream->abstract;
 	ent = (php_stream_dirent *) buf;
 	
-	if (data->finished) {
+	if (data->entry == NULL) {
 		return 0;
 	}
-	
-	data->index++;
-	
-	switch(data->index) {
-	case 1:
-		strcpy(ent->d_name, ".");
-		return sizeof(php_stream_dirent);
-	case 2:
-		strcpy(ent->d_name, "..");
-		return sizeof(php_stream_dirent);
-	}
-	
-	code = uv_fs_scandir_next(data->dir, &data->current);
-	
-	if (code == UV_EOF) {
-		uv_fs_req_cleanup(data->dir);
-		efree(data->dir);
-	
-		data->finished = 1;
-		data->dir = NULL;
-	
-		return 0;
-	}
-	
-	if (code < 0) {
-		return -1;
-	}
-	
-	strcpy(ent->d_name, data->current.name);
+
+	strcpy(ent->d_name, data->entry->name);
+
+	data->entry = data->entry->next;
+	data->offset++;
 
 	return sizeof(php_stream_dirent);
 }
 
 static int async_dirstream_rewind(php_stream *stream, zend_off_t offset, int whence, zend_off_t *newoffs)
 {
-	// TODO: Implement rewind, this requires another call to libuv.
+	async_dirstream_data *data;
+	async_dirstream_entry *entry;
+
+	zend_off_t i;
+
+	data = (async_dirstream_data *) stream->abstract;
+
+	// TODO: Ensure entries are set before access.
+
+	switch (whence) {
+	case SEEK_SET:
+		entry = data->first;
+
+		for (i = 0; i < offset; i++) {
+			entry = entry->next;
+		}
+
+		data->entry = entry;
+		data->offset = offset;
+
+		break;
+	case SEEK_CUR:
+		entry = data->first;
+
+		for (i = 0; i < offset; i++) {
+			entry = entry->next;
+		}
+
+		data->entry = entry;
+		data->offset += offset;
+
+		break;
+	case SEEK_END:
+		entry = data->last;
+
+		for (i = 0; i < offset; i++) {
+			entry = entry->next;
+		}
+
+		data->entry = entry;
+		data->offset = data->size - offset;
+
+		break;
+	default:
+		return -1;
+	}
+
+	*newoffs = data->offset;
 
 	return 0;
 }
@@ -257,12 +289,17 @@ static int async_dirstream_rewind(php_stream *stream, zend_off_t offset, int whe
 static int async_dirstream_close(php_stream *stream, int close_handle)
 {
 	async_dirstream_data *data;
+	async_dirstream_entry *entry;
+	async_dirstream_entry *prev;
 	
 	data = (async_dirstream_data *) stream->abstract;
+	entry = data->first;
 	
-	if (data->dir != NULL) {
-		uv_fs_req_cleanup(data->dir);
-		efree(data->dir);
+	while (entry != NULL) {
+		prev = entry;
+		entry = entry->next;
+
+		efree(prev);
 	}
 	
 	OBJ_RELEASE(&data->scheduler->std);
@@ -505,7 +542,7 @@ int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 	}
 	
 	async = async_cli && ((options & STREAM_OPEN_FOR_INCLUDE) == 0);
-	
+
 	if (options & STREAM_ASSUME_REALPATH) {
 		strlcpy(realpath, path, MAXPATHLEN);
 	} else {
@@ -548,16 +585,36 @@ int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 	return stream;
 }
 
+static inline async_dirstream_entry *create_dir_entry(async_dirstream_entry *prev, const char *name)
+{
+	async_dirstream_entry *entry;
+
+	entry = emalloc(sizeof(async_dirstream_entry) + strlen(name));
+	entry->prev = prev;
+	entry->next = NULL;
+
+	strcpy(entry->name, name);
+
+	if (prev != NULL) {
+		prev->next = entry;
+	}
+
+	return entry;
+}
+
 static php_stream *async_filestream_wrapper_opendir(php_stream_wrapper *wrapper, const char *path, const char *mode,
 int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 {
 	async_dirstream_data *data;
-	
-	uv_fs_t *req;
+	async_dirstream_entry *prev;
+
+	uv_fs_t req;
+	uv_dirent_t tmp;
 
 	php_stream *stream;
 	char realpath[MAXPATHLEN];
-	
+	int code;
+
 	if (((options & STREAM_DISABLE_OPEN_BASEDIR) == 0) && php_check_open_basedir(path)) {
 		return NULL;
 	}
@@ -569,18 +626,15 @@ int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 			return NULL;
 		}
 	}
+
+	ASYNC_FS_CALLW(async_cli, &req, uv_fs_scandir, realpath, 0);
 	
-	req = emalloc(sizeof(uv_fs_t));
-		
-	ASYNC_FS_CALLW(async_cli, req, uv_fs_scandir, realpath, 0);
-	
-	if (req->result < 0) {
+	if (req.result < 0) {
 		if (options & REPORT_ERRORS) {
-			php_error_docref(NULL, E_WARNING, "Failed to open dir %s: %s", realpath, uv_strerror(req->result));
+			php_error_docref(NULL, E_WARNING, "Failed to open dir %s: %s", realpath, uv_strerror(req.result));
 		}
 		
-		uv_fs_req_cleanup(req);
-		efree(req);
+		uv_fs_req_cleanup(&req);
 	
 		return NULL;
 	}
@@ -592,18 +646,41 @@ int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 	
 	if (UNEXPECTED(stream == NULL)) {
 		efree(data);
-		
-		uv_fs_req_cleanup(req);
-		efree(req);
+		uv_fs_req_cleanup(&req);
 		
 		return NULL;
 	}
-	
-	data->dir = req;
+
+	data->offset = 0;
+	data->size = 2;
+
+	prev = create_dir_entry(NULL, ".");
+
+	data->first = prev;
+	data->entry = prev;
+
+	prev = create_dir_entry(prev, "..");
+
+	while (1) {
+		code = uv_fs_scandir_next(&req, &tmp);
+
+		if (code == UV_EOF) {
+			data->last = prev;
+
+			break;
+		}
+
+		prev = create_dir_entry(prev, tmp.name);
+
+		data->size++;
+	}
+
+	uv_fs_req_cleanup(&req);
+
 	data->scheduler = async_task_scheduler_get();
 	
 	GC_ADDREF(&data->scheduler->std);
-	
+
 	return stream;
 }
 
