@@ -242,7 +242,6 @@ ZEND_METHOD(UdpSocket, bind)
 	zend_string *name;
 	zend_long port;
 	
-	zval ip;
 	zval obj;
 	
 	struct sockaddr_in dest;
@@ -253,22 +252,14 @@ ZEND_METHOD(UdpSocket, bind)
 		Z_PARAM_LONG(port)
 	ZEND_PARSE_PARAMETERS_END();
 	
-	async_gethostbyname(ZSTR_VAL(name), &ip, execute_data);
-
-	ASYNC_RETURN_ON_ERROR();
+	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &dest, execute_data);
+	
+	ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
+	
+	dest.sin_port = htons(port);
 	
 	socket = async_udp_socket_object_create();
 	socket->name = zend_string_copy(name);
-	
-	code = uv_ip4_addr(Z_STRVAL_P(&ip), (int) port, &dest);
-
-	zval_ptr_dtor(&ip);
-
-	if (UNEXPECTED(code != 0)) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to assemble IP address: %s", uv_strerror(code));
-		ASYNC_DELREF(&socket->std);
-		return;
-	}
 	
 	code = uv_udp_bind(&socket->handle, (const struct sockaddr *) &dest, UV_UDP_REUSEADDR);
 	

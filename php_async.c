@@ -144,6 +144,7 @@ PHP_MINIT_FUNCTION(async)
 	async_awaitable_ce_register();
 	async_context_ce_register();
 	async_deferred_ce_register();
+	async_dns_ce_register();
 	async_fiber_ce_register();
 	async_filesystem_ce_register();
 	async_process_ce_register();
@@ -199,12 +200,18 @@ PHP_RINIT_FUNCTION(async)
 	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 
+	async_dns_init();
+	async_timer_init();
+
 	return SUCCESS;
 }
 
 PHP_RSHUTDOWN_FUNCTION(async)
 {
 	async_task_scheduler_shutdown();
+	
+	async_dns_shutdown();
+	async_timer_shutdown();
 
 	async_context_shutdown();
 	async_fiber_shutdown();
@@ -212,169 +219,10 @@ PHP_RSHUTDOWN_FUNCTION(async)
 	return SUCCESS;
 }
 
-
-static zend_string *async_gethostbyname_sync(char *name)
-{
-	struct hostent *hp;
-	struct in_addr in;
-	char *address;
-
-	hp = php_network_gethostbyname(name);
-
-	if (!hp || !*(hp->h_addr_list)) {
-		return NULL;
-	}
-
-	memcpy(&in.s_addr, *(hp->h_addr_list), sizeof(in.s_addr));
-
-	address = inet_ntoa(in);
-	return zend_string_init(address, strlen(address), 0);
-}
-
-static void async_gethostbyname_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *res)
-{
-	async_awaitable_queue *q;
-	char name[64];
-
-	zval result;
-
-	q = (async_awaitable_queue *) req->data;
-
-	efree(req);
-
-	if (status != 0) {
-		uv_freeaddrinfo(res);
-
-		if (status == UV_ECANCELED) {
-			return;
-		}
-
-		ZVAL_LONG(&result, status);
-
-		async_awaitable_trigger_continuation(q, &result, 1);
-
-		return;
-	}
-
-	if (res->ai_family == AF_INET) {
-		uv_ip4_name((struct sockaddr_in*) res->ai_addr, name, res->ai_addrlen);
-		ZVAL_STRING(&result, name);
-	} else if (res->ai_family == AF_INET6) {
-		uv_ip6_name((struct sockaddr_in6*) res->ai_addr, name, res->ai_addrlen);
-		ZVAL_STRING(&result, name);
-	} else {
-		ZVAL_NULL(&result);
-	}
-
-	uv_freeaddrinfo(res);
-
-	async_awaitable_trigger_continuation(q, &result, 1);
-
-	zval_ptr_dtor(&result);
-}
-
-static void async_gethostbyname_uv(char *name, zval *return_value, zend_execute_data *execute_data)
-{
-	async_awaitable_queue *q;
-	async_task_scheduler *scheduler;
-	zend_bool cancelled;
-
-	uv_getaddrinfo_t *req;
-
-	zval result;
-	int err;
-
-	if (strcasecmp(name, "localhost") == 0) {
-		RETURN_STRING("127.0.0.1");
-	}
-
-	q = emalloc(sizeof(async_awaitable_queue));
-	ZEND_SECURE_ZERO(q, sizeof(async_awaitable_queue));
-
-	req = emalloc(sizeof(uv_getaddrinfo_t));
-	ZEND_SECURE_ZERO(req, sizeof(uv_getaddrinfo_t));
-
-	req->data = q;
-	
-	scheduler = async_task_scheduler_get();
-
-	err = uv_getaddrinfo(&scheduler->loop, req, async_gethostbyname_cb, name, NULL, NULL);
-
-	if (err != 0) {
-		efree(req);
-		efree(q);
-
-		zend_throw_error(NULL, "Failed to start DNS request to resolve \"%s\": %s", name, uv_strerror(err));
-		return;
-	}
-	
-	async_awaitable_queue_init(q, scheduler);
-	async_task_suspend(q, &result, execute_data, &cancelled);
-	async_awaitable_queue_destroy(q);
-
-	efree(q);
-
-	if (cancelled) {
-		uv_cancel((uv_req_t *) req);
-		return;
-	}
-
-	if (Z_TYPE_P(&result) == IS_LONG) {
-		zend_throw_error(NULL, "Failed to resolve \"%s\": %s", name, uv_strerror((int) Z_LVAL_P(&result)));
-		return;
-	}
-
-	if (Z_TYPE_P(&result) == IS_NULL) {
-		zend_throw_error(NULL, "No IP could be resolved for \"%s\"", name);
-		return;
-	}
-
-	RETURN_ZVAL(&result, 1, 1);
-}
-
-void async_gethostbyname(char *name, zval *return_value, zend_execute_data *execute_data)
-{
-	zend_string *ip;
-
-	ASYNC_CHECK_ERROR(strlen(name) > MAXFQDNLEN, "Host name is too long, the limit is %d characters", MAXFQDNLEN);
-
-	if (async_cli) {
-		async_gethostbyname_uv(name, return_value, execute_data);
-	} else {
-		ip = async_gethostbyname_sync(name);
-
-		ASYNC_CHECK_ERROR(ip == NULL, "Failed to resolve \"%s\" into an IP address", name);
-
-		RETURN_STR(ip);
-	}
-}
-
-static PHP_FUNCTION(gethostbyname)
-{
-	char *name;
-	size_t len;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_STRING(name, len)
-	ZEND_PARSE_PARAMETERS_END();
-
-	async_gethostbyname(name, return_value, execute_data);
-}
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_async_gethostbyname, 0, 1, IS_STRING, 0)
-	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-static zend_function_entry async_functions[] = {
-	ZEND_NS_FE("Concurrent", gethostbyname, arginfo_async_gethostbyname)
-	PHP_FE_END
-};
-
-
 zend_module_entry async_module_entry = {
 	STANDARD_MODULE_HEADER,
 	"async",
-	async_functions,
+	NULL,
 	PHP_MINIT(async),
 	PHP_MSHUTDOWN(async),
 	PHP_RINIT(async),

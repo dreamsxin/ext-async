@@ -113,8 +113,14 @@ void async_awaitable_dispose_continuation(async_awaitable_queue *q, async_awaita
 void async_awaitable_trigger_next_continuation(async_awaitable_queue *q, zval *result, zend_bool success)
 {
 	async_awaitable_cb *cb;
+	zval dummy;
 	
 	ZEND_ASSERT(q->scheduler != NULL);
+	
+	if (success && result == NULL) {
+		ZVAL_NULL(&dummy);
+		result = &dummy;
+	}
 
 	if (q->first != NULL) {
 		ASYNC_Q_DEQUEUE(q, cb);
@@ -133,8 +139,14 @@ void async_awaitable_trigger_next_continuation(async_awaitable_queue *q, zval *r
 void async_awaitable_trigger_continuation(async_awaitable_queue *q, zval *result, zend_bool success)
 {
 	async_awaitable_cb *cb;
+	zval dummy;
 	
 	ZEND_ASSERT(q->scheduler != NULL);
+	
+	if (success && result == NULL) {
+		ZVAL_NULL(&dummy);
+		result = &dummy;
+	}
 
 	while (q->first != NULL) {
 		ASYNC_Q_DEQUEUE(q, cb);

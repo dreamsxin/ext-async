@@ -685,7 +685,6 @@ ZEND_METHOD(TcpSocket, connect)
 	zend_long port;
 
 	zval *tls;
-	zval ip;
 	zval obj;
 
 	uv_connect_t connect;
@@ -700,23 +699,15 @@ ZEND_METHOD(TcpSocket, connect)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_ZVAL(tls)
 	ZEND_PARSE_PARAMETERS_END();
+	
+	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &dest, execute_data);
+	
+	ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 
-	async_gethostbyname(ZSTR_VAL(name), &ip, execute_data);
-
-	ASYNC_RETURN_ON_ERROR();
+	dest.sin_port = htons(port);
 
 	socket = async_tcp_socket_object_create();
 	socket->name = zend_string_copy(name);
-
-	code = uv_ip4_addr(Z_STRVAL_P(&ip), (int) port, &dest);
-
-	zval_ptr_dtor(&ip);
-
-	if (UNEXPECTED(code != 0)) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to assemble IP address: %s", uv_strerror(code));
-		ASYNC_DELREF(&socket->std);
-		return;
-	}
 
 	code = uv_tcp_connect(&connect, &socket->handle, (const struct sockaddr *) &dest, socket_connected);
 
@@ -1619,7 +1610,6 @@ ZEND_METHOD(TcpServer, listen)
 	zend_long port;
 
 	zval *tls;
-	zval ip;
 	zval obj;
 
 	struct sockaddr_in bind;
@@ -1634,15 +1624,11 @@ ZEND_METHOD(TcpServer, listen)
 		Z_PARAM_ZVAL(tls)
 	ZEND_PARSE_PARAMETERS_END();
 
-	async_gethostbyname(ZSTR_VAL(name), &ip, execute_data);
-
-	ASYNC_RETURN_ON_ERROR();
-
-	code = uv_ip4_addr(Z_STRVAL_P(&ip), (int) port, &bind);
-
-	zval_ptr_dtor(&ip);
-
-	ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
+	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &bind, execute_data);
+	
+	ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
+	
+	bind.sin_port = htons(port);
 
 	server = async_tcp_server_object_create();
 	server->name = zend_string_copy(name);

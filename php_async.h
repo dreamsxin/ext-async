@@ -134,6 +134,7 @@ ASYNC_API extern zend_class_entry *async_writable_stream_ce;
 void async_awaitable_ce_register();
 void async_context_ce_register();
 void async_deferred_ce_register();
+void async_dns_ce_register();
 void async_fiber_ce_register();
 void async_filesystem_ce_register();
 void async_process_ce_register();
@@ -151,8 +152,13 @@ void async_udp_socket_ce_register();
 void async_fiber_ce_unregister();
 void async_filesystem_ce_unregister();
 
+void async_dns_init();
+void async_timer_init();
+
 void async_context_shutdown();
+void async_dns_shutdown();
 void async_fiber_shutdown();
+void async_timer_shutdown();
 
 void async_task_scheduler_run();
 void async_task_scheduler_shutdown();
@@ -941,7 +947,8 @@ ASYNC_API void async_awaitable_queue_dispose(async_awaitable_queue *q);
 ASYNC_API void async_awaitable_queue_init(async_awaitable_queue *q, async_task_scheduler *scheduler);
 ASYNC_API void async_awaitable_queue_destroy(async_awaitable_queue *q);
 
-ASYNC_API void async_gethostbyname(char *name, zval *return_value, zend_execute_data *execute_data);
+ASYNC_API int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, zend_execute_data *execute_data);
+ASYNC_API int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, zend_execute_data *execute_data);
 
 
 ZEND_BEGIN_MODULE_GLOBALS(async)

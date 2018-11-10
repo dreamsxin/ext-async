@@ -552,16 +552,6 @@ final class Process
 }
 ```
 
-## Functions
-
-An async version of `gethostbyname()` is provided to allow non-blocking DNS name resolution. This requires PHP to be run via `cli` or `phpdbg` SAPI, any other API will fallback to synchronous resolution for now (the function can still be used in these cases, but it will block until the name is resolved).
-
-```php
-namespace Concurrent;
-
-function gethostbyname(string $host): string { }
-```
-
 ## Fiber
 
 A lower-level API for concurrent callback execution is available through the `Fiber` API. The underlying stack-switching is the same as in the `Task` implementation but fibers do not come with a scheduler or a higher level abstraction of continuations. A fiber must be started and resumed by the caller in PHP userland. Calling `Fiber::yield()` will suspend the fiber and return the yielded value to `start()`, `resume()` or `throw()`. The `status()` method is needed to check if the fiber has been run to completion yet.

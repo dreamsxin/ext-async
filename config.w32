@@ -16,6 +16,7 @@ if (PHP_ASYNC != 'no') {
 		'src\\awaitable.c',
 		'src\\context.c',
 		'src\\deferred.c',
+		'src\\dns.c',
 		'src\\fiber.c',
 		'src\\fiber_winfib.c',
 		'src\\filesystem.c',

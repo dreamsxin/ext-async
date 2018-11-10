@@ -26,6 +26,9 @@ zend_class_entry *async_timer_ce;
 
 static zend_object_handlers async_timer_handlers;
 
+static zend_function *orig_sleep;
+static zif_handler orig_sleep_handler;
+
 
 static void trigger_timer(uv_timer_t *handle)
 {
@@ -285,6 +288,65 @@ static const zend_function_entry async_timer_functions[] = {
 };
 
 
+static void sleep_cb(uv_timer_t *timer)
+{
+	async_awaitable_queue *q;
+
+	q = (async_awaitable_queue *) timer->data;
+
+	async_awaitable_trigger_continuation(q, NULL, 1);
+}
+
+static void sleep_free_cb(uv_handle_t *handle)
+{
+	efree(handle);
+}
+
+static PHP_FUNCTION(asyncsleep)
+{
+	async_task_scheduler *scheduler;
+	async_awaitable_queue *q;
+	zend_long num;
+	zend_bool cancelled;
+
+	uv_timer_t *timer;
+
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_LONG(num)
+	ZEND_PARSE_PARAMETERS_END_EX(RETURN_FALSE);
+
+	if (num < 0) {
+		php_error_docref(NULL, E_WARNING, "Number of seconds must be greater than or equal to 0");
+		RETURN_FALSE;
+	}
+
+	scheduler = async_task_scheduler_get();
+	q = async_awaitable_queue_alloc(scheduler);
+
+	timer = emalloc(sizeof(uv_timer_t));
+	timer->data = q;
+
+	uv_timer_init(&scheduler->loop, timer);
+	uv_timer_start(timer, sleep_cb, num * 1000, 0);
+
+	if (async_context_get()->background) {
+		uv_unref((uv_handle_t *) timer);
+	}
+
+	async_task_suspend(q, NULL, execute_data, &cancelled);
+
+	async_awaitable_queue_dispose(q);
+
+	uv_close((uv_handle_t *) timer, sleep_free_cb);
+
+#ifdef PHP_SLEEP_NON_VOID
+	if (EXPECTED(!cancelled && EG(exception) == NULL)) {
+		RETURN_LONG(num);
+	}
+#endif
+}
+
+
 void async_timer_ce_register()
 {
 	zend_class_entry ce;
@@ -300,6 +362,19 @@ void async_timer_ce_register()
 	async_timer_handlers.free_obj = async_timer_object_destroy;
 	async_timer_handlers.dtor_obj = async_timer_object_dtor;
 	async_timer_handlers.clone_obj = NULL;
+}
+
+void async_timer_init()
+{
+	orig_sleep = (zend_function *) zend_hash_str_find_ptr(EG(function_table), ZEND_STRL("sleep"));
+	orig_sleep_handler = orig_sleep->internal_function.handler;
+
+	orig_sleep->internal_function.handler = PHP_FN(asyncsleep);
+}
+
+void async_timer_shutdown()
+{
+	orig_sleep->internal_function.handler = orig_sleep_handler;
 }
 
 
