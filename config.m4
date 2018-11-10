@@ -1,11 +1,18 @@
 PHP_ARG_ENABLE(async, Whether to enable "async" support,
 [ --enable-async          Enable "async" support], no)
 
+PHP_ARG_ENABLE(async-fs, Whether to enable async filesystem wrapper,
+[ --enable-async-fs       Enable async filesystem wrapper], no, no)
+
 PHP_ARG_WITH(openssl-dir, OpenSSL dir for "async",
 [ --with-openssl-dir[=DIR] Openssl install prefix], no, no)
 
 if test "$PHP_ASYNC" != "no"; then
   AC_DEFINE(HAVE_ASYNC, 1, [ ])
+  
+  if test "$PHP_ASYNC_FS" = "yes"; then
+    AC_DEFINE(HAVE_ASYNC_FS, 1, [ ])
+  fi
   
   ASYNC_CFLAGS="-Wall -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1"
   

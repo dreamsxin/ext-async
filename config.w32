@@ -1,9 +1,14 @@
 ARG_ENABLE('async', 'async support', 'yes');
+ARG_ENABLE('async-fs', 'async file IO support', 'no');
 
 X64 = toolset_is_64();
 
 if (PHP_ASYNC != 'no') {
 	AC_DEFINE('HAVE_ASYNC', 1, 'async support enabled');
+	
+	if (PHP_ASYNC_FS == 'yes') {
+		AC_DEFINE('HAVE_ASYNC_FS', 1, 'async filesystem IO support enabled');
+	}
 
 	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname);
 	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\include');

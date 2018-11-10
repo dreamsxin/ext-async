@@ -23,7 +23,6 @@ sudo ./configure \
     --with-openssl \
     --with-zlib \
     --without-pear \
-    --disable-all \
     --enable-cli \
     --enable-debug \
     --enable-mbstring \
@@ -48,7 +47,7 @@ cd /vagrant
 
 sudo phpize --clean
 sudo phpize
-sudo ./configure
+sudo ./configure --enable-async-fs
 sudo make install -B
 
 sudo echo "extension=\"async.so\"" >> /usr/local/php/cli/php.ini

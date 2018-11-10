@@ -948,6 +948,7 @@ static php_stream_wrapper async_filestream_wrapper = {
 
 void async_filesystem_ce_register()
 {
+#ifdef HAVE_ASYNC_FS
 	if (async_cli) {
 		// This works starting with PHP 7.3.0RC5.
 		// It relies on commit 770fe51bfd8994c3df819cbf04b7d76824b55e5c by dstogov (2018-10-24).
@@ -955,13 +956,16 @@ void async_filesystem_ce_register()
 		orig_file_wrapper = php_plain_files_wrapper;
 		php_plain_files_wrapper = async_filestream_wrapper;
 	}
+#endif
 }
 
 void async_filesystem_ce_unregister()
 {
+#ifdef HAVE_ASYNC_FS
 	if (async_cli) {
 		php_plain_files_wrapper = orig_file_wrapper;
 	}
+#endif
 }
 
 
