@@ -119,9 +119,6 @@ static void timed_out(uv_timer_t *timer)
 	async_cancellation_handler *handler;
 	async_cancel_cb *cancel;
 
-	zend_execute_data dummy;
-	zend_execute_data *exec;
-
 	handler = (async_cancellation_handler *) timer->data;
 
 	ZEND_ASSERT(handler != NULL);
@@ -130,24 +127,7 @@ static void timed_out(uv_timer_t *timer)
 		return;
 	}
 
-	if (EG(current_execute_data)) {
-		zend_throw_error(NULL, "Context timed out");
-
-		ZVAL_OBJ(&handler->error, EG(exception));
-		EG(exception) = NULL;
-	} else {
-		memset(&dummy, 0, sizeof(zend_execute_data));
-
-		exec = EG(current_execute_data);
-		EG(current_execute_data) = &dummy;
-
-		zend_throw_error(NULL, "Context timed out");
-
-		ZVAL_OBJ(&handler->error, EG(exception));
-		EG(exception) = NULL;
-
-		EG(current_execute_data) = exec;
-	}
+	async_prepare_error(&handler->error, "Context timed out");
 
 	while (handler->callbacks.first != NULL) {
 		ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);

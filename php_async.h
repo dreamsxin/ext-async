@@ -136,7 +136,6 @@ void async_context_ce_register();
 void async_deferred_ce_register();
 void async_dns_ce_register();
 void async_fiber_ce_register();
-void async_filesystem_ce_register();
 void async_process_ce_register();
 void async_signal_watcher_ce_register();
 void async_socket_ce_register();
@@ -150,15 +149,27 @@ void async_timer_ce_register();
 void async_udp_socket_ce_register();
 
 void async_fiber_ce_unregister();
-void async_filesystem_ce_unregister();
+
+void async_init();
+void async_shutdown();
 
 void async_dns_init();
 void async_timer_init();
+
+#ifdef HAVE_ASYNC_FS
+void async_filesystem_init();
+#endif
 
 void async_context_shutdown();
 void async_dns_shutdown();
 void async_fiber_shutdown();
 void async_timer_shutdown();
+
+#ifdef HAVE_ASYNC_FS
+void async_filesystem_shutdown();
+#endif
+
+void async_prepare_error(zval *error, const char *message);
 
 void async_task_scheduler_run();
 void async_task_scheduler_shutdown();

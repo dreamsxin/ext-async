@@ -30,7 +30,7 @@ var_dump(require __DIR__ . '/bfile.php');
 $file = __DIR__ . '/dummy2.txt';
 
 if (touch($file)) {
-    var_dump(filemtime($file));
+    var_dump(gmdate('Y-m-d H:i:s', filemtime($file)));
 }
 
 $fp = fopen($file, 'w');

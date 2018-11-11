@@ -2,17 +2,13 @@ PHP_ARG_ENABLE(async, Whether to enable "async" support,
 [ --enable-async          Enable "async" support], no)
 
 PHP_ARG_ENABLE(async-fs, Whether to enable async filesystem wrapper,
-[ --enable-async-fs       Enable async filesystem wrapper], no, no)
+[ --enable-async-fs       Enable async file IO support], no, no)
 
 PHP_ARG_WITH(openssl-dir, OpenSSL dir for "async",
 [ --with-openssl-dir[=DIR] Openssl install prefix], no, no)
 
 if test "$PHP_ASYNC" != "no"; then
   AC_DEFINE(HAVE_ASYNC, 1, [ ])
-  
-  if test "$PHP_ASYNC_FS" = "yes"; then
-    AC_DEFINE(HAVE_ASYNC_FS, 1, [ ])
-  fi
   
   ASYNC_CFLAGS="-Wall -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1"
   
@@ -30,7 +26,6 @@ if test "$PHP_ASYNC" != "no"; then
     src/dns.c \
     src/fiber.c \
     src/fiber_stack.c \
-    src/filesystem.c \
     src/helper.c \
     src/process.c \
     src/signal_watcher.c \
@@ -44,6 +39,13 @@ if test "$PHP_ASYNC" != "no"; then
     src/timer.c \
     src/udp.c
   "
+  
+  if test "$PHP_ASYNC_FS" = "yes"; then
+    AC_DEFINE(HAVE_ASYNC_FS, 1, [ ])
+    
+    async_source_files="$async_source_files \
+      src/filesystem.c"
+  fi
   
   AS_CASE([$host_cpu],
     [x86_64*], [async_cpu="x86_64"],

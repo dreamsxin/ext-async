@@ -253,10 +253,7 @@ static async_task_scheduler *async_task_scheduler_object_create()
 
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 	
-	zend_throw_error(NULL, "Task scheduler has been disposed");
-		
-	ZVAL_OBJ(&scheduler->error, EG(exception));
-	EG(exception) = NULL;
+	async_prepare_error(&scheduler->error, "Task scheduler has been disposed");
 
 	uv_loop_init(&scheduler->loop);
 	uv_idle_init(&scheduler->loop, &scheduler->idle);

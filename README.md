@@ -7,7 +7,7 @@ Provides concurrent Zend VM executions using native C fibers in PHP.
 
 ## Installation
 
-**At least `PHP 7.3.0 RC5` is required to compile and use the extension!**
+**At least `PHP 7.3.0 RC5` is required to compile and use the extension with async file IO support!**
 
 The `async` extension is not published as `pecl` extension (yet).
 

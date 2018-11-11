@@ -79,6 +79,44 @@ static void async_execute_ex(zend_execute_data *exec)
 	}
 }
 
+void async_init()
+{
+	async_dns_init();
+	async_timer_init();
+
+#ifdef HAVE_ASYNC_FS
+	async_filesystem_init();
+#endif
+}
+
+void async_shutdown()
+{
+#ifdef HAVE_ASYNC_FS
+	async_filesystem_shutdown();
+#endif
+
+	async_timer_shutdown();
+	async_dns_shutdown();
+}
+
+void async_prepare_error(zval *error, const char *message)
+{
+	zend_execute_data *exec;
+	zend_execute_data dummy;
+
+	memset(&dummy, 0, sizeof(zend_execute_data));
+
+	exec = EG(current_execute_data);
+	EG(current_execute_data) = &dummy;
+
+	zend_throw_error(NULL, "%s", message);
+
+	ZVAL_OBJ(error, EG(exception));
+	EG(exception) = NULL;
+
+	EG(current_execute_data) = exec;
+}
+
 
 PHP_INI_MH(OnUpdateFiberStackSize)
 {
@@ -146,7 +184,6 @@ PHP_MINIT_FUNCTION(async)
 	async_deferred_ce_register();
 	async_dns_ce_register();
 	async_fiber_ce_register();
-	async_filesystem_ce_register();
 	async_process_ce_register();
 	async_signal_watcher_ce_register();
 	async_ssl_ce_register();
@@ -168,7 +205,6 @@ PHP_MINIT_FUNCTION(async)
 
 PHP_MSHUTDOWN_FUNCTION(async)
 {
-	async_filesystem_ce_unregister();
 	async_fiber_ce_unregister();
 
 	UNREGISTER_INI_ENTRIES();
@@ -188,6 +224,13 @@ PHP_MINFO_FUNCTION(async)
 	php_info_print_table_start();
 	php_info_print_table_row(2, "Fiber backend", async_fiber_backend_info());
 	php_info_print_table_row(2, "Libuv version", uv_version);
+
+#ifdef HAVE_ASYNC_FS
+	php_info_print_table_row(2, "Async file IO", async_cli ? "On" : "Off");
+#else
+	php_info_print_table_row(2, "Async file IO", "Off");
+#endif
+
 	php_info_print_table_end();
 
 	DISPLAY_INI_ENTRIES();
@@ -200,18 +243,16 @@ PHP_RINIT_FUNCTION(async)
 	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 
-	async_dns_init();
-	async_timer_init();
+	async_init();
 
 	return SUCCESS;
 }
 
 PHP_RSHUTDOWN_FUNCTION(async)
 {
+	async_shutdown();
+
 	async_task_scheduler_shutdown();
-	
-	async_dns_shutdown();
-	async_timer_shutdown();
 
 	async_context_shutdown();
 	async_fiber_shutdown();
