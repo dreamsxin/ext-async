@@ -534,6 +534,11 @@ int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 	char realpath[MAXPATHLEN];
 	int flags;
 	
+	// Use original file wrapper when cast to fd is required.
+	if (options & STREAM_WILL_CAST) {
+		return orig_file_wrapper.wops->stream_opener(wrapper, path, mode, options, opened_path, context STREAMS_REL_CC);
+	}
+	
 	if (FAILURE == parse_open_mode(mode, &flags)) {
 		if (options & REPORT_ERRORS) {
             php_error_docref(NULL, E_WARNING, "'%s' is not a valid mode for fopen", mode);
