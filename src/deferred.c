@@ -126,7 +126,7 @@ static void combine_continuation(void *obj, zval *data, zval *result, zend_bool 
 	ZVAL_COPY(&args[2], data);
 
 	if (result == NULL) {
-		async_prepare_error(&args[3], "Awaitable has been disposed before it was resolved");
+		ASYNC_PREPARE_ERROR(&args[3], "Awaitable has been disposed before it was resolved");
 
 		ZVAL_NULL(&args[4]);
 	} else if (success) {
@@ -170,7 +170,7 @@ static void combine_continuation(void *obj, zval *data, zval *result, zend_bool 
 		if (combined->defer->status == ASYNC_DEFERRED_STATUS_PENDING) {
 			combined->defer->status = ASYNC_DEFERRED_STATUS_FAILED;
 
-			async_prepare_error(&combined->defer->result, "Awaitable has been disposed before it was resolved");
+			ASYNC_PREPARE_ERROR(&combined->defer->result, "Awaitable has been disposed before it was resolved");
 
 			ASYNC_DEFERRED_CLEANUP_CANCEL(combined->defer);
 
@@ -193,7 +193,7 @@ static void transform_continuation(void *obj, zval *data, zval *result, zend_boo
 	trans = (async_deferred_transform *) obj;
 
 	if (result == NULL) {
-		async_prepare_error(&args[0], "Awaitable has been disposed before it was resolved");
+		ASYNC_PREPARE_ERROR(&args[0], "Awaitable has been disposed before it was resolved");
 
 		ZVAL_NULL(&args[1]);
 	} else if (success) {

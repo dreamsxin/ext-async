@@ -99,24 +99,6 @@ void async_shutdown()
 	async_dns_shutdown();
 }
 
-void async_prepare_error(zval *error, const char *message)
-{
-	zend_execute_data *exec;
-	zend_execute_data dummy;
-
-	memset(&dummy, 0, sizeof(zend_execute_data));
-
-	exec = EG(current_execute_data);
-	EG(current_execute_data) = &dummy;
-
-	zend_throw_error(NULL, "%s", message);
-
-	ZVAL_OBJ(error, EG(exception));
-	EG(exception) = NULL;
-
-	EG(current_execute_data) = exec;
-}
-
 
 PHP_INI_MH(OnUpdateFiberStackSize)
 {

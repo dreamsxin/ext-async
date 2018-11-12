@@ -64,6 +64,12 @@ extern zend_module_entry async_module_entry;
 #include "TSRM.h"
 #endif
 
+#ifdef __GNUC__
+#define ASYNC_VA_ARGS(...) , ##__VA_ARGS__
+#else
+#define ASYNC_VA_ARGS(...) , __VA_ARGS__
+#endif
+
 #include "zend.h"
 #include "zend_API.h"
 #include "zend_vm.h"
@@ -168,8 +174,6 @@ void async_timer_shutdown();
 #ifdef HAVE_ASYNC_FS
 void async_filesystem_shutdown();
 #endif
-
-void async_prepare_error(zval *error, const char *message);
 
 void async_task_scheduler_run();
 void async_task_scheduler_shutdown();
@@ -949,7 +953,6 @@ ASYNC_API async_context *async_context_get();
 
 ASYNC_API void async_task_suspend(async_awaitable_queue *q, zval *return_value, zend_execute_data *execute_data, zend_bool *cancelled);
 
-ASYNC_API uv_loop_t *async_task_scheduler_get_loop();
 ASYNC_API async_task_scheduler *async_task_scheduler_get();
 
 ASYNC_API async_awaitable_queue *async_awaitable_queue_alloc(async_task_scheduler *scheduler);
@@ -1052,51 +1055,49 @@ ZEND_TSRMLS_CACHE_EXTERN()
 	} \
 } while(0)
 
-#ifdef __GNUC__
+#define ASYNC_PREPARE_ERROR(error, message, ...) do { \
+	zend_execute_data *exec; \
+	zend_execute_data dummy; \
+	memset(&dummy, 0, sizeof(zend_execute_data)); \
+	exec = EG(current_execute_data); \
+	EG(current_execute_data) = &dummy; \
+	zend_throw_error(NULL, message ASYNC_VA_ARGS(__VA_ARGS__)); \
+	ZVAL_OBJ(error, EG(exception)); \
+	EG(exception) = NULL; \
+	EG(current_execute_data) = exec; \
+} while (0)
+
+#define ASYNC_PREPARE_EXCEPTION(error, ce, message, ...) do { \
+	zend_execute_data *exec; \
+	zend_execute_data dummy; \
+	memset(&dummy, 0, sizeof(zend_execute_data)); \
+	exec = EG(current_execute_data); \
+	EG(current_execute_data) = &dummy; \
+	zend_throw_exception_ex(ce, 0, message ASYNC_VA_ARGS(__VA_ARGS__)); \
+	ZVAL_OBJ(error, EG(exception)); \
+	EG(exception) = NULL; \
+	EG(current_execute_data) = exec; \
+} while (0)
 
 #define ASYNC_CHECK_ERROR(expr, message, ...) do { \
     if (UNEXPECTED(expr)) { \
-    	zend_throw_error(NULL, message, ##__VA_ARGS__); \
+    	zend_throw_error(NULL, message ASYNC_VA_ARGS(__VA_ARGS__)); \
     	return; \
     } \
 } while (0)
 
 #define ASYNC_CHECK_EXCEPTION(expr, ce, message, ...) do { \
     if (UNEXPECTED(expr)) { \
-    	zend_throw_exception_ex(ce, 0, message, ##__VA_ARGS__); \
+    	zend_throw_exception_ex(ce, 0, message ASYNC_VA_ARGS(__VA_ARGS__)); \
     	return; \
     } \
 } while (0)
 
 #define ASYNC_CHECK_FATAL(expr, message, ...) do { \
 	if (UNEXPECTED(expr)) { \
-		zend_error_noreturn(E_CORE_ERROR, message, ##__VA_ARGS__); \
+		zend_error_noreturn(E_CORE_ERROR, message ASYNC_VA_ARGS(__VA_ARGS__)); \
 	} \
 } while (0)
-
-#else
-
-#define ASYNC_CHECK_ERROR(expr, message, ...) do { \
-    if (UNEXPECTED(expr)) { \
-    	zend_throw_error(NULL, message, __VA_ARGS__); \
-    	return; \
-    } \
-} while (0)
-
-#define ASYNC_CHECK_EXCEPTION(expr, ce, message, ...) do { \
-    if (UNEXPECTED(expr)) { \
-    	zend_throw_exception_ex(ce, 0, message, __VA_ARGS__); \
-    	return; \
-    } \
-} while (0)
-
-#define ASYNC_CHECK_FATAL(expr, message, ...) do { \
-	if (UNEXPECTED(expr)) { \
-		zend_error_noreturn(E_CORE_ERROR, message, __VA_ARGS__); \
-	} \
-} while (0)
-
-#endif
 
 #define ASYNC_RETURN_ON_ERROR() do { \
 	if (UNEXPECTED(EG(exception))) { \

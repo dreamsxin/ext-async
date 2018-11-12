@@ -127,7 +127,7 @@ static void timed_out(uv_timer_t *timer)
 		return;
 	}
 
-	async_prepare_error(&handler->error, "Context timed out");
+	ASYNC_PREPARE_ERROR(&handler->error, "Context timed out");
 
 	while (handler->callbacks.first != NULL) {
 		ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);

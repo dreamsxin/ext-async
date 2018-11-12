@@ -299,10 +299,7 @@ static void close_process(async_process *proc)
 
 	if (proc->options.stdio[0].flags & UV_CREATE_PIPE) {
 		if (proc->stdin_state.writes.first != NULL) {
-			zend_throw_exception(async_stream_closed_exception_ce, "Process has been closed", 0);
-
-			ZVAL_OBJ(&proc->stdin_state.error, EG(exception));
-			EG(exception) = NULL;
+			ASYNC_PREPARE_EXCEPTION(&proc->stdin_state.error, async_stream_closed_exception_ce, "Process has been closed");
 
 			async_awaitable_trigger_continuation(&proc->stdin_state.writes, &proc->stdin_state.error, 0);
 		}
@@ -469,10 +466,7 @@ static void pipe_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buffer
 		return;
 	}
 
-	zend_throw_exception_ex(async_stream_exception_ce, 0, "Pipe read error: %s", uv_strerror((int) nread));
-
-	ZVAL_OBJ(&data, EG(exception));
-	EG(exception) = NULL;
+	ASYNC_PREPARE_EXCEPTION(&data, async_stream_exception_ce, "Pipe read error: %s", uv_strerror((int) nread));
 
 	async_awaitable_trigger_continuation(&state->reads, &data, 0);
 }
@@ -493,10 +487,7 @@ static void pipe_write(uv_write_t *write, int status)
 		return;
 	}
 
-	zend_throw_exception_ex(async_stream_exception_ce, 0, "Pipe write error: %s", uv_strerror(status));
-
-	ZVAL_OBJ(&data, EG(exception));
-	EG(exception) = NULL;
+	ASYNC_PREPARE_EXCEPTION(&data, async_stream_exception_ce, "Pipe write error: %s", uv_strerror(status));
 
 	async_awaitable_trigger_next_continuation(&state->writes, &data, 0);
 }
@@ -1156,9 +1147,9 @@ ZEND_METHOD(ReadablePipe, close)
 	if (Z_TYPE_P(&pipe->state->error) != IS_UNDEF) {
 		return;
 	}
-
+	
 	zend_throw_exception(async_stream_closed_exception_ce, "Pipe has been closed", 0);
-
+	
 	ZVAL_OBJ(&pipe->state->error, EG(exception));
 	EG(exception) = NULL;
 
@@ -1318,10 +1309,7 @@ ZEND_METHOD(WritablePipe, close)
 		return;
 	}
 
-	zend_throw_exception(async_stream_closed_exception_ce, "Pipe has been closed", 0);
-
-	ZVAL_OBJ(&pipe->state->error, EG(exception));
-	EG(exception) = NULL;
+	ASYNC_PREPARE_EXCEPTION(&pipe->state->error, async_stream_closed_exception_ce, "Pipe has been closed");
 
 	if (!uv_is_closing((uv_handle_t *) &pipe->state->handle)) {
 		ASYNC_ADDREF(&pipe->state->process->std);

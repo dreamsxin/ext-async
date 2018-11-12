@@ -328,10 +328,7 @@ static void socket_connected(uv_connect_t *connect, int status)
 		return;
 	}
 
-	zend_throw_exception_ex(async_stream_exception_ce, 0, "Failed to connect socket: %s", uv_strerror(status));
-
-	ZVAL_OBJ(&val, EG(exception));
-	EG(exception) = NULL;
+	ASYNC_PREPARE_EXCEPTION(&val, async_stream_exception_ce, "Failed to connect socket: %s", uv_strerror(status));
 
 	async_awaitable_trigger_continuation(&socket->reads, &val, 0);
 }
@@ -416,10 +413,7 @@ static void socket_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buff
 		return;
 	}
 
-	zend_throw_exception_ex(async_stream_exception_ce, 0, "Socket read error: %s", uv_strerror((int) nread));
-
-	ZVAL_OBJ(&data, EG(exception));
-	EG(exception) = NULL;
+	ASYNC_PREPARE_EXCEPTION(&data, async_stream_exception_ce, "Socket read error: %s", uv_strerror((int) nread));
 
 	async_awaitable_trigger_continuation(&socket->reads, &data, 0);
 }
@@ -440,10 +434,7 @@ static void socket_write(uv_write_t *write, int status)
 		return;
 	}
 
-	zend_throw_exception_ex(async_stream_exception_ce, 0, "Socket write error: %s", uv_strerror(status));
-
-	ZVAL_OBJ(&data, EG(exception));
-	EG(exception) = NULL;
+	ASYNC_PREPARE_EXCEPTION(&data, async_stream_exception_ce, "Socket write error: %s", uv_strerror(status));
 
 	async_awaitable_trigger_next_continuation(&socket->writes, &data, 0);
 }

@@ -120,10 +120,7 @@ static void socket_received(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buffer
 		async_awaitable_trigger_next_continuation(&socket->receivers, &data, 1);
 		zval_ptr_dtor(&data);
 	} else {	
-		zend_throw_exception_ex(async_stream_exception_ce, 0, "UDP receive error: %s", uv_strerror((int) nread));
-	
-		ZVAL_OBJ(&data, EG(exception));
-		EG(exception) = NULL;
+		ASYNC_PREPARE_EXCEPTION(&data, async_stream_exception_ce, "UDP receive error: %s", uv_strerror((int) nread));
 	
 		async_awaitable_trigger_continuation(&socket->receivers, &data, 0);
 	}
@@ -147,10 +144,7 @@ static void socket_sent(uv_udp_send_t *req, int status)
 		
 			async_awaitable_trigger_next_continuation(&send->socket->senders, &data, 1);
 		} else {	
-			zend_throw_exception_ex(async_stream_exception_ce, 0, "UDP send error: %s", uv_strerror((int) status));
-		
-			ZVAL_OBJ(&data, EG(exception));
-			EG(exception) = NULL;
+			ASYNC_PREPARE_EXCEPTION(&data, async_stream_exception_ce, "UDP send error: %s", uv_strerror((int) status));
 		
 			async_awaitable_trigger_continuation(&send->socket->senders, &data, 0);
 		}

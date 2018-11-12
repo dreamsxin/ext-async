@@ -156,11 +156,6 @@ async_task_scheduler *async_task_scheduler_get()
 	return scheduler;
 }
 
-uv_loop_t *async_task_scheduler_get_loop()
-{
-	return &async_task_scheduler_get()->loop;
-}
-
 zend_bool async_task_scheduler_enqueue(async_task *task)
 {
 	async_task_scheduler *scheduler;
@@ -253,7 +248,7 @@ static async_task_scheduler *async_task_scheduler_object_create()
 
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 	
-	async_prepare_error(&scheduler->error, "Task scheduler has been disposed");
+	ASYNC_PREPARE_ERROR(&scheduler->error, "Task scheduler has been disposed");
 
 	uv_loop_init(&scheduler->loop);
 	uv_idle_init(&scheduler->loop, &scheduler->idle);
