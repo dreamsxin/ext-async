@@ -24,9 +24,15 @@ Task::async(function () use ($a) {
         while (null !== ($chunk = $a->read())) {
             $timer->awaitTimeout();
             $len += strlen($chunk);
+            
+            if ($chunk !== str_repeat('A', strlen($chunk))) {
+            	throw new \Error('Corrupted data received');
+            }
         }
         
         var_dump($len);
+    } catch (\Throwable $e) {
+        echo $e, "\n\n";
     } finally {
         $a->close();
     }

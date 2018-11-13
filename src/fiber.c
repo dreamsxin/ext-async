@@ -19,19 +19,8 @@
 #include "php_async.h"
 
 #include "async_fiber.h"
-#include "async_helper.h"
-
-ZEND_DECLARE_MODULE_GLOBALS(async)
 
 zend_class_entry *async_fiber_ce;
-
-const zend_uchar ASYNC_FIBER_TYPE_DEFAULT = 0;
-
-const zend_uchar ASYNC_FIBER_STATUS_INIT = 0;
-const zend_uchar ASYNC_FIBER_STATUS_SUSPENDED = 1;
-const zend_uchar ASYNC_FIBER_STATUS_RUNNING = 2;
-const zend_uchar ASYNC_FIBER_STATUS_FINISHED = ASYNC_OP_RESOLVED;
-const zend_uchar ASYNC_FIBER_STATUS_FAILED = ASYNC_OP_FAILED;
 
 static zend_object_handlers async_fiber_handlers;
 
@@ -247,21 +236,17 @@ ZEND_METHOD(Fiber, __debugInfo)
 {
 	async_fiber *fiber;
 
-	HashTable *info;
-
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	fiber = (async_fiber *) Z_OBJ_P(getThis());
 
 	if (USED_RET()) {
-		info = async_info_init();
+		array_init(return_value);
 
-		async_info_prop_cstr(info, "status", async_status_label(fiber->status));
-		async_info_prop_bool(info, "suspended", fiber->status == ASYNC_FIBER_STATUS_SUSPENDED);
-		async_info_prop_str(info, "file", fiber->file);
-		async_info_prop_long(info, "line", fiber->line);
-
-		RETURN_ARR(info);
+		add_assoc_string(return_value, "status", async_status_label(fiber->status));
+		add_assoc_bool(return_value, "suspended", fiber->status == ASYNC_FIBER_STATUS_SUSPENDED);
+		add_assoc_str(return_value, "file", zend_string_copy(fiber->file));
+		add_assoc_long(return_value, "line", fiber->line);
 	}
 }
 

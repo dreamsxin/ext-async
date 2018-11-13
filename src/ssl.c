@@ -17,6 +17,7 @@
 */
 
 #include "php_async.h"
+#include "async_ssl.h"
 
 zend_class_entry *async_tls_client_encryption_ce;
 zend_class_entry *async_tls_server_encryption_ce;
@@ -25,8 +26,6 @@ static zend_object_handlers async_tls_client_encryption_handlers;
 static zend_object_handlers async_tls_server_encryption_handlers;
 
 #ifdef HAVE_ASYNC_SSL
-
-#include "async_ssl.h"
 
 #ifdef PHP_WIN32
 #include "win32/winutil.h"
@@ -43,21 +42,30 @@ static zend_object_handlers async_tls_server_encryption_handlers;
 	return 0; \
 } while (0);
 
+#define ASYNC_PROPAGATE_ERROR(engine, code) do { \
+	const char *tmp; \
+	(engine)->error = SSL_get_error((engine)->ssl, code); \
+	if ((engine)->message != NULL) { \
+		efree((engine)->message); \
+	} \
+	tmp = ERR_reason_error_string((engine)->error); \
+	if (tmp && tmp != NULL) { \
+		(engine)->message = emalloc(4096); \
+		strcpy((engine)->message, tmp); \
+	} \
+} while (0)
+
+#define ASYNC_PROPAGATE_UV_ERROR(engine, code) do { \
+	(engine)->error = code; \
+	if ((engine)->message != NULL) { \
+		efree((engine)->message); \
+		(engine)->message = NULL; \
+	} \
+	(engine)->message = emalloc(4096); \
+	strcpy((engine)->message, uv_strerror(code)); \
+} while (0)
+
 static int async_index;
-
-int async_ssl_error_continue(SSL *ssl, int code)
-{
-	int error = SSL_get_error(ssl, code);
-
-	switch (error) {
-	case SSL_ERROR_NONE:
-	case SSL_ERROR_WANT_READ:
-	case SSL_ERROR_WANT_WRITE:
-		return 1;
-	}
-
-	return 0;
-}
 
 static int ssl_cert_passphrase_cb(char *buf, int size, int rwflag, void *obj)
 {
@@ -185,7 +193,7 @@ static int async_ssl_check_san_names(zend_string *peer_name, X509 *cert, X509_ST
 
 static int ssl_verify_callback(int preverify, X509_STORE_CTX *ctx)
 {
-	async_tls_client_encryption *encryption;
+	async_ssl_settings *settings;
 	SSL *ssl;
 
 	X509 *cert;
@@ -203,27 +211,27 @@ static int ssl_verify_callback(int preverify, X509_STORE_CTX *ctx)
 	err = X509_STORE_CTX_get_error(ctx);
 
 	ssl = X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
-	encryption = (async_tls_client_encryption *) SSL_get_ex_data(ssl, async_index);
+	settings = (async_ssl_settings *) SSL_get_ex_data(ssl, async_index);
 
 	if (depth == 0 && err == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT) {
-		if (encryption != NULL && encryption->allow_self_signed) {
+		if (settings != NULL && settings->allow_self_signed) {
 			err = 0;
 			preverify = 1;
 			X509_STORE_CTX_set_error(ctx, X509_V_OK);
 		}
 	}
 
-	if (depth > encryption->verify_depth) {
+	if (depth > settings->verify_depth) {
 		X509_STORE_CTX_set_error(ctx, X509_V_ERR_CERT_CHAIN_TOO_LONG);
 		return 0;
 	}
 
-	if (!cert || err || encryption == NULL) {
+	if (!cert || err || settings == NULL) {
 		return preverify;
 	}
 
 	if (depth == 0) {
-		if (async_ssl_check_san_names(encryption->peer_name, cert, ctx)) {
+		if (async_ssl_check_san_names(settings->peer_name, cert, ctx)) {
 			return preverify;
 		}
 
@@ -246,7 +254,7 @@ static int ssl_verify_callback(int preverify, X509_STORE_CTX *ctx)
 			ASYNC_SSL_RETURN_VERIFY_ERROR(ctx);
 		}
 
-		if (!async_ssl_match_hostname(ZSTR_VAL(encryption->peer_name), (const char *) cn)) {
+		if (!async_ssl_match_hostname(ZSTR_VAL(settings->peer_name), (const char *) cn)) {
 			OPENSSL_free(cn);
 			ASYNC_SSL_RETURN_VERIFY_ERROR(ctx);
 		}
@@ -282,6 +290,48 @@ SSL_CTX *async_ssl_create_context()
 	return ctx;
 }
 
+static int configure_engine(SSL_CTX *ctx, SSL *ssl, BIO *rbio, BIO *wbio)
+{
+	BIO_set_mem_eof_return(rbio, -1);
+	BIO_set_mem_eof_return(wbio, -1);
+
+	SSL_set_bio(ssl, rbio, wbio);
+	SSL_set_mode(ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
+
+#ifdef SSL_MODE_RELEASE_BUFFERS
+	SSL_set_mode(ssl, SSL_get_mode(ssl) | SSL_MODE_RELEASE_BUFFERS);
+#endif
+
+	SSL_set_read_ahead(ssl, 1);
+
+	return SUCCESS;
+}
+
+int async_ssl_create_engine(async_ssl_engine *engine)
+{
+	engine->ssl = SSL_new(engine->ctx);
+	engine->rbio = BIO_new(BIO_s_mem());
+	engine->wbio = BIO_new(BIO_s_mem());
+	
+	return configure_engine(engine->ctx, engine->ssl, engine->rbio, engine->wbio);
+}
+
+void async_ssl_dispose_engine(async_ssl_engine *engine, zend_bool ctx)
+{
+	if (engine->ssl != NULL) {
+		SSL_free(engine->ssl);
+	}
+
+	if (engine->ctx != NULL && ctx) {
+		SSL_CTX_free(engine->ctx);
+	}
+	
+	if (engine->settings.peer_name != NULL) {
+		zend_string_release(engine->settings.peer_name);
+		engine->settings.peer_name = NULL;
+	}
+}
+
 #ifdef PHP_WIN32
 
 #define RETURN_CERT_VERIFY_FAILURE(code) do { \
@@ -294,7 +344,7 @@ SSL_CTX *async_ssl_create_context()
 #define php_win_err_free(err) do { \
 	if (err && err[0]) \
 		free(err); \
-} while(0)
+} while (0)
 
 static int ssl_win32_verify_callback(X509_STORE_CTX *x509_store_ctx, void *arg)
 {
@@ -306,12 +356,12 @@ static int ssl_win32_verify_callback(X509_STORE_CTX *x509_store_ctx, void *arg)
 	X509 *cert = X509_STORE_CTX_get0_cert(x509_store_ctx);
 #endif
 
-	async_tls_client_encryption *encryption;
+	async_ssl_settings *settings;
 	SSL* ssl;
 	zend_bool is_self_signed = 0;
 
 	ssl = X509_STORE_CTX_get_ex_data(x509_store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
-	encryption = (async_tls_client_encryption *) SSL_get_ex_data(ssl, async_index);
+	settings = (async_ssl_settings *) SSL_get_ex_data(ssl, async_index);
 
 	{ /* First convert the x509 struct back to a DER encoded buffer and let Windows decode it into a form it can work with */
 		unsigned char *der_buf = NULL;
@@ -372,7 +422,7 @@ static int ssl_win32_verify_callback(X509_STORE_CTX *x509_store_ctx, void *arg)
 		}
 
 		/* check the depth */
-		allowed_depth = encryption->verify_depth;
+		allowed_depth = settings->verify_depth;
 
 		for (i = 0; i < cert_chain_ctx->cChain; i++) {
 			if (cert_chain_ctx->rgpChain[i]->cElement > allowed_depth) {
@@ -433,7 +483,7 @@ static int ssl_win32_verify_callback(X509_STORE_CTX *x509_store_ctx, void *arg)
 			OPENSSL_free(cert_name_utf8);
 		}
 
-		ssl_policy_params.dwAuthType = (encryption->mode == ASYNC_SSL_MODE_CLIENT) ? AUTHTYPE_CLIENT : AUTHTYPE_SERVER;
+		ssl_policy_params.dwAuthType = (settings->mode == ASYNC_SSL_MODE_CLIENT) ? AUTHTYPE_CLIENT : AUTHTYPE_SERVER;
 		ssl_policy_params.pwszServerName = server_name;
 		chain_policy_params.pvExtraPolicyPara = &ssl_policy_params;
 
@@ -452,8 +502,7 @@ static int ssl_win32_verify_callback(X509_STORE_CTX *x509_store_ctx, void *arg)
 
 		if (chain_policy_status.dwError != 0) {
 			/* The chain does not match the policy */
-			if (is_self_signed && chain_policy_status.dwError == CERT_E_UNTRUSTEDROOT
-				&& encryption->allow_self_signed) {
+			if (is_self_signed && chain_policy_status.dwError == CERT_E_UNTRUSTEDROOT && settings->allow_self_signed) {
 				/* allow self-signed certs */
 				X509_STORE_CTX_set_error(x509_store_ctx, X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT);
 			} else {
@@ -467,19 +516,22 @@ static int ssl_win32_verify_callback(X509_STORE_CTX *x509_store_ctx, void *arg)
 
 #endif
 
-void async_ssl_setup_verify_callback(SSL_CTX *ctx, async_tls_client_encryption *encryption)
+void async_ssl_setup_verify_callback(SSL_CTX *ctx, async_ssl_settings *settings)
 {
+	SSL_CTX_set_default_passwd_cb_userdata(ctx, NULL);
+	SSL_CTX_set_verify_depth(ctx, settings->verify_depth);
+
 #ifdef PHP_WIN32
 		SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
-		SSL_CTX_set_cert_verify_callback(ctx, ssl_win32_verify_callback, (void *) encryption);
+		SSL_CTX_set_cert_verify_callback(ctx, ssl_win32_verify_callback, settings);
 #else
 		SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, ssl_verify_callback);
 #endif
 }
 
-int async_ssl_setup_encryption(SSL *ssl, async_tls_client_encryption *encryption)
+int async_ssl_setup_encryption(SSL *ssl, async_ssl_settings *settings)
 {
-	return SSL_set_ex_data(ssl, async_index, encryption);
+	return SSL_set_ex_data(ssl, async_index, settings);
 }
 
 void async_ssl_setup_sni(SSL_CTX *ctx, async_tls_server_encryption *encryption)
@@ -501,7 +553,7 @@ static zend_object *async_tls_client_encryption_object_create(zend_class_entry *
 	zend_object_std_init(&encryption->std, ce);
 	encryption->std.handlers = &async_tls_client_encryption_handlers;
 
-	encryption->verify_depth = 10;
+	encryption->settings.verify_depth = ASYNC_SSL_DEFAULT_VERIFY_DEPTH;
 
 	return &encryption->std;
 }
@@ -511,11 +563,11 @@ async_tls_client_encryption *async_clone_client_encryption(async_tls_client_encr
 	async_tls_client_encryption *result;
 
 	result = (async_tls_client_encryption *) async_tls_client_encryption_object_create(async_tls_client_encryption_ce);
-	result->allow_self_signed = encryption->allow_self_signed;
-	result->verify_depth = encryption->verify_depth;
+	result->settings.allow_self_signed = encryption->settings.allow_self_signed;
+	result->settings.verify_depth = encryption->settings.verify_depth;
 
-	if (encryption->peer_name != NULL) {
-		result->peer_name = zend_string_copy(encryption->peer_name);
+	if (encryption->settings.peer_name != NULL) {
+		result->settings.peer_name = zend_string_copy(encryption->settings.peer_name);
 	}
 
 	return result;
@@ -527,8 +579,8 @@ static void async_tls_client_encryption_object_destroy(zend_object *object)
 
 	encryption = (async_tls_client_encryption *) object;
 
-	if (encryption->peer_name != NULL) {
-		zend_string_release(encryption->peer_name);
+	if (encryption->settings.peer_name != NULL) {
+		zend_string_release(encryption->settings.peer_name);
 	}
 
 	zend_object_std_dtor(&encryption->std);
@@ -546,7 +598,7 @@ ZEND_METHOD(TlsClientEncryption, withAllowSelfSigned)
 	ZEND_PARSE_PARAMETERS_END();
 
 	encryption = async_clone_client_encryption((async_tls_client_encryption *) Z_OBJ_P(getThis()));
-	encryption->allow_self_signed = allow;
+	encryption->settings.allow_self_signed = allow;
 
 	ZVAL_OBJ(&obj, &encryption->std);
 
@@ -567,7 +619,7 @@ ZEND_METHOD(TlsClientEncryption, withVerifyDepth)
 	ASYNC_CHECK_ERROR(depth < 1, "Verify depth must not be less than 1");
 
 	encryption = async_clone_client_encryption((async_tls_client_encryption *) Z_OBJ_P(getThis()));
-	encryption->verify_depth = (int) depth;
+	encryption->settings.verify_depth = (int) depth;
 
 	ZVAL_OBJ(&obj, &encryption->std);
 
@@ -586,7 +638,7 @@ ZEND_METHOD(TlsClientEncryption, withPeerName)
 	ZEND_PARSE_PARAMETERS_END();
 
 	encryption = async_clone_client_encryption((async_tls_client_encryption *) Z_OBJ_P(getThis()));
-	encryption->peer_name = zend_string_copy(name);
+	encryption->settings.peer_name = zend_string_copy(name);
 
 	ZVAL_OBJ(&obj, &encryption->std);
 

@@ -1,5 +1,5 @@
 --TEST--
-Task must not return an instance of Awaitable.
+Task will await if the returned value is awaitable.
 --SKIPIF--
 <?php
 if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
@@ -10,13 +10,13 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 namespace Concurrent;
 
 try {
-    Task::await(Task::async(function () {
-        return Deferred::value(321);
-    }));
+	Task::await(Task::async(function () {
+	    return Deferred::error(new \Error('FAIL!'));
+	}));
 } catch (\Throwable $e) {
-    var_dump('Fail!');
+    var_dump($e->getMessage());
 }
 
 ?>
 --EXPECT--
-string(5) "Fail!"
+string(5) "FAIL!"

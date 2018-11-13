@@ -20,7 +20,7 @@
 
 #include "async_fiber.h"
 
-typedef struct _async_fiber_context_win32 {
+typedef struct {
 	void *fiber;
 	void *caller;
 	zend_bool root;

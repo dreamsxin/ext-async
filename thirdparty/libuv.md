@@ -4,7 +4,7 @@ Libuv `1.23.2` is bundled with the extension for static linking.
 
 ## Linux
 
-Libuv is compiled as part of the build, the generated static lib is moved to `thirdparty/lib/libuv.a`.
+Libuv is compiled during autoconf, the generated static lib is moved to `thirdparty/lib/libuv.a`.
 
 ## Windows
 

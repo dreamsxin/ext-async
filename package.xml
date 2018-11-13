@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://pear.php.net/dtd/package-2.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" packagerversion="1.9.4" version="2.0" xsi:schemaLocation="http://pear.php.net/dtd/package-2.0 http://pear.php.net/dtd/package-2.0.xsd">
+  <name>async</name>
+  <channel>pecl.php.net</channel>
+  <summary>Async execution using fibers and non-blocking IO.</summary>
+  <description>Async execution using fibers and non-blocking IO.</description>
+  <lead>
+    <name>Martin Schröder</name>
+    <user>mschroeder2007</user>
+    <email>m.schroeder2007@gmail.com</email>
+    <active>yes</active>
+  </lead>
+  <date>2018-12-06</date>
+  <time>08:46:54</time>
+  <version>
+    <release>0.3.0</release>
+    <api>0.3.0</api>
+  </version>
+  <stability>
+    <release>devel</release>
+    <api>devel</api>
+  </stability>
+  <license uri="http://www.php.net/license">PHP License</license>
+  <notes/>
+  <contents>
+    <dir name="/">
+      <file role="doc" name="LICENSE"/>
+      <file role="src" name="Makefile.frag"/>
+      <file role="doc" name="README.md"/>
+      <file role="src" name="config.m4"/>
+      <file role="src" name="config.w32"/>
+      <file role="src" name="php_async.c"/>
+      <file role="src" name="php_async.h"/>
+      <file role="src" name="include/async_fiber.h"/>
+      <file role="src" name="include/async_ssl.h"/>
+      <file role="src" name="include/async_stack.h"/>
+      <file role="src" name="include/async_stream.h"/>
+      <file role="src" name="include/async_task.h"/>
+      <file role="src" name="include/async_xp.h"/>
+      <file role="src" name="src/awaitable.c"/>
+      <file role="src" name="src/context.c"/>
+      <file role="src" name="src/deferred.c"/>
+      <file role="src" name="src/dns.c"/>
+      <file role="src" name="src/fiber.c"/>
+      <file role="src" name="src/fiber_asm.c"/>
+      <file role="src" name="src/fiber_stack.c"/>
+      <file role="src" name="src/fiber_ucontext.c"/>
+      <file role="src" name="src/fiber_winfib.c"/>
+      <file role="src" name="src/filesystem.c"/>
+      <file role="src" name="src/process.c"/>
+      <file role="src" name="src/signal_watcher.c"/>
+      <file role="src" name="src/socket.c"/>
+      <file role="src" name="src/ssl.c"/>
+      <file role="src" name="src/stream.c"/>
+      <file role="src" name="src/stream_watcher.c"/>
+      <file role="src" name="src/task.c"/>
+      <file role="src" name="src/task_scheduler.c"/>
+      <file role="src" name="src/tcp.c"/>
+      <file role="src" name="src/timer.c"/>
+      <file role="src" name="src/udp.c"/>
+      <file role="src" name="src/xp/socket.c"/>
+      <file role="src" name="src/xp/tcp.c"/>
+      <file role="src" name="src/xp/udp.c"/>
+      <file role="src" name="thirdparty/boost/LICENSE"/>
+      <file role="src" name="thirdparty/boost/asm/jump_arm64_aapcs_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_arm64_aapcs_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_arm_aapcs_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_arm_aapcs_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_combined_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_i386_sysv_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_i386_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_i386_x86_64_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_mips32_o32_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_ppc32_ppc64_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_ppc32_sysv_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_ppc32_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_ppc32_sysv_xcoff_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_ppc64_sysv_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_ppc64_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_ppc64_sysv_xcoff_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_x86_64_sysv_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_x86_64_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_arm64_aapcs_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_arm64_aapcs_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_arm_aapcs_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_arm_aapcs_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_combined_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_i386_sysv_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_i386_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_i386_x86_64_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_mips32_o32_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_ppc32_ppc64_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_ppc32_sysv_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_ppc32_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_ppc32_sysv_xcoff_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_ppc64_sysv_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_ppc64_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_ppc64_sysv_xcoff_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_x86_64_sysv_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_x86_64_sysv_macho_gas.S"/>
+      <file role="doc" name="thirdparty/libuv/CONTRIBUTING.md"/>
+      <file role="src" name="thirdparty/libuv/LICENSE"/>
+      <file role="doc" name="thirdparty/libuv/MAINTAINERS.md"/>
+      <file role="src" name="thirdparty/libuv/Makefile.am"/>
+      <file role="doc" name="thirdparty/libuv/README.md"/>
+      <file role="doc" name="thirdparty/libuv/SUPPORTED_PLATFORMS.md"/>
+      <file role="src" name="thirdparty/libuv/autogen.sh"/>
+      <file role="src" name="thirdparty/libuv/configure.ac"/>
+      <file role="src" name="thirdparty/libuv/include/uv/aix.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/android-ifaddrs.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/bsd.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/darwin.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/errno.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/linux.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/os390.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/posix.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/stdint-msvc2008.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/sunos.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/threadpool.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/tree.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/unix.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/version.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv/win.h"/>
+      <file role="src" name="thirdparty/libuv/include/uv.h"/>
+      <file role="src" name="thirdparty/libuv/libuv.pc.in"/>
+      <file role="src" name="thirdparty/libuv/m4/as_case.m4"/>
+      <file role="src" name="thirdparty/libuv/m4/libuv-check-flags.m4"/>
+      <file role="src" name="thirdparty/libuv/src/fs-poll.c"/>
+      <file role="src" name="thirdparty/libuv/src/heap-inl.h"/>
+      <file role="src" name="thirdparty/libuv/src/inet.c"/>
+      <file role="src" name="thirdparty/libuv/src/queue.h"/>
+      <file role="src" name="thirdparty/libuv/src/threadpool.c"/>
+      <file role="src" name="thirdparty/libuv/src/timer.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/aix-common.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/aix.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/android-ifaddrs.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/async.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/atomic-ops.h"/>
+      <file role="src" name="thirdparty/libuv/src/unix/bsd-ifaddrs.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/core.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/cygwin.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/darwin-proctitle.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/darwin.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/dl.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/freebsd.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/fs.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/fsevents.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/getaddrinfo.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/getnameinfo.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/ibmi.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/internal.h"/>
+      <file role="src" name="thirdparty/libuv/src/unix/kqueue.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/linux-core.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/linux-inotify.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/linux-syscalls.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/linux-syscalls.h"/>
+      <file role="src" name="thirdparty/libuv/src/unix/loop-watcher.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/loop.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/netbsd.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/no-fsevents.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/no-proctitle.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/openbsd.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/os390-syscalls.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/os390-syscalls.h"/>
+      <file role="src" name="thirdparty/libuv/src/unix/os390.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/pipe.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/poll.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/posix-hrtime.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/posix-poll.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/process.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/procfs-exepath.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/proctitle.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/pthread-fixes.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/signal.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/spinlock.h"/>
+      <file role="src" name="thirdparty/libuv/src/unix/stream.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/sunos.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/sysinfo-loadavg.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/sysinfo-memory.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/tcp.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/thread.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/tty.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/udp.c"/>
+      <file role="src" name="thirdparty/libuv/src/uv-common.c"/>
+      <file role="src" name="thirdparty/libuv/src/uv-common.h"/>
+      <file role="src" name="thirdparty/libuv/src/uv-data-getter-setters.c"/>
+      <file role="src" name="thirdparty/libuv/src/version.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/async.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/atomicops-inl.h"/>
+      <file role="src" name="thirdparty/libuv/src/win/core.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/detect-wakeup.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/dl.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/error.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/fs-event.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/fs.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/getaddrinfo.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/getnameinfo.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/handle-inl.h"/>
+      <file role="src" name="thirdparty/libuv/src/win/handle.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/internal.h"/>
+      <file role="src" name="thirdparty/libuv/src/win/loop-watcher.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/pipe.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/poll.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/process-stdio.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/process.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/req-inl.h"/>
+      <file role="src" name="thirdparty/libuv/src/win/signal.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/snprintf.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/stream-inl.h"/>
+      <file role="src" name="thirdparty/libuv/src/win/stream.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/tcp.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/thread.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/tty.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/udp.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/util.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/winapi.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/winapi.h"/>
+      <file role="src" name="thirdparty/libuv/src/win/winsock.c"/>
+      <file role="src" name="thirdparty/libuv/src/win/winsock.h"/>
+      <file role="test" name="tests/001-fiber-yield-from-icall.phpt"/>
+      <file role="test" name="tests/002-fiber-yield-from-generator.phpt"/>
+      <file role="test" name="tests/003-fiber-yield-from-iterator.phpt"/>
+      <file role="test" name="tests/004-fiber-refcount-start.phpt"/>
+      <file role="test" name="tests/005-fiber-refcount-resume.phpt"/>
+      <file role="test" name="tests/006-fiber-can-return-object.phpt"/>
+      <file role="test" name="tests/007-fiber-can-yield-object.phpt"/>
+      <file role="test" name="tests/008-fiber-can-return-tmp-object.phpt"/>
+      <file role="test" name="tests/009-fiber-can-yield-tmp-object.phpt"/>
+      <file role="test" name="tests/010-fiber-pass-tmp-object-in-start.phpt"/>
+      <file role="test" name="tests/011-fiber-pass-tmp-object-in-resume.phpt"/>
+      <file role="test" name="tests/012-fiber-use-object-method-as-callback.phpt"/>
+      <file role="test" name="tests/013-fiber-status.phpt"/>
+      <file role="test" name="tests/014-fiber-is-running.phpt"/>
+      <file role="test" name="tests/015-fiber-backend-info.phpt"/>
+      <file role="test" name="tests/016-fiber-destroyed-during-suspend.phpt"/>
+      <file role="test" name="tests/017-fiber-disposed-before-start.phpt"/>
+      <file role="test" name="tests/018-fiber-throw-error.phpt"/>
+      <file role="test" name="tests/019-fiber-throw-status-check.phpt"/>
+      <file role="test" name="tests/020-fiber-cannot-yield-in-main.phpt"/>
+      <file role="test" name="tests/021-fiber-prevents-multiple-starts.phpt"/>
+      <file role="test" name="tests/100-task-scheduling.phpt"/>
+      <file role="test" name="tests/101-static-task-scheduling.phpt"/>
+      <file role="test" name="tests/102-task-await.phpt"/>
+      <file role="test" name="tests/103-task-suspend.phpt"/>
+      <file role="test" name="tests/104-task-default-scheduler.phpt"/>
+      <file role="test" name="tests/107-task-error-continue.phpt"/>
+      <file role="test" name="tests/108-task-multiple-continuations.phpt"/>
+      <file role="test" name="tests/109-task-default-scheduler-await-deferred.phpt"/>
+      <file role="test" name="tests/110-task-is-running.phpt"/>
+      <file role="test" name="tests/111-task-inlining.phpt"/>
+      <file role="test" name="tests/112-task-awaitable-cannot-be-implemented.phpt"/>
+      <file role="test" name="tests/113-task-must-not-return-awaitable.phpt"/>
+      <file role="test" name="tests/114-task-disposal.phpt"/>
+      <file role="test" name="tests/115-task-root-await-deferred.phpt"/>
+      <file role="test" name="tests/121-task-scheduler-stacking.phpt"/>
+      <file role="test" name="tests/123-task-scheduler-pending-tasks.phpt"/>
+      <file role="test" name="tests/124-task-await-pending-task.phpt"/>
+      <file role="test" name="tests/125-task-prevents-duplicate-inlining.phpt"/>
+      <file role="test" name="tests/126-task-executor-restores-error.phpt"/>
+      <file role="test" name="tests/127-task-busy-while-waiting.phpt"/>
+      <file role="test" name="tests/200-context-var-access.phpt"/>
+      <file role="test" name="tests/201-context-nested-var.phpt"/>
+      <file role="test" name="tests/202-context-cancel-internal.phpt"/>
+      <file role="test" name="tests/203-context-cancel-deferred.phpt"/>
+      <file role="test" name="tests/204-context-cancel-chain.phpt"/>
+      <file role="test" name="tests/205-context-cancel-nested.phpt"/>
+      <file role="test" name="tests/206-context-cancel-timeout.phpt"/>
+      <file role="test" name="tests/207-context-current.phpt"/>
+      <file role="test" name="tests/208-context-cancel-shield.phpt"/>
+      <file role="test" name="tests/300-deferred-api.phpt"/>
+      <file role="test" name="tests/301-deferred-combinator.phpt"/>
+      <file role="test" name="tests/302-deferred-combinator-fail.phpt"/>
+      <file role="test" name="tests/303-deferred-rejects-awaitable-params.phpt"/>
+      <file role="test" name="tests/304-deferred-disposal.phpt"/>
+      <file role="test" name="tests/305-deferred-combinator-input-validation.phpt"/>
+      <file role="test" name="tests/306-deferred-combinator-task.phpt"/>
+      <file role="test" name="tests/307-deferred-transform.phpt"/>
+      <file role="test" name="tests/308-deferred-transform-task.phpt"/>
+      <file role="test" name="tests/309-deferred-combine-tasks.phpt"/>
+      <file role="test" name="tests/400-timer-at-root-level.phpt"/>
+      <file role="test" name="tests/401-timer-within-task.phpt"/>
+      <file role="test" name="tests/402-timer-disposed-within-task.phpt"/>
+      <file role="test" name="tests/403-timer-close-within-task.phpt"/>
+      <file role="test" name="tests/404-timer-close-root-level.phpt"/>
+      <file role="test" name="tests/405-stream-watcher-root-level.phpt"/>
+      <file role="test" name="tests/406-stream-watcher-within-task.phpt"/>
+      <file role="test" name="tests/407-stream-watcher-closed-root-level.phpt"/>
+      <file role="test" name="tests/408-stream-watcher-closed-within-task.phpt"/>
+      <file role="test" name="tests/409-stream-watcher-disposed-within-task.phpt"/>
+      <file role="test" name="tests/410-stream-watcher-read-write.phpt"/>
+      <file role="test" name="tests/500-process-exit-code.phpt"/>
+      <file role="test" name="tests/500.inc"/>
+      <file role="test" name="tests/501-process-output-pipe.phpt"/>
+      <file role="test" name="tests/502-process-error-pipe.phpt"/>
+      <file role="test" name="tests/502.inc"/>
+      <file role="test" name="tests/503-process-input-pipe.phpt"/>
+      <file role="test" name="tests/503.inc"/>
+      <file role="test" name="tests/504-process-signal.phpt"/>
+      <file role="test" name="tests/504.inc"/>
+      <file role="test" name="tests/505-process-env.phpt"/>
+      <file role="test" name="tests/505.inc"/>
+      <file role="test" name="tests/506-process-execute-env.phpt"/>
+      <file role="test" name="tests/506.inc"/>
+      <file role="test" name="tests/600-tcp-socket-pair.phpt"/>
+      <file role="test" name="tests/601-tcp-socket-connection.phpt"/>
+      <file role="test" name="tests/602-tcp-socket-ssl-connection.phpt"/>
+      <file role="test" name="tests/603-tcp-half-open-connection.phpt"/>
+      <file role="test" name="tests/604-tcp-slow-receiver.phpt"/>
+      <file role="test" name="tests/605-tcp-ssl-slow-receiver.phpt"/>
+      <file role="test" name="tests/606-tcp-closed-read-stream.phpt"/>
+      <file role="test" name="tests/607-tcp-cancel-accept.phpt"/>
+      <file role="test" name="tests/608-tcp-cancel-read.phpt"/>
+      <file role="test" name="tests/650-udp-unicast.phpt"/>
+      <file role="test" name="tests/651-udp-cancel-receiver.phpt"/>
+      <file role="test" name="tests/652-udp-async-send.phpt"/>
+      <file role="test" name="tests/ssl.inc"/>
+    </dir>
+  </contents>
+  <dependencies>
+    <required>
+      <php>
+        <min>7.3.0</min>
+      </php>
+      <pearinstaller>
+        <min>1.4.0</min>
+      </pearinstaller>
+    </required>
+  </dependencies>
+  <providesextension>async</providesextension>
+  <extsrcrelease/>
+</package>

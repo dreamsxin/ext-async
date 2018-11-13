@@ -18,8 +18,6 @@
 
 #include "php_async.h"
 
-ZEND_DECLARE_MODULE_GLOBALS(async)
-
 zend_class_entry *async_context_ce;
 zend_class_entry *async_context_var_ce;
 zend_class_entry *async_cancellation_handler_ce;
@@ -244,9 +242,7 @@ ZEND_METHOD(Context, withTimeout)
 	init_cancellation(handler, context);
 
 	ASYNC_DELREF(&handler->std);
-
-	handler->scheduler = async_task_scheduler_get();
-
+	
 	uv_timer_init(&handler->scheduler->loop, &handler->timer);
 
 	handler->timer.data = handler;
@@ -512,6 +508,10 @@ static zend_object *async_cancellation_handler_object_create(zend_class_entry *c
 	handler->std.handlers = &async_cancellation_handler_handlers;
 
 	ZVAL_UNDEF(&handler->error);
+	
+	handler->scheduler = async_task_scheduler_get();
+	
+	ASYNC_ADDREF(&handler->scheduler->std);
 
 	return &handler->std;
 }
@@ -522,7 +522,7 @@ static void async_cancellation_handler_object_dtor(zend_object *object)
 
 	handler = (async_cancellation_handler *) object;
 
-	if (handler->scheduler != NULL) {
+	if (handler->timer.data != NULL) {
 		uv_timer_stop(&handler->timer);
 
 		if (!uv_is_closing((uv_handle_t *) &handler->timer)) {
@@ -555,6 +555,8 @@ static void async_cancellation_handler_object_destroy(zend_object *object)
 	}
 
 	zval_ptr_dtor(&handler->error);
+	
+	ASYNC_DELREF(&handler->scheduler->std);
 
 	zend_object_std_dtor(&handler->std);
 }
@@ -623,10 +625,7 @@ ZEND_METHOD(CancellationHandler, cancel)
 		uv_timer_stop(&handler->timer);
 	}
 
-	zend_throw_error(NULL, "Context has been cancelled");
-
-	ZVAL_OBJ(&handler->error, EG(exception));
-	EG(exception) = NULL;
+	ASYNC_PREPARE_ERROR(&handler->error, "Context has been cancelled");
 
 	if (err != NULL && Z_TYPE_P(err) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&handler->error), Z_OBJ_P(err));

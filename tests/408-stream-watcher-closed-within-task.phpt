@@ -52,9 +52,9 @@ Task::async(function () use ($watcher) {
 $watcher->close(new \Error('FAIL!'));
 
 --EXPECT--
-string(26) "IO watcher has been closed"
+string(30) "Stream watcher has been closed"
 string(5) "FAIL!"
-string(26) "IO watcher has been closed"
+string(30) "Stream watcher has been closed"
 string(5) "FAIL!"
-string(26) "IO watcher has been closed"
+string(30) "Stream watcher has been closed"
 string(5) "FAIL!"

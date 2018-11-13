@@ -8,7 +8,7 @@ try {
     while (true) {
         print_r($datagram = $socket->receive());
 
-        $socket->sendAsync($datagram->withData(implode("\r\n", [
+        $datagram = $datagram->withData(implode("\r\n", [
             'HTTP/1.1 200 OK',
             'CACHE-CONTROL: max-age=1800',
             'DATE: ' . gmdate('D, d M Y H:i:s') . ' GMT',
@@ -18,7 +18,9 @@ try {
             'SERVER: PHP/' . PHP_VERSION,
             'ST: upnp:rootdevice',
             'USN: uuid:3a06277c-5888-4a7d-b66b-20d914d168bd::upnp:rootdevice'
-        ]) . "\r\n\r\n"));
+        ]) . "\r\n\r\n");
+        
+        $socket->sendAsync($datagram);
     }
 } finally {
     $socket->close();

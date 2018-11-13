@@ -33,47 +33,71 @@
 } while (0)
 
 #define ASYNC_FS_CALL(data, req, func, ...) do { \
-	async_awaitable_queue *q; \
+	async_uv_op *op; \
 	int code; \
-	if ((data)->scheduler->disposed) { \
+	op = NULL; \
+	if ((data)->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED) { \
 		(data)->async = 0; \
 	} \
 	if ((data)->async) { \
-		q = async_awaitable_queue_alloc((data)->scheduler); \
-		(req)->data = q;\
+		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op)); \
+		(req)->data = op;\
 	} \
 	code = (func)(&(data)->scheduler->loop, req, __VA_ARGS__, (data)->async ? dummy_cb : NULL); \
 	if (code >= 0) { \
 		if ((data)->async) { \
-			async_task_suspend(q, NULL, EG(current_execute_data), NULL); \
+			if (async_await_op((async_op *) op) == FAILURE) { \
+				ASYNC_FORWARD_OP_ERROR(op); \
+				(req)->result = -1; \
+				if (0 == uv_cancel((uv_req_t *) req)) { \
+					ASYNC_FREE_OP(op); \
+				} else { \
+					((async_op *) op)->status = ASYNC_STATUS_FAILED; \
+				} \
+			} else { \
+				code = op->code; \
+				ASYNC_FREE_OP(op); \
+			} \
 		} \
 	} else { \
 		(req)->result = code; \
-	} \
-	if ((data)->async) { \
-		async_awaitable_queue_dispose(q); \
+		if ((data)->async) { \
+			ASYNC_FREE_OP(op); \
+		} \
 	} \
 } while (0)
 
 #define ASYNC_FS_CALLW(async, req, func, ...) do { \
 	async_task_scheduler *scheduler; \
-	async_awaitable_queue *q; \
+	async_uv_op *op; \
 	int code; \
+	op = NULL; \
 	scheduler = async_task_scheduler_get(); \
 	if (async) { \
-		q = async_awaitable_queue_alloc(scheduler); \
-		(req)->data = q; \
+		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op)); \
+		(req)->data = op; \
 	} \
 	code = (func)(&scheduler->loop, req, __VA_ARGS__, (async) ? dummy_cb : NULL); \
 	if (code >= 0) { \
 		if (async) { \
-			async_task_suspend(q, NULL, EG(current_execute_data), NULL); \
+			if (async_await_op((async_op *) op) == FAILURE) { \
+				ASYNC_FORWARD_OP_ERROR(op); \
+				(req)->result = -1; \
+				if (0 == uv_cancel((uv_req_t *) req)) { \
+					ASYNC_FREE_OP(op); \
+				} else { \
+					((async_op *) op)->status = ASYNC_STATUS_FAILED; \
+				} \
+			} else { \
+				code = op->code; \
+				ASYNC_FREE_OP(op); \
+			} \
 		} \
 	} else { \
 		(req)->result = code; \
-	} \
-	if (async) { \
-		async_awaitable_queue_dispose(q); \
+		if (async) { \
+			ASYNC_FREE_OP(op); \
+		} \
 	} \
 } while (0)
 
@@ -112,14 +136,19 @@ typedef struct {
 
 static void dummy_cb(uv_fs_t* req)
 {
-	async_awaitable_queue *q;
-	zval result;
+	async_uv_op *op;
 	
-	q = (async_awaitable_queue *) req->data;
+	op = (async_uv_op *) req->data;
 	
-	ZVAL_NULL(&result);
+	ZEND_ASSERT(op != NULL);
 	
-	async_awaitable_trigger_continuation(q, &result, 1);
+	if (req->result == UV_ECANCELED) {
+		ASYNC_FREE_OP(op);
+	} else {
+		op->code = 0;
+
+		ASYNC_FINISH_OP(op);
+	}
 }
 
 static inline void map_stat(uv_stat_t *stat, php_stream_statbuf *ssb)
@@ -334,7 +363,7 @@ static size_t async_filestream_write(php_stream *stream, const char *buf, size_t
 	
 	data = (async_filestream_data *) stream->abstract;
 	
-	if (data->scheduler->disposed) {
+	if (data->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED) {
 		data->async = 0;
 	}
 	
@@ -361,7 +390,7 @@ static size_t async_filestream_read(php_stream *stream, char *buf, size_t count)
 
 	data = (async_filestream_data *) stream->abstract;
 	
-	if (data->finished) {
+	if (data->finished || count < 8192) {
 		return 0;
 	}
 	
@@ -479,31 +508,42 @@ static int async_filestream_set_option(php_stream *stream, int option, int value
 	data = (async_filestream_data *) stream->abstract;
 	
 	switch (option) {
-		case PHP_STREAM_OPTION_META_DATA_API:
-			add_assoc_bool((zval *) ptrparam, "timed_out", 0);
-			add_assoc_bool((zval *) ptrparam, "blocked", 1);
-			add_assoc_bool((zval *) ptrparam, "eof", stream->eof);
-			
+	case PHP_STREAM_OPTION_META_DATA_API:
+		add_assoc_bool((zval *) ptrparam, "timed_out", 0);
+		add_assoc_bool((zval *) ptrparam, "blocked", 1);
+		add_assoc_bool((zval *) ptrparam, "eof", stream->eof);
+		
+		return PHP_STREAM_OPTION_RETURN_OK;
+	case PHP_STREAM_OPTION_READ_BUFFER:
+	 	if (value == PHP_STREAM_BUFFER_NONE) {
+	 		stream->readbuf = perealloc(stream->readbuf, 0, stream->is_persistent);
+	 		stream->flags |= PHP_STREAM_FLAG_NO_BUFFER;
+	 	} else {
+		 	stream->readbuflen = MAX(*((size_t *) ptrparam), 0x8000);
+		 	stream->readbuf = perealloc(stream->readbuf, stream->readbuflen, stream->is_persistent);
+		 	stream->flags ^= PHP_STREAM_FLAG_NO_BUFFER;
+	 	}
+	 	
+	 	return PHP_STREAM_OPTION_RETURN_OK;
+	case PHP_STREAM_OPTION_LOCKING:
+		if ((zend_uintptr_t) ptrparam == PHP_STREAM_LOCK_SUPPORTED) {
 			return PHP_STREAM_OPTION_RETURN_OK;
-		case PHP_STREAM_OPTION_LOCKING:
-			if ((zend_uintptr_t) ptrparam == PHP_STREAM_LOCK_SUPPORTED) {
-				return PHP_STREAM_OPTION_RETURN_OK;
-			}
-			
-			// TODO: See if non-blocking locks can be implemented...
-			
-			if (!flock((int) data->file, value)) {
-				data->lock_flag = value;
-				return PHP_STREAM_OPTION_RETURN_OK;
-			}
-			
-			return PHP_STREAM_OPTION_RETURN_ERR;
-		case PHP_STREAM_OPTION_MMAP_API:
-			// TODO: Investigate support for mmap() combined with libuv.
-			
-			return PHP_STREAM_OPTION_RETURN_ERR;
-		case PHP_STREAM_OPTION_TRUNCATE_API:
-			return PHP_STREAM_OPTION_RETURN_ERR;
+		}
+		
+		// TODO: See if non-blocking locks can be implemented...
+		
+		if (!flock((int) data->file, value)) {
+			data->lock_flag = value;
+			return PHP_STREAM_OPTION_RETURN_OK;
+		}
+		
+		return PHP_STREAM_OPTION_RETURN_ERR;
+	case PHP_STREAM_OPTION_MMAP_API:
+		// TODO: Investigate support for mmap() combined with libuv.
+		
+		return PHP_STREAM_OPTION_RETURN_ERR;
+	case PHP_STREAM_OPTION_TRUNCATE_API:
+		return PHP_STREAM_OPTION_RETURN_ERR;
 	}
 
 	return PHP_STREAM_OPTION_RETURN_NOTIMPL;
@@ -583,6 +623,11 @@ int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 		
 		return NULL;
 	}
+	
+	// TODO: Configure default read buffer size using an INI option?
+	
+	stream->readbuflen = 0x8000;
+ 	stream->readbuf = perealloc(stream->readbuf, stream->readbuflen, stream->is_persistent);
 	
 	data->file = req.result;
 	data->mode = flags;

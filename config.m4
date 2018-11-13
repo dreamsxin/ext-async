@@ -1,16 +1,39 @@
 PHP_ARG_ENABLE(async, Whether to enable "async" support,
 [ --enable-async          Enable "async" support], no)
 
-PHP_ARG_ENABLE(async-fs, Whether to enable async filesystem wrapper,
-[ --enable-async-fs       Enable async file IO support], no, no)
-
 PHP_ARG_WITH(openssl-dir, OpenSSL dir for "async",
 [ --with-openssl-dir[=DIR] Openssl install prefix], no, no)
 
 if test "$PHP_ASYNC" != "no"; then
   AC_DEFINE(HAVE_ASYNC, 1, [ ])
   
+  DIR="${srcdir}/thirdparty"
+
+  AC_MSG_CHECKING(for static libuv)
+
+  if test ! -s "${DIR}/lib/libuv.a"; then
+    AC_MSG_RESULT(no)
+    
+    TMP=$(mktemp -d)
+    cp -r ${DIR}/libuv $TMP
+    pushd ${TMP}/libuv
+    ./autogen.sh
+    ./configure --prefix=${TMP}/build CFLAGS="$(CFLAGS) -fPIC -DPIC -g -O2"
+    make install
+    popd
+    mv ${TMP}/build/lib/libuv.a ${DIR}/lib
+    rm -rf $TMP
+  else
+    AC_MSG_RESULT(yes)
+  fi
+
   ASYNC_CFLAGS="-Wall -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1"
+  LDFLAGS="$LDFLAGS -lpthread"
+  
+  case $host in
+    *linux*)
+      LDFLAGS="$LDFLAGS -z now"
+  esac
   
   async_use_asm="yes"
   async_use_ucontext="no"
@@ -26,7 +49,7 @@ if test "$PHP_ASYNC" != "no"; then
     src/dns.c \
     src/fiber.c \
     src/fiber_stack.c \
-    src/helper.c \
+    src/filesystem.c \
     src/process.c \
     src/signal_watcher.c \
     src/socket.c \
@@ -37,15 +60,11 @@ if test "$PHP_ASYNC" != "no"; then
     src/task_scheduler.c \
     src/tcp.c \
     src/timer.c \
-    src/udp.c
+    src/udp.c \
+    src/xp/socket.c \
+    src/xp/tcp.c \
+    src/xp/udp.c
   "
-  
-  if test "$PHP_ASYNC_FS" = "yes"; then
-    AC_DEFINE(HAVE_ASYNC_FS, 1, [ ])
-    
-    async_source_files="$async_source_files \
-      src/filesystem.c"
-  fi
   
   AS_CASE([$host_cpu],
     [x86_64*], [async_cpu="x86_64"],
@@ -102,26 +121,15 @@ if test "$PHP_ASYNC" != "no"; then
   
   PHP_ADD_INCLUDE("$srcdir/thirdparty/libuv/include")
   
-  shared_objects_async="$shared_objects_async $srcdir/thirdparty/lib/libuv.a"
-  
-  case $host in
-    *linux*)
-      LDFLAGS="$LDFLAGS -lrt"
-  esac
-  
-  PHP_NEW_EXTENSION(async, $async_source_files, $ext_shared,, \\$(ASYNC_CFLAGS))
-  PHP_SUBST(ASYNC_CFLAGS)
-  PHP_SUBST(ASYNC_SHARED_LIBADD)
-  PHP_ADD_MAKEFILE_FRAGMENT
-  
-  case $host in
-    *linux*)
-      LDFLAGS="-lrt $LDFLAGS"
-  esac
-  
-  LDFLAGS="-lpthread $LDFLAGS"
-  
-  PHP_INSTALL_HEADERS([ext/async], [config.h thirdparty/libuv/include/*.h])
+  if test "$TRAVIS" = ""; then
+    ASYNC_SHARED_LIBADD="$ASYNC_SHARED_LIBADD -L${srcdir}/thirdparty/lib -luv"
+  else
+    dnl Stupid workaround for travis build, for some reason the linker refuses to use a subdirectory of the project?!
+    
+    TMP=$(mktemp -d)
+    cp ${srcdir}/thirdparty/lib/libuv.a ${TMP}/libuv.a
+    ASYNC_SHARED_LIBADD="$ASYNC_SHARED_LIBADD -L${TMP} -luv"
+  fi
   
   if test "$PHP_OPENSSL" = ""; then
     AC_CHECK_HEADER(openssl/evp.h, [
@@ -141,5 +149,12 @@ if test "$PHP_ASYNC" != "no"; then
       AC_MSG_RESULT(no)
     ])
   fi
+  
+  PHP_NEW_EXTENSION(async, $async_source_files, $ext_shared,, \\$(ASYNC_CFLAGS))
+  PHP_SUBST(ASYNC_CFLAGS)
+  PHP_SUBST(ASYNC_SHARED_LIBADD)
+  PHP_ADD_MAKEFILE_FRAGMENT
+  
+  PHP_INSTALL_HEADERS([ext/async], [config.h thirdparty/libuv/include/*.h])
   
 fi
