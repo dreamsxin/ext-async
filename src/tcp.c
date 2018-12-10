@@ -355,7 +355,7 @@ ZEND_METHOD(TcpSocket, connect)
 		Z_PARAM_ZVAL(tls)
 	ZEND_PARSE_PARAMETERS_END();
 	
-	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &dest, execute_data);
+	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &dest, IPPROTO_TCP);
 	
 	ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 
@@ -1169,7 +1169,7 @@ ZEND_METHOD(TcpServer, listen)
 		Z_PARAM_ZVAL(tls)
 	ZEND_PARSE_PARAMETERS_END();
 
-	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &bind, execute_data);
+	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &bind, IPPROTO_TCP);
 	
 	ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 	

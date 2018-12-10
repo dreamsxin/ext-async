@@ -557,8 +557,8 @@ ASYNC_API size_t async_ring_buffer_read_string(async_ring_buffer *buffer, zend_s
 ASYNC_API void async_ring_buffer_consume(async_ring_buffer *buffer, size_t len);
 ASYNC_API void async_ring_buffer_write_move(async_ring_buffer *buffer, size_t offset);
 
-ASYNC_API int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, zend_execute_data *execute_data);
-ASYNC_API int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, zend_execute_data *execute_data);
+ASYNC_API int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, int proto);
+ASYNC_API int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, int proto);
 
 
 ZEND_BEGIN_MODULE_GLOBALS(async)

@@ -65,7 +65,7 @@ static int udp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 	
 	ip = NULL;
 	ip = async_xp_parse_ip(xparam->inputs.name, xparam->inputs.namelen, &port, xparam->want_errortext, &xparam->outputs.error_text);
-	code = async_dns_lookup_ipv4(ip, &dest, EG(current_execute_data));
+	code = async_dns_lookup_ipv4(ip, &dest, IPPROTO_UDP);
 	
 	if (ip != NULL) {
 		efree(ip);

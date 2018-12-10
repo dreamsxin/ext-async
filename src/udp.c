@@ -228,7 +228,7 @@ ZEND_METHOD(UdpSocket, bind)
 		Z_PARAM_LONG(port)
 	ZEND_PARSE_PARAMETERS_END();
 	
-	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &dest, execute_data);
+	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &dest, IPPROTO_UDP);
 	
 	ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 	

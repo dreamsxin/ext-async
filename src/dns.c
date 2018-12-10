@@ -43,11 +43,12 @@ static void dns_gethostbyname_cb(uv_getaddrinfo_t *req, int status, struct addri
 	}
 }
 
-static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, zend_execute_data *execute_data)
+static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, int proto)
 {
 	async_task_scheduler *scheduler;
 	async_uv_op *op;
 	
+	struct addrinfo hints;
 	int code;
 	
 	op = NULL;
@@ -58,8 +59,14 @@ static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, zend_execute_dat
 		
 		req->data = op;
 	}
+	
+	ZEND_SECURE_ZERO(&hints, sizeof(struct addrinfo));
+	
+	if (proto > 0) {
+		hints.ai_protocol = proto;
+	}
 
-	code = uv_getaddrinfo(&scheduler->loop, req, async_cli ? dns_gethostbyname_cb : NULL, name, NULL, NULL);
+	code = uv_getaddrinfo(&scheduler->loop, req, async_cli ? dns_gethostbyname_cb : NULL, name, NULL, &hints);
 	
 	if (UNEXPECTED(code < 0)) {
 		if (async_cli) {
@@ -98,13 +105,13 @@ static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, zend_execute_dat
 	return 0;
 }
 
-int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, zend_execute_data *execute_data)
+int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, int proto)
 {
 	uv_getaddrinfo_t req;
 	struct addrinfo *info;
 	int code;
 	
-	code = dns_gethostbyname(&req, name, execute_data);
+	code = dns_gethostbyname(&req, name, proto);
 	
 	if (code != 0) {
 		return code;
@@ -113,7 +120,7 @@ int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, zend_execute_dat
 	info = req.addrinfo;
 	
 	while (info != NULL) {
-		if (info->ai_family == AF_INET && info->ai_protocol == 0) {
+		if (info->ai_family == AF_INET && (info->ai_protocol == proto || proto == 0)) {
 			memcpy(dest, info->ai_addr, sizeof(struct sockaddr_in));
 			
 			uv_freeaddrinfo(req.addrinfo);
@@ -129,13 +136,13 @@ int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, zend_execute_dat
 	return UV_EAI_NODATA;
 }
 
-int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, zend_execute_data *execute_data)
+int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, int proto)
 {
 	uv_getaddrinfo_t req;
 	struct addrinfo *info;
 	int code;
 
-	code = dns_gethostbyname(&req, name, execute_data);
+	code = dns_gethostbyname(&req, name, proto);
 
 	if (code != 0) {
 		return code;
@@ -144,7 +151,7 @@ int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, zend_execute_da
 	info = req.addrinfo;
 
 	while (info != NULL) {
-		if (info->ai_family == AF_INET6 && info->ai_protocol == 0) {
+		if (info->ai_family == AF_INET6 && (info->ai_protocol == proto || proto == 0)) {
 			memcpy(dest, info->ai_addr, sizeof(struct sockaddr_in6));
 
 			uv_freeaddrinfo(req.addrinfo);
@@ -184,7 +191,7 @@ static PHP_FUNCTION(asyncgethostbyname)
 		return;
 	}
 	
-	code = dns_gethostbyname(&req, name, execute_data);
+	code = dns_gethostbyname(&req, name, 0);
 	
 	if (code != 0) {
 		RETURN_STRINGL(name, len);
@@ -193,7 +200,7 @@ static PHP_FUNCTION(asyncgethostbyname)
 	info = req.addrinfo;
 	
 	while (info != NULL) {
-		if (info->ai_family == AF_INET && info->ai_protocol == 0) {
+		if (info->ai_family == AF_INET) {
 			uv_ip4_name((struct sockaddr_in *) info->ai_addr, ip, info->ai_addrlen);
 			uv_freeaddrinfo(req.addrinfo);
 			
@@ -210,6 +217,9 @@ static PHP_FUNCTION(asyncgethostbynamel)
 {
 	char *name;
 	size_t len;
+	
+	zval tmp;
+	zend_string *k;
 	
 	uv_getaddrinfo_t req;
 	struct addrinfo *info;
@@ -229,7 +239,7 @@ static PHP_FUNCTION(asyncgethostbynamel)
 		return;
 	}
 	
-	code = dns_gethostbyname(&req, name, execute_data);
+	code = dns_gethostbyname(&req, name, 0);
 	
 	if (code != 0) {
 		RETURN_FALSE;
@@ -237,19 +247,27 @@ static PHP_FUNCTION(asyncgethostbynamel)
 
 	info = req.addrinfo;
 	
-	array_init(return_value);
+	array_init(&tmp);
 	
 	while (info != NULL) {
-		if (info->ai_family == AF_INET && info->ai_protocol == 0) {
+		if (info->ai_family == AF_INET) {
 			uv_ip4_name((struct sockaddr_in *) info->ai_addr, ip, info->ai_addrlen);
 			
-			add_next_index_string(return_value, ip);
+			add_assoc_bool_ex(&tmp, ip, strlen(ip), 1);
 		}
 		
 		info = info->ai_next;
 	}
 	
 	uv_freeaddrinfo(req.addrinfo);
+			
+	array_init(return_value);
+	
+	ZEND_HASH_FOREACH_STR_KEY(Z_ARRVAL_P(&tmp), k) {
+		add_next_index_str(return_value, zend_string_copy(k));
+	} ZEND_HASH_FOREACH_END();
+	
+	zval_ptr_dtor(&tmp);
 }
 
 
