@@ -34,7 +34,7 @@
 
 typedef void* fcontext_t;
 
-typedef struct _transfer_t {
+typedef struct {
     fcontext_t ctx;
     void *data;
 } transfer_t;
@@ -42,7 +42,7 @@ typedef struct _transfer_t {
 extern fcontext_t ASM_CALLDECL make_fcontext(void *sp, size_t size, void (*fn)(transfer_t));
 extern transfer_t ASM_CALLDECL jump_fcontext(fcontext_t to, void *vp);
 
-typedef struct _async_fiber_context_asm {
+typedef struct {
 	fcontext_t ctx;
 	fcontext_t caller;
 	async_fiber_stack stack;
@@ -50,7 +50,7 @@ typedef struct _async_fiber_context_asm {
 	zend_bool root;
 } async_fiber_context_asm;
 
-typedef struct _async_fiber_record_asm {
+typedef struct {
 	async_fiber_func func;
 } async_fiber_record_asm;
 

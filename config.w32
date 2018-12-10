@@ -1,5 +1,4 @@
 ARG_ENABLE('async', 'async support', 'yes');
-ARG_ENABLE('async-fs', 'async file IO support', 'no');
 
 X64 = toolset_is_64();
 
@@ -20,7 +19,7 @@ if (PHP_ASYNC != 'no') {
 		'src\\dns.c',
 		'src\\fiber.c',
 		'src\\fiber_winfib.c',
-		'src\\helper.c',
+		'src\\filesystem.c',
 		'src\\process.c',
 		'src\\signal_watcher.c',
 		'src\\socket.c',
@@ -31,19 +30,16 @@ if (PHP_ASYNC != 'no') {
 		'src\\task_scheduler.c',
 		'src\\tcp.c',
 		'src\\timer.c',
-		'src\\udp.c'
+		'src\\udp.c',
+		'src\\xp\\socket.c',
+		'src\\xp\\tcp.c',
+		'src\\xp\\udp.c'
 	];
 	
 	var async_header_files = [
 		'php_async.h',
 		'thirdparty\\libuv\\include\\uv.h'
 	];
-	
-	if (PHP_ASYNC_FS == 'yes') {
-		AC_DEFINE('HAVE_ASYNC_FS', 1, 'async filesystem IO support enabled');
-		
-		async_source_files.push('src\\filesystem.c');
-	}
 	
 	// Do static linking against included libuv.
 	if (X64) {

@@ -20,9 +20,9 @@ Task::async(function () use ($defer) {
 Task::async('var_dump', 'B');
 
 Task::async(function () use ($defer) {
-    $defer->resolve('D');
+    $defer->resolve('C');
 
-    var_dump('C');
+    var_dump('D');
 });
 
 ?>

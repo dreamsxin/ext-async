@@ -32,31 +32,6 @@ char async_ssl_config_file[MAXPATHLEN];
 static void async_execute_ex(zend_execute_data *exec);
 static void (*orig_execute_ex)(zend_execute_data *exec);
 
-const int ASYNC_SIGNAL_SIGHUP = 1;
-const int ASYNC_SIGNAL_SIGINT = 2;
-
-#ifdef PHP_WIN32
-const int ASYNC_SIGNAL_SIGQUIT = -1;
-const int ASYNC_SIGNAL_SIGKILL = -1;
-const int ASYNC_SIGNAL_SIGTERM = -1;
-#else
-const int ASYNC_SIGNAL_SIGQUIT = 3;
-const int ASYNC_SIGNAL_SIGKILL = 9;
-const int ASYNC_SIGNAL_SIGTERM = 15;
-#endif
-
-#ifdef SIGUSR1
-const int ASYNC_SIGNAL_SIGUSR1 = SIGUSR1;
-#else
-const int ASYNC_SIGNAL_SIGUSR1 = -1;
-#endif
-
-#ifdef SIGUSR2
-const int ASYNC_SIGNAL_SIGUSR2 = SIGUSR2;
-#else
-const int ASYNC_SIGNAL_SIGUSR2 = -1;
-#endif
-
 /* Custom executor being used to run the task scheduler before shutdown functions. */
 static void async_execute_ex(zend_execute_data *exec)
 {
@@ -81,26 +56,166 @@ static void async_execute_ex(zend_execute_data *exec)
 
 void async_init()
 {
-	async_dns_init();
-	async_timer_init();
+	if (ASYNC_G(fs_enabled)) {
+		async_filesystem_init();
+	}
 
-#ifdef HAVE_ASYNC_FS
-	async_filesystem_init();
-#endif
+	if (ASYNC_G(dns_enabled)) {
+		async_dns_init();
+	}
+	
+	if (ASYNC_G(timer_enabled)) {
+		async_timer_init();
+	}
+	
+	if (ASYNC_G(tcp_enabled)) {
+		async_tcp_socket_init();
+	}
+	
+	if (ASYNC_G(udp_enabled)) {
+		async_udp_socket_init();
+	}
 }
 
 void async_shutdown()
 {
-#ifdef HAVE_ASYNC_FS
-	async_filesystem_shutdown();
-#endif
+	if (ASYNC_G(fs_enabled)) {
+		async_filesystem_shutdown();
+	}
+	
+	if (ASYNC_G(dns_enabled)) {
+		async_dns_shutdown();
+	}
+	
+	if (ASYNC_G(timer_enabled)) {
+		async_timer_shutdown();
+	}
+	
+	if (ASYNC_G(tcp_enabled)) {
+		async_tcp_socket_shutdown();
+	}
 
-	async_timer_shutdown();
-	async_dns_shutdown();
+	if (ASYNC_G(udp_enabled)) {
+		async_udp_socket_shutdown();
+	}	
 }
 
+char *async_status_label(zend_uchar status)
+{
+	if (status == ASYNC_OP_RESOLVED) {
+		return "RESOLVED";
+	}
 
-PHP_INI_MH(OnUpdateFiberStackSize)
+	if (status == ASYNC_OP_FAILED) {
+		return "FAILED";
+	}
+
+	return "PENDING";
+}
+
+size_t async_ring_buffer_read_len(async_ring_buffer *buffer)
+{
+	if (buffer->len == 0) {
+		return 0;
+	}
+
+	if (buffer->wpos >= buffer->rpos) {
+		return buffer->len;
+	}
+	
+	return buffer->size - (buffer->rpos - buffer->base);
+}
+
+size_t async_ring_buffer_write_len(async_ring_buffer *buffer)
+{
+	if (buffer->len == buffer->size) {
+		return 0;
+	}
+
+	if (buffer->wpos >= buffer->rpos) {
+		return buffer->size - (buffer->wpos - buffer->base);
+	}
+	
+	return buffer->rpos - buffer->wpos;
+}
+
+size_t async_ring_buffer_read(async_ring_buffer *buffer, char *base, size_t len)
+{
+	size_t consumed;
+	size_t count;
+	
+	consumed = 0;
+	
+	while (len > 0 && buffer->len > 0) {
+		count = buffer->size - (buffer->rpos - buffer->base);
+		
+		if (count > buffer->len) {
+			count = MIN(len, buffer->len);
+		} else {
+			count = MIN(len, count);
+		}
+		
+		memcpy(base, buffer->rpos, count);
+		
+		buffer->rpos += count;
+		buffer->len -= count;
+		
+		if ((buffer->rpos - buffer->base) == buffer->size) {
+			buffer->rpos = buffer->base;
+		}
+		
+		len -= count;
+		base += count;
+		consumed += count;
+	}
+	
+	return consumed;
+}
+
+size_t async_ring_buffer_read_string(async_ring_buffer *buffer, zend_string **str, size_t len)
+{
+	zend_string *tmp;
+	char *buf;
+	
+	len = MIN(buffer->len, len);
+	
+	if (len == 0) {
+		*str = NULL;
+	
+		return 0;
+	}
+	
+	tmp = zend_string_alloc(len, 0);
+	
+	buf = ZSTR_VAL(tmp);
+	buf[len] = '\0';
+	
+	async_ring_buffer_read(buffer, buf, len);
+		
+	*str = tmp;
+
+	return len;
+}
+
+void async_ring_buffer_write_move(async_ring_buffer *buffer, size_t offset)
+{
+	ZEND_ASSERT(offset > 0);
+	ZEND_ASSERT(offset <= buffer->size);
+
+	buffer->wpos = buffer->base + ((buffer->wpos - buffer->base) + offset) % buffer->size;
+	buffer->len += offset;
+}
+
+void async_ring_buffer_consume(async_ring_buffer *buffer, size_t len)
+{
+	ZEND_ASSERT(len > 0);
+	ZEND_ASSERT(len <= buffer->len);
+	
+	buffer->rpos = buffer->base + ((buffer->rpos - buffer->base) + len) % buffer->size;
+	buffer->len -= len;
+}
+
+static PHP_INI_MH(OnUpdateFiberStackSize)
 {
 	OnUpdateLong(entry, new_value, mh_arg1, mh_arg2, mh_arg3, stage);
 
@@ -112,9 +227,33 @@ PHP_INI_MH(OnUpdateFiberStackSize)
 }
 
 PHP_INI_BEGIN()
+	STD_PHP_INI_ENTRY("async.dns", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, dns_enabled, zend_async_globals, async_globals)
+	STD_PHP_INI_ENTRY("async.filesystem", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, fs_enabled, zend_async_globals, async_globals)
 	STD_PHP_INI_ENTRY("async.stack_size", "0", PHP_INI_SYSTEM, OnUpdateFiberStackSize, stack_size, zend_async_globals, async_globals)
+	STD_PHP_INI_ENTRY("async.timer", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, timer_enabled, zend_async_globals, async_globals)
+	STD_PHP_INI_ENTRY("async.tcp", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, tcp_enabled, zend_async_globals, async_globals)
+	STD_PHP_INI_ENTRY("async.udp", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, udp_enabled, zend_async_globals, async_globals)
 PHP_INI_END()
 
+ASYNC_API void *async_malloc(size_t size)
+{
+	return emalloc(size);
+}
+
+ASYNC_API void *async_realloc(void *ptr, size_t size)
+{
+	return erealloc(ptr, size);
+}
+
+ASYNC_API void *async_calloc(size_t count, size_t size)
+{
+	return ecalloc(count, size);
+}
+
+ASYNC_API void async_free(void *ptr)
+{
+	efree(ptr);
+}
 
 PHP_GINIT_FUNCTION(async)
 {
@@ -127,6 +266,10 @@ PHP_GINIT_FUNCTION(async)
 
 PHP_MINIT_FUNCTION(async)
 {
+#ifndef PHP_WIN32
+	uv_replace_allocator(async_malloc, async_realloc, async_calloc, async_free);
+#endif
+
 	if (0 == strcmp(sapi_module.name, "cli") || 0 == strcmp(sapi_module.name, "phpdbg")) {
 		async_cli = 1;
 	} else {
@@ -135,11 +278,15 @@ PHP_MINIT_FUNCTION(async)
 
 #ifdef HAVE_ASYNC_SSL
 	char *file;
-
+	
+#ifndef PHP_WIN32
+	CRYPTO_set_mem_functions(async_malloc, async_realloc, async_free);
+#endif
+	
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined (LIBRESSL_VERSION_NUMBER)
 	SSL_library_init();
-	SSL_load_error_strings();
 	OPENSSL_config(NULL);
+	SSL_load_error_strings();
 #else
 	OPENSSL_init_ssl(OPENSSL_INIT_LOAD_CONFIG, NULL);
 #endif
@@ -206,12 +353,6 @@ PHP_MINFO_FUNCTION(async)
 	php_info_print_table_start();
 	php_info_print_table_row(2, "Fiber backend", async_fiber_backend_info());
 	php_info_print_table_row(2, "Libuv version", uv_version);
-
-#ifdef HAVE_ASYNC_FS
-	php_info_print_table_row(2, "Async file IO", async_cli ? "On" : "Off");
-#else
-	php_info_print_table_row(2, "Async file IO", "Off");
-#endif
 
 	php_info_print_table_end();
 

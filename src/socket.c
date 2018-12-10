@@ -57,6 +57,7 @@ static const zend_function_entry async_socket_functions[] = {
 ZEND_METHOD(SocketStream, getRemoteAddress) { }
 ZEND_METHOD(SocketStream, getRemotePort) { }
 ZEND_METHOD(SocketStream, writeAsync) { }
+ZEND_METHOD(SocketStream, getWriteQueueSize) { }
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_stream_get_remote_address, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -68,10 +69,14 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_stream_write_async, 0, 1,
 	ZEND_ARG_TYPE_INFO(0, data, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_get_write_queue_size, 0, 0, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
 static const zend_function_entry async_socket_stream_functions[] = {
 	ZEND_ME(SocketStream, getRemoteAddress, arginfo_socket_stream_get_remote_address, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_ME(SocketStream, getRemotePort, arginfo_socket_stream_get_remote_port, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_ME(SocketStream, writeAsync, arginfo_socket_stream_write_async, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
+	ZEND_ME(SocketStream, getWriteQueueSize, arginfo_socket_get_write_queue_size, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_FE_END
 };
 

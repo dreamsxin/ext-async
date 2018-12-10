@@ -20,8 +20,6 @@
 
 #include "async_task.h"
 
-ZEND_DECLARE_MODULE_GLOBALS(async)
-
 zend_class_entry *async_signal_watcher_ce;
 
 static zend_object_handlers async_signal_watcher_handlers;
@@ -30,38 +28,60 @@ static zend_object_handlers async_signal_watcher_handlers;
 	zend_declare_class_constant_long(async_signal_watcher_ce, const_name, sizeof(const_name)-1, (zend_long)value);
 
 
+typedef struct {
+	/* PHP object handle. */
+	zend_object std;
+
+	/* Error being set as the watcher was closed (undef by default). */
+	zval error;
+
+	int signum;
+
+	uv_signal_t handle;
+
+	async_op_queue observers;
+
+	zend_uchar ref_count;
+
+	async_task_scheduler *scheduler;
+	
+	async_cancel_cb cancel;
+} async_signal_watcher;
+
 static void trigger_signal(uv_signal_t *handle, int signum)
 {
 	async_signal_watcher *watcher;
-
-	zval result;
+	async_op *op;
+	async_op *last;
+	zend_bool cont;
 
 	watcher = (async_signal_watcher *) handle->data;
 
 	ZEND_ASSERT(watcher != NULL);
 
-	ZVAL_NULL(&result);
-
-	async_awaitable_trigger_continuation(&watcher->observers, &result, 1);
-}
-
-static void enable_signal(void *obj)
-{
-	async_signal_watcher *watcher;
-
-	watcher = (async_signal_watcher *) obj;
-
-	ZEND_ASSERT(watcher != NULL);
-
-	watcher->running = watcher->new_running;
-
-	if (watcher->running) {
-		uv_signal_start(&watcher->handle, trigger_signal, watcher->signum);
+	if (Z_TYPE_P(&watcher->error) == IS_UNDEF) {
+		last = watcher->observers.last;
+		cont = 1;
+	
+		while (cont && watcher->observers.first != NULL) {
+			ASYNC_DEQUEUE_OP(&watcher->observers, op);
+			
+			cont = (op != last);
+			
+			ASYNC_FINISH_OP(op);
+		}
 	} else {
-		uv_signal_stop(&watcher->handle);
+		while (watcher->observers.first != NULL) {
+			ASYNC_DEQUEUE_OP(&watcher->observers, op);
+			ASYNC_FAIL_OP(op, &watcher->error);
+		}
 	}
-
-	ASYNC_DELREF(&watcher->std);
+	
+	if (watcher->observers.first == NULL) {
+		if (!uv_is_closing((uv_handle_t *) handle)) {
+			uv_signal_stop(handle);
+		}
+	}
 }
 
 static void close_signal(uv_handle_t *handle)
@@ -73,6 +93,35 @@ static void close_signal(uv_handle_t *handle)
 	ZEND_ASSERT(watcher != NULL);
 
 	ASYNC_DELREF(&watcher->std);
+}
+
+static void shutdown_signal(void *obj, zval *error)
+{
+	async_signal_watcher *watcher;
+	async_op *op;
+
+	watcher = (async_signal_watcher *) obj;
+
+	ZEND_ASSERT(watcher != NULL);
+	
+	watcher->cancel.func = NULL;
+	
+	if (error != NULL && Z_TYPE_P(&watcher->error) == IS_UNDEF) {
+		ZVAL_COPY(&watcher->error, error);
+	}
+
+	if (!uv_is_closing((uv_handle_t *) &watcher->handle)) {
+		ASYNC_ADDREF(&watcher->std);
+
+		uv_close((uv_handle_t *) &watcher->handle, close_signal);
+	}
+	
+	if (error != NULL) {
+		while (watcher->observers.first != NULL) {
+			ASYNC_DEQUEUE_OP(&watcher->observers, op);
+			ASYNC_FAIL_OP(op, &watcher->error);
+		}
+	}
 }
 
 
@@ -90,10 +139,10 @@ static zend_object *async_signal_watcher_object_create(zend_class_entry *ce)
 	
 	watcher->scheduler = async_task_scheduler_get();
 	
-	async_awaitable_queue_init(&watcher->observers, watcher->scheduler);	
-
-	watcher->enable.object = watcher;
-	watcher->enable.func = enable_signal;
+	ASYNC_ADDREF(&watcher->scheduler->std);
+	
+	watcher->cancel.object = watcher;
+	watcher->cancel.func = shutdown_signal;
 
 	return &watcher->std;
 }
@@ -103,16 +152,11 @@ static void async_signal_watcher_object_dtor(zend_object *object)
 	async_signal_watcher *watcher;
 
 	watcher = (async_signal_watcher *) object;
-
-	if (watcher->enable.active) {
-		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
-		watcher->enable.active = 0;
-	}
-
-	if (!uv_is_closing((uv_handle_t *) &watcher->handle)) {
-		ASYNC_ADDREF(&watcher->std);
-
-		uv_close((uv_handle_t *) &watcher->handle, close_signal);
+	
+	if (watcher->cancel.func != NULL) {
+		ASYNC_Q_DETACH(&watcher->scheduler->shutdown, &watcher->cancel);
+		
+		watcher->cancel.func(watcher, NULL);
 	}
 }
 
@@ -124,7 +168,7 @@ static void async_signal_watcher_object_destroy(zend_object *object)
 
 	zval_ptr_dtor(&watcher->error);
 	
-	async_awaitable_queue_destroy(&watcher->observers);
+	ASYNC_DELREF(&watcher->scheduler->std);
 
 	zend_object_std_dtor(&watcher->std);
 }
@@ -147,14 +191,18 @@ ZEND_METHOD(SignalWatcher, __construct)
 	watcher->signum = (int) signum;
 
 	uv_signal_init(&watcher->scheduler->loop, &watcher->handle);
+	uv_unref((uv_handle_t *) &watcher->handle);
 
 	watcher->handle.data = watcher;
+	
+	ASYNC_Q_ENQUEUE(&watcher->scheduler->shutdown, &watcher->cancel);
 }
 
 ZEND_METHOD(SignalWatcher, close)
 {
 	async_signal_watcher *watcher;
 
+	zval error;
 	zval *val;
 
 	val = NULL;
@@ -166,40 +214,29 @@ ZEND_METHOD(SignalWatcher, close)
 
 	watcher = (async_signal_watcher *) Z_OBJ_P(getThis());
 
-	if (Z_TYPE_P(&watcher->error) != IS_UNDEF) {
+	if (watcher->cancel.func == NULL) {
 		return;
 	}
-
-	if (watcher->enable.active) {
-		ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
-		watcher->enable.active = 0;
-	} else {
-		ASYNC_ADDREF(&watcher->std);
-	}
-
-	if (!uv_is_closing((uv_handle_t *) &watcher->handle)) {
-		uv_close((uv_handle_t *) &watcher->handle, close_signal);
-	}
-
-	zend_throw_error(NULL, "Signal watcher has been closed");
-
-	ZVAL_OBJ(&watcher->error, EG(exception));
-	EG(exception) = NULL;
-
+	
+	ASYNC_PREPARE_ERROR(&error, "Signal watcher has been closed");
+	
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
-		zend_exception_set_previous(Z_OBJ_P(&watcher->error), Z_OBJ_P(val));
+		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
 		GC_ADDREF(Z_OBJ_P(val));
 	}
-
-	async_awaitable_trigger_continuation(&watcher->observers, &watcher->error, 0);
+	
+	ASYNC_Q_DETACH(&watcher->scheduler->shutdown, &watcher->cancel);
+	
+	watcher->cancel.func(watcher, &error);
+	
+	zval_ptr_dtor(&error);
 }
 
 ZEND_METHOD(SignalWatcher, awaitSignal)
 {
 	async_signal_watcher *watcher;
+	async_op *op;
 	async_context *context;
-	
-	zend_bool cancelled;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
@@ -214,59 +251,24 @@ ZEND_METHOD(SignalWatcher, awaitSignal)
 
 		return;
 	}
-
-	watcher->new_running = 1;
-
-	if (!watcher->ref_count && !watcher->unref_count) {
-		if (watcher->running) {
-			if (watcher->enable.active) {
-				ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
-				watcher->enable.active = 0;
-
-				ASYNC_DELREF(&watcher->std);
-			}
-		} else if (!watcher->enable.active) {
-			ASYNC_ADDREF(&watcher->std);
-
-			async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
-		}
+	
+	if (watcher->observers.first == NULL) {
+		uv_signal_start(&watcher->handle, trigger_signal, watcher->signum);
 	}
 
 	context = async_context_get();
+	
+	ASYNC_ALLOC_OP(op);
+	ASYNC_ENQUEUE_OP(&watcher->observers, op);
 
-	ASYNC_REF_ENTER(context, watcher);
-	async_task_suspend(&watcher->observers, NULL, execute_data, &cancelled);
-	ASYNC_REF_EXIT(context, watcher);
-	
-	if (watcher->scheduler->disposed && Z_TYPE_P(&watcher->error) == IS_UNDEF) {
-		ZVAL_COPY(&watcher->error, &watcher->scheduler->error);
-	
-		if (watcher->enable.active) {
-			ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
-			watcher->enable.active = 0;
-		} else {
-			ASYNC_ADDREF(&watcher->std);
-		}
-		
-		uv_close((uv_handle_t *) &watcher->handle, close_signal);
+	ASYNC_UNREF_ENTER(context, watcher);
+
+	if (async_await_op(op) == FAILURE) {
+		ASYNC_FORWARD_OP_ERROR(op);
 	}
 
-	if (!watcher->ref_count && !watcher->unref_count && Z_TYPE_P(&watcher->error) == IS_UNDEF) {
-		watcher->new_running = 0;
-
-		if (watcher->running) {
-			if (!watcher->enable.active) {
-				ASYNC_ADDREF(&watcher->std);
-
-				async_task_scheduler_enqueue_enable(watcher->scheduler, &watcher->enable);
-			}
-		} else if (watcher->enable.active) {
-			ASYNC_Q_DETACH(&watcher->scheduler->enable, &watcher->enable);
-			watcher->enable.active = 0;
-
-			ASYNC_DELREF(&watcher->std);
-		}
-	}
+	ASYNC_UNREF_EXIT(context, watcher);
+	ASYNC_FREE_OP(op);
 }
 
 ZEND_METHOD(SignalWatcher, isSupported)

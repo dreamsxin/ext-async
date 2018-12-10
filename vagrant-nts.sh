@@ -47,7 +47,7 @@ cd /vagrant
 
 sudo phpize --clean
 sudo phpize
-sudo ./configure --enable-async-fs
+sudo ./configure
 sudo make install -B
 
 sudo echo "extension=\"async.so\"" >> /usr/local/php/cli/php.ini

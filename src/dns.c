@@ -28,39 +28,42 @@ static zif_handler orig_gethostbynamel_handler;
 
 static void dns_gethostbyname_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *addr)
 {
-	async_awaitable_queue *q;
-	zval result;
-
-	q = (async_awaitable_queue *) req->data;
+	async_uv_op *op;
 	
-	ZVAL_LONG(&result, status)
-
-	async_awaitable_trigger_continuation(q, &result, 1);
+	op = (async_uv_op *) req->data;
+	
+	ZEND_ASSERT(op != NULL);
+	
+	if (status == UV_ECANCELED) {
+		ASYNC_FREE_OP(op);
+	} else {	
+		op->code = status;
+		
+		ASYNC_FINISH_OP(op);
+	}
 }
 
 static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, zend_execute_data *execute_data)
 {
 	async_task_scheduler *scheduler;
-	async_awaitable_queue *q;
-	
-	zval result;
-	zend_bool cancelled;
+	async_uv_op *op;
 	
 	int code;
 	
+	op = NULL;
 	scheduler = async_task_scheduler_get();
 	
 	if (async_cli) {
-		q = async_awaitable_queue_alloc(scheduler);
+		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op));
 		
-		req->data = q;
+		req->data = op;
 	}
 
 	code = uv_getaddrinfo(&scheduler->loop, req, async_cli ? dns_gethostbyname_cb : NULL, name, NULL, NULL);
 	
 	if (UNEXPECTED(code < 0)) {
 		if (async_cli) {
-			async_awaitable_queue_dispose(q);
+			ASYNC_FREE_OP(op);
 		}
 	
 		uv_freeaddrinfo(req->addrinfo);
@@ -69,16 +72,21 @@ static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, zend_execute_dat
 	}
 	
 	if (async_cli) {
-		async_task_suspend(q, &result, execute_data, &cancelled);
-		async_awaitable_queue_dispose(q);
-		
-		if (cancelled) {
-			uv_cancel((uv_req_t *) req);
+		if (async_await_op((async_op *) op) == FAILURE) {
+			ASYNC_FORWARD_OP_ERROR(op);
 			
-			return UV_ECANCELED;
+			if (0 == uv_cancel((uv_req_t *) req)) {
+				ASYNC_FREE_OP(op);
+			} else {
+				op->base.status = ASYNC_STATUS_FAILED;
+			}
+
+			return FAILURE;
 		}
 		
-		code = (int) Z_LVAL_P(&result);
+		code = op->code;
+
+		ASYNC_FREE_OP(op);
 		
 		if (UNEXPECTED(code < 0)) {
 			uv_freeaddrinfo(req->addrinfo);

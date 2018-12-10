@@ -58,5 +58,5 @@ string(4) "FOO!"
 NULL
 string(4) "BAR!"
 string(4) "FOO!"
-string(65) "Cannot await in the fiber that is running the task scheduler loop"
-string(62) "Cannot await while the task scheduler is not dispatching tasks"
+string(35) "Cannot await in the current context"
+string(35) "Cannot await in the current context"

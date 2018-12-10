@@ -60,11 +60,11 @@ try {
 string(9) "127.0.0.1"
 bool(true)
 string(6) "LISTEN"
-string(8) "ACCEPTED"
 string(9) "CONNECTED"
 bool(true)
 bool(true)
 bool(true)
 bool(true)
+string(8) "ACCEPTED"
 string(5) "Hello"
 string(6) "World!"

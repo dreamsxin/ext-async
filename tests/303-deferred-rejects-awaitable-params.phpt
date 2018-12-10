@@ -16,7 +16,7 @@ try {
 }
 
 try {
-    (new Deferred)->resolve(Deferred::value());
+    (new Deferred())->resolve(Deferred::value());
 } catch (\Throwable $e) {
     var_dump('X');
 }

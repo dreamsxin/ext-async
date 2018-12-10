@@ -348,6 +348,8 @@ interface SocketStream extends Socket, DuplexStream
     public function getRemotePort(): ?int;
     
     public function writeAsync(string $data): int;
+    
+    public function getWriteQueueSize(): int;
 }
 ```
 
