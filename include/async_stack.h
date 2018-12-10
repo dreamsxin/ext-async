@@ -27,7 +27,7 @@ typedef struct {
 	void *pointer;
 	size_t size;
 
-#ifdef HAVE_VALGRIND_H
+#ifdef HAVE_VALGRIND
 	int valgrind;
 #endif
 } async_fiber_stack;

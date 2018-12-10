@@ -9,7 +9,7 @@ RUN mkdir /usr/local/php
 WORKDIR /usr/local/php
 
 RUN mkdir cli php-src
-RUN curl -LSs https://github.com/php/php-src/tarball/master | tar -xz -C "php-src" --strip-components 1
+RUN curl -LSs https://github.com/php/php-src/archive/7.3.0.tar.gz | tar -xz -C "php-src" --strip-components 1
 
 WORKDIR /usr/local/php/php-src
 

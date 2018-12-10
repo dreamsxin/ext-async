@@ -1,9 +1,9 @@
 #!/bin/bash
 
-PHP_VERSION=php-7.3.0RC5
+PHP_VERSION=php-7.3.0
 
 sudo apt-get update
-sudo apt-get install gdb git gcc make pkg-config autoconf libtool bison libxml2-dev libssl-dev curl -y
+sudo apt-get install gdb git gcc make pkg-config autoconf libtool bison libxml2-dev libssl-dev curl valgrind -y
 
 # Install PHP:
 sudo mkdir /usr/local/php
@@ -20,6 +20,7 @@ sudo ./buildconf --force
 sudo ./configure \
     --prefix=/usr/local/php/cli \
     --with-config-file-path=/usr/local/php/cli \
+    --with-valgrind \
     --with-openssl \
     --with-zlib \
     --without-pear \
@@ -47,7 +48,7 @@ cd /vagrant
 
 sudo phpize --clean
 sudo phpize
-sudo ./configure
+sudo ./configure --with-valgrind
 sudo make install -B
 
 sudo echo "extension=\"async.so\"" >> /usr/local/php/cli/php.ini

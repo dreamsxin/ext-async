@@ -20,7 +20,7 @@
 #include "config.h"
 #endif
 
-#ifdef HAVE_VALGRIND_H
+#ifdef HAVE_VALGRIND
 #include "valgrind/valgrind.h"
 #endif
 

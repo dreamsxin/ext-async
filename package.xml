@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2018-12-06</date>
-  <time>08:46:54</time>
+  <date>2018-12-10</date>
+  <time>15:52:30</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -249,9 +249,10 @@
       <file role="test" name="tests/110-task-is-running.phpt"/>
       <file role="test" name="tests/111-task-inlining.phpt"/>
       <file role="test" name="tests/112-task-awaitable-cannot-be-implemented.phpt"/>
-      <file role="test" name="tests/113-task-must-not-return-awaitable.phpt"/>
+      <file role="test" name="tests/113-task-will-await-returned-awaitable.phpt"/>
       <file role="test" name="tests/114-task-disposal.phpt"/>
       <file role="test" name="tests/115-task-root-await-deferred.phpt"/>
+      <file role="test" name="tests/116-task-will-await-returned-awaitable.phpt"/>
       <file role="test" name="tests/121-task-scheduler-stacking.phpt"/>
       <file role="test" name="tests/123-task-scheduler-pending-tasks.phpt"/>
       <file role="test" name="tests/124-task-await-pending-task.phpt"/>

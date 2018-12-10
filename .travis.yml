@@ -31,7 +31,7 @@ before_install:
 script:
   - phpize
   - wget -q -O run-tests.php https://raw.githubusercontent.com/php/php-src/master/run-tests.php
-  - ./configure
+  - ./configure --with-valgrind
   - make test-coverage
 
 after_success:
