@@ -25,6 +25,13 @@ make install
 popd
 ```
 
+These are the options supported by `configure`:
+
+| Option | Description |
+| --- | --- |
+| **--with-openssl-dir=DIR** | Allows you to specify the directory where SSl dev lib is installed. |
+| **--with-valgrind[=DIR]** | Can be used to enable Valgrind support and (optional) specify the valgrind directory. |
+
 ### Windows
 
 You can [download a pre-compiled DLL](https://github.com/martinschroeder/ext-async-win32/raw/master/php_async.dll) working with PHP 7.3+ (VC15 x64 Thread Safe only). Just drop the DLL file in your `ext` directory and add `extension=php_async.dll` in your `php.ini` file.
@@ -36,6 +43,16 @@ configure --disable-all --enable-cli --enable-async=shared
 nmake
 ```
 You can leave out `=shared` to compile the extension into PHP (faster compilation and no need to load it in `php.ini`) which is nice for testing but does not create a DLL file that can be distributed. You should add `--enable-debug` to allow for debugging when you are working on the source code of the extension.
+
+## INI Settings
+
+| Setting | Description |
+| --- | --- |
+| `async.dns` | Replaces some internal function (`gethostbyname()` and `gethostbynamel()`) with async implementations. |
+| `async.filesystem` | Replaces PHP's `file` stream wrapper with an async implementation. |
+| `async.tcp` | (**experimental**) Replaces PHP's `tcp` and `tls` stream wrappers with async implementations. |
+| `async.timer` | Replaces PHP's `sleep()` function with an async implementation. |
+| `async.udp` | (**experimental**) Replaces PHP's `udp` stream wrapper with an async implementation. |
 
 ## Async API
 
