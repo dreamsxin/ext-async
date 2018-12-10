@@ -166,6 +166,17 @@ static inline void map_stat(uv_stat_t *stat, php_stream_statbuf *ssb)
 	ssb->sb.st_mtime = (time_t) stat->st_mtim.tv_sec;
 	ssb->sb.st_ctime = (time_t) stat->st_ctim.tv_sec;
 #else
+
+#if defined(__APPLE__)
+    ssb->sb.st_atimespec.tv_sec = (time_t) stat->st_atim.tv_sec;
+	ssb->sb.st_atimespec.tv_nsec = stat->st_atim.tv_nsec;
+	
+	ssb->sb.st_mtimespec.tv_sec = (time_t) stat->st_mtim.tv_sec;
+	ssb->sb.st_mtimespec.tv_nsec = stat->st_mtim.tv_nsec;
+	
+	ssb->sb.st_ctimespec.tv_sec = (time_t) stat->st_ctim.tv_sec;
+	ssb->sb.st_ctimespec.tv_nsec = stat->st_ctim.tv_nsec;
+#else
 	ssb->sb.st_atim.tv_sec = (time_t) stat->st_atim.tv_sec;
 	ssb->sb.st_atim.tv_nsec = stat->st_atim.tv_nsec;
 	
@@ -174,6 +185,7 @@ static inline void map_stat(uv_stat_t *stat, php_stream_statbuf *ssb)
 	
 	ssb->sb.st_ctim.tv_sec = (time_t) stat->st_ctim.tv_sec;
 	ssb->sb.st_ctim.tv_nsec = stat->st_ctim.tv_nsec;
+#endif
 	
 	ssb->sb.st_ino = stat->st_ino;
 	ssb->sb.st_uid = stat->st_uid;
