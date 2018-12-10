@@ -235,26 +235,6 @@ PHP_INI_BEGIN()
 	STD_PHP_INI_ENTRY("async.udp", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, udp_enabled, zend_async_globals, async_globals)
 PHP_INI_END()
 
-ASYNC_API void *async_malloc(size_t size)
-{
-	return emalloc(size);
-}
-
-ASYNC_API void *async_realloc(void *ptr, size_t size)
-{
-	return erealloc(ptr, size);
-}
-
-ASYNC_API void *async_calloc(size_t count, size_t size)
-{
-	return ecalloc(count, size);
-}
-
-ASYNC_API void async_free(void *ptr)
-{
-	efree(ptr);
-}
-
 PHP_GINIT_FUNCTION(async)
 {
 #if defined(ZTS) && defined(COMPILE_DL_ASYNC)
@@ -266,10 +246,6 @@ PHP_GINIT_FUNCTION(async)
 
 PHP_MINIT_FUNCTION(async)
 {
-#ifndef PHP_WIN32
-	uv_replace_allocator(async_malloc, async_realloc, async_calloc, async_free);
-#endif
-
 	if (0 == strcmp(sapi_module.name, "cli") || 0 == strcmp(sapi_module.name, "phpdbg")) {
 		async_cli = 1;
 	} else {
@@ -278,10 +254,6 @@ PHP_MINIT_FUNCTION(async)
 
 #ifdef HAVE_ASYNC_SSL
 	char *file;
-	
-#ifndef PHP_WIN32
-	CRYPTO_set_mem_functions(async_malloc, async_realloc, async_free);
-#endif
 	
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined (LIBRESSL_VERSION_NUMBER)
 	SSL_library_init();
