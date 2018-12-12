@@ -13,7 +13,14 @@ The `async` extension is not published as `pecl` extension (yet).
 
 ### Linux / MacOS
 
-You have to install the extension from source. Installing works like this (assuming you have PHP installed):
+You have to install `libuv` using Homebrew in order to install the extension for Mac OS. It is advisable to also install `openssl` in order to establish encrypted TCP socket connections.
+
+```shell
+brew install libuv
+brew install openssl
+```
+
+Installing `ext-async` from source works like this (assuming you have PHP 7.3 installed):
 ```shell
 mkdir ext-async
 curl -LSs https://github.com/concurrent-php/ext-async/archive/master.tar.gz | tar -xz -C "ext-async" --strip-components 1
@@ -29,7 +36,7 @@ These are the options supported by `configure`:
 
 | Option | Description |
 | --- | --- |
-| **--with-openssl-dir=DIR** | Allows you to specify the directory where SSl dev lib is installed. |
+| **--with-openssl-dir=DIR** | Allows you to specify the directory where `libssl-dev` is installed. |
 | **--with-valgrind[=DIR]** | Can be used to enable Valgrind support and (optional) specify the valgrind directory. |
 
 ### Windows

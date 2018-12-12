@@ -400,9 +400,7 @@ ZEND_METHOD(UdpSocket, setOption)
 		break;
 	}
 
-	ASYNC_CHECK_EXCEPTION(code != 0 && code != UV_ENOTSUP, async_socket_exception_ce, "Failed to set socket option: %s", uv_strerror(code));
-
-	RETURN_LONG((code == 0) ? 1 : 0);
+	RETURN_LONG((code < 0) ? 0 : 1);
 }
 
 static void socket_received(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buffer, const struct sockaddr* addr, unsigned int flags)

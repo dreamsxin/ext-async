@@ -10,18 +10,33 @@ PHP_ARG_WITH(valgrind, Whether to enable "valgrind" support,
 if test "$PHP_ASYNC" != "no"; then
   AC_DEFINE(HAVE_ASYNC, 1, [ ])
   
+  AS_CASE([$host_cpu],
+    [x86_64*], [async_cpu="x86_64"],
+    [x86*], [async_cpu="x86"],
+    [arm*], [async_cpu="arm"],
+    [arm64*], [async_cpu="arm64"],
+    [async_cpu="unknown"]
+  )
+  
+  AS_CASE([$host_os],
+    [darwin*], [async_os="MAC"],
+    [cygwin*], [async_os="WIN"],
+    [mingw*], [async_os="WIN"],
+    [async_os="LINUX"]
+  )
+  
   DIR="${srcdir}/thirdparty"
 
   AC_MSG_CHECKING(for static libuv)
 
-  if test ! -s "${DIR}/lib/libuv.a"; then
+  if test "$async_os" = 'LINUX' && test ! -s "${DIR}/lib/libuv.a"; then
     AC_MSG_RESULT(no)
     
     TMP=$(mktemp -d)
     cp -r ${DIR}/libuv $TMP
     pushd ${TMP}/libuv
     ./autogen.sh
-    ./configure --prefix=${TMP}/build CFLAGS="$(CFLAGS) -fPIC -DPIC -g -O2"
+    ./configure --disable-shared --prefix=${TMP}/build CFLAGS="$(CFLAGS) -fPIC -DPIC -g -O2"
     make install
     popd
     mv ${TMP}/build/lib/libuv.a ${DIR}/lib
@@ -94,21 +109,6 @@ if test "$PHP_ASYNC" != "no"; then
     src/xp/udp.c
   "
   
-  AS_CASE([$host_cpu],
-    [x86_64*], [async_cpu="x86_64"],
-    [x86*], [async_cpu="x86"],
-    [arm*], [async_cpu="arm"],
-    [arm64*], [async_cpu="arm64"],
-    [async_cpu="unknown"]
-  )
-  
-  AS_CASE([$host_os],
-    [darwin*], [async_os="MAC"],
-    [cygwin*], [async_os="WIN"],
-    [mingw*], [async_os="WIN"],
-    [async_os="LINUX"]
-  )
-  
   if test "$async_cpu" = 'x86_64'; then
     if test "$async_os" = 'LINUX'; then
       async_asm_file="x86_64_sysv_elf_gas.S"
@@ -149,7 +149,9 @@ if test "$PHP_ASYNC" != "no"; then
   
   PHP_ADD_INCLUDE("$srcdir/thirdparty/libuv/include")
   
-  if test "$TRAVIS" = ""; then
+  if test "$async_os" = 'MAC'; then
+    ASYNC_SHARED_LIBADD="$ASYNC_SHARED_LIBADD -luv"
+  elif test "$TRAVIS" = ""; then
     ASYNC_SHARED_LIBADD="$ASYNC_SHARED_LIBADD -L${srcdir}/thirdparty/lib -luv"
   else
     dnl Stupid workaround for travis build, for some reason the linker refuses to use a subdirectory of the project?!

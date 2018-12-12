@@ -576,9 +576,7 @@ ZEND_METHOD(TcpSocket, setOption)
 		break;
 	}
 
-	ASYNC_CHECK_EXCEPTION(code != 0 && code != UV_ENOTSUP, async_socket_exception_ce, "Failed to set socket option: %s", uv_strerror(code));
-
-	RETURN_LONG((code == 0) ? 1 : 0);
+	RETURN_LONG((code < 0) ? 0 : 1);
 }
 
 static inline void call_read(async_tcp_socket *socket, zval *return_value, zend_execute_data *execute_data)
@@ -1304,9 +1302,7 @@ ZEND_METHOD(TcpServer, setOption)
 		break;
 	}
 
-	ASYNC_CHECK_EXCEPTION(code != 0 && code != UV_ENOTSUP, async_socket_exception_ce, "Failed to set socket option: %s", uv_strerror(code));
-
-	RETURN_LONG((code == 0) ? 1 : 0);
+	RETURN_LONG((code < 0) ? 0 : 1);
 }
 
 ZEND_METHOD(TcpServer, accept)
