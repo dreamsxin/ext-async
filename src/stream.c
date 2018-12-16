@@ -28,6 +28,7 @@ zend_class_entry *async_stream_closed_exception_ce;
 zend_class_entry *async_stream_exception_ce;
 zend_class_entry *async_writable_stream_ce;
 
+#define ASYNC_STREAM_SHOULD_READ(stream) (((stream)->buffer.size - (stream)->buffer.len) >= 4096)
 
 //////////////////////////////////////////////////////////
 // FIXME: Implement proper SSL shutdown!
@@ -290,7 +291,7 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 	if (nread < 0 && nread != UV_EOF) {
 		uv_read_stop(handle);
 		
-		if (stream->read != NULL) {
+		while (stream->read != NULL) {
 			read = stream->read;
 			stream->read = NULL;
 			
@@ -315,7 +316,7 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 		
 			uv_read_stop(handle);
 			
-			if (stream->read != NULL) {
+			while (stream->read != NULL) {
 				read = stream->read;
 				stream->read = NULL;
 				
@@ -356,7 +357,7 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 	if (nread == UV_EOF) {
 		uv_read_stop(handle);
 
-		if (stream->read != NULL) {
+		while (stream->read != NULL) {
 			read = stream->read;
 			stream->read = NULL;
 			
@@ -368,7 +369,7 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 		return;
 	}
 	
-	if (async_ring_buffer_write_len(&stream->buffer) < 8192) {
+	if (!ASYNC_STREAM_SHOULD_READ(stream)) {
 		uv_read_stop(handle);
 	}
 }
@@ -416,7 +417,7 @@ int async_stream_read(async_stream *stream, char *buf, size_t len)
 		
 		ASYNC_STREAM_BUFFER_CONSUME(stream, len);
 		
-		if (!(stream->flags && ASYNC_STREAM_EOF) && async_ring_buffer_write_len(&stream->buffer) >= 8192) {
+		if (!(stream->flags && ASYNC_STREAM_EOF) && ASYNC_STREAM_SHOULD_READ(stream)) {
 			if (!uv_is_active((uv_handle_t *) stream->handle)) {
 				uv_read_start(stream->handle, read_alloc_cb, read_cb);
 			}
@@ -511,7 +512,7 @@ int async_stream_read_string(async_stream *stream, zend_string **str, size_t len
 		
 		ASYNC_STREAM_BUFFER_CONSUME(stream, len);
 		
-		if (!(stream->flags && ASYNC_STREAM_EOF) && async_ring_buffer_write_len(&stream->buffer) >= 8192) {
+		if (!(stream->flags && ASYNC_STREAM_EOF) && ASYNC_STREAM_SHOULD_READ(stream)) {
 			if (!uv_is_active((uv_handle_t *) stream->handle)) {
 				uv_read_start(stream->handle, read_alloc_cb, read_cb);
 			}
