@@ -329,7 +329,6 @@ static void dispose_read_state(uv_handle_t *handle)
 	state->process->pipes--;
 
 	async_stream_free(state->stream);
-	efree(state->stream);
 
 	ASYNC_DELREF(&state->process->std);
 }
@@ -355,7 +354,6 @@ static void dispose_write_state(uv_handle_t *handle)
 	state->process->pipes--;
 
 	async_stream_free(state->stream);
-	efree(state->stream);
 
 	ASYNC_DELREF(&state->process->std);
 }

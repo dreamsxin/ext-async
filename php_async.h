@@ -215,6 +215,12 @@ typedef struct {
 	async_task *last;
 } async_task_queue;
 
+typedef struct {
+	zend_execute_data *exec;
+	zend_vm_stack stack;
+	size_t stack_page_size;
+} async_vm_state;
+
 #define ASYNC_DEFERRED_STATUS_PENDING 0
 #define ASYNC_DEFERRED_STATUS_RESOLVED ASYNC_OP_RESOLVED
 #define ASYNC_DEFERRED_STATUS_FAILED ASYNC_OP_FAILED
@@ -405,14 +411,8 @@ struct _async_fiber {
 	/* Destination for a PHP value being passed into or returned from the fiber. */
 	zval *value;
 
-	/* Current Zend VM execute data being run by the fiber. */
-	zend_execute_data *exec;
-
-	/* VM stack being used by the fiber. */
-	zend_vm_stack stack;
-
-	/* Max size of the C stack being used by the fiber. */
-	size_t stack_size;
+	/* Current Zend VM state within the fiber. */
+	async_vm_state state;
 
 	/* Data to be displayed as debug info. */
 	zend_string *file;
@@ -540,6 +540,10 @@ struct _async_task_scheduler {
 	/* Timer being used to keep the loop busy when needed. */
 	uv_timer_t busy;
 	zend_ulong busy_count;
+	
+	async_fiber_context fiber;
+	async_fiber_context current;
+	async_fiber_context caller;
 };
 
 char *async_status_label(zend_uchar status);
@@ -564,6 +568,8 @@ ASYNC_API int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, int p
 ZEND_BEGIN_MODULE_GLOBALS(async)
 	/* Root fiber context (main thread). */
 	async_fiber_context root;
+
+	async_fiber_context active_context;
 
 	/* Active fiber, NULL when in main thread. */
 	async_fiber *current_fiber;
@@ -601,22 +607,6 @@ ASYNC_API ZEND_EXTERN_MODULE_GLOBALS(async)
 #if defined(ZTS) && defined(COMPILE_DL_ASYNC)
 ZEND_TSRMLS_CACHE_EXTERN()
 #endif
-
-#define ASYNC_FIBER_BACKUP_EG(stack, stack_page_size, exec) do { \
-	stack = EG(vm_stack); \
-	stack->top = EG(vm_stack_top); \
-	stack->end = EG(vm_stack_end); \
-	stack_page_size = EG(vm_stack_page_size); \
-	exec = EG(current_execute_data); \
-} while (0)
-
-#define ASYNC_FIBER_RESTORE_EG(stack, stack_page_size, exec) do { \
-	EG(vm_stack) = stack; \
-	EG(vm_stack_top) = stack->top; \
-	EG(vm_stack_end) = stack->end; \
-	EG(vm_stack_page_size) = stack_page_size; \
-	EG(current_execute_data) = exec; \
-} while (0)
 
 #define ASYNC_ALLOC_OP(op) do { \
 	op = emalloc(sizeof(async_op)); \
@@ -776,6 +766,7 @@ ZEND_TSRMLS_CACHE_EXTERN()
 
 #define ASYNC_CHECK_FATAL(expr, message, ...) do { \
 	if (UNEXPECTED(expr)) { \
+		php_printf(message ASYNC_VA_ARGS(__VA_ARGS__)); \
 		zend_error_noreturn(E_CORE_ERROR, message ASYNC_VA_ARGS(__VA_ARGS__)); \
 	} \
 } while (0)
@@ -794,6 +785,10 @@ ZEND_TSRMLS_CACHE_EXTERN()
 #define ASYNC_DELREF(obj) do { \
 	/* php_printf("UNREF [%s]: %d -> %d / %s:%d\n", ZSTR_VAL((obj)->ce->name), (int) GC_REFCOUNT(obj), ((int) GC_REFCOUNT(obj)) - 1, __FILE__, __LINE__); */ \
 	OBJ_RELEASE(obj); \
+} while (0)
+
+#define ASYNC_DEBUG_LOG(message, ...) do { \
+	/* php_printf(message ASYNC_VA_ARGS(__VA_ARGS__)); */ \
 } while (0)
 
 /*

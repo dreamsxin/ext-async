@@ -29,9 +29,12 @@ struct _async_fiber_context_ucontext {
 	ucontext_t ctx;
 	async_fiber_stack stack;
 	async_fiber_context_ucontext *caller;
+	int id;
 	zend_bool initialized;
 	zend_bool root;
 };
+
+static int counter = 0;
 
 char *async_fiber_backend_info()
 {
@@ -57,6 +60,8 @@ async_fiber_context async_fiber_create_context()
 
 	context = emalloc(sizeof(async_fiber_context_ucontext));
 	ZEND_SECURE_ZERO(context, sizeof(async_fiber_context_ucontext));
+
+	context->id = ++counter;
 
 	return (async_fiber_context) context;
 }
@@ -107,7 +112,7 @@ void async_fiber_destroy(async_fiber_context ctx)
 	}
 }
 
-zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next)
+zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next, zend_bool yieldable)
 {
 	async_fiber_context_ucontext *from;
 	async_fiber_context_ucontext *to;
@@ -123,7 +128,11 @@ zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_co
 		return 0;
 	}
 
-	to->caller = from;
+	if (yieldable) {
+		to->caller = from;
+	}
+
+	ASYNC_DEBUG_LOG("FIBER SWITCH: %d -> %d\n", from->id, to->id);
 
 	if (swapcontext(&from->ctx, &to->ctx) == -1) {
 		return 0;
@@ -145,6 +154,8 @@ zend_bool async_fiber_yield(async_fiber_context current)
 	if (UNEXPECTED(fiber->initialized == 0)) {
 		return 0;
 	}
+
+	ASYNC_DEBUG_LOG("FIBER YIELD: %d -> %d\n", fiber->id, fiber->caller->id);
 
 	if (swapcontext(&fiber->ctx, &fiber->caller->ctx) == -1) {
 		return 0;

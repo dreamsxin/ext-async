@@ -20,7 +20,7 @@ try {
             'USN: uuid:3a06277c-5888-4a7d-b66b-20d914d168bd::upnp:rootdevice'
         ]) . "\r\n\r\n");
         
-        $socket->sendAsync($datagram);
+        var_dump($socket->sendAsync($datagram));
     }
 } finally {
     $socket->close();

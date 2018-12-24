@@ -276,7 +276,7 @@ static void async_tcp_socket_object_dtor(zend_object *object)
 static void async_tcp_socket_object_destroy(zend_object *object)
 {
 	async_tcp_socket *socket;
-
+	
 	socket = (async_tcp_socket *) object;
 
 #ifdef HAVE_ASYNC_SSL
@@ -289,6 +289,19 @@ static void async_tcp_socket_object_destroy(zend_object *object)
 	}
 #endif
 
+	if (socket->stream != NULL) {
+		async_stream_free(socket->stream);
+	}
+
+	if (socket->server != NULL) {
+		ASYNC_DELREF(&socket->server->std);
+	}
+	
+	ASYNC_DELREF(&socket->scheduler->std);
+
+	zval_ptr_dtor(&socket->read_error);
+	zval_ptr_dtor(&socket->write_error);
+
 	if (socket->name != NULL) {
 		zend_string_release(socket->name);
 	}
@@ -300,19 +313,6 @@ static void async_tcp_socket_object_destroy(zend_object *object)
 	if (socket->remote_addr != NULL) {
 		zend_string_release(socket->remote_addr);
 	}
-
-	zval_ptr_dtor(&socket->read_error);
-	zval_ptr_dtor(&socket->write_error);
-
-	if (socket->server != NULL) {
-		ASYNC_DELREF(&socket->server->std);
-	}
-	
-	if (socket->stream != NULL) {
-		async_stream_free(socket->stream);
-	}
-	
-	ASYNC_DELREF(&socket->scheduler->std);
 
 	zend_object_std_dtor(&socket->std);
 }
@@ -514,7 +514,7 @@ ZEND_METHOD(TcpSocket, getAddress)
 
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 	
-	RETURN_STR(socket->local_addr);
+	RETURN_STR_COPY(socket->local_addr);
 }
 
 ZEND_METHOD(TcpSocket, getPort)
@@ -536,7 +536,7 @@ ZEND_METHOD(TcpSocket, getRemoteAddress)
 
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 	
-	RETURN_STR(socket->remote_addr);
+	RETURN_STR_COPY(socket->remote_addr);
 }
 
 ZEND_METHOD(TcpSocket, getRemotePort)
@@ -576,7 +576,7 @@ ZEND_METHOD(TcpSocket, setOption)
 		break;
 	}
 
-	RETURN_LONG((code < 0) ? 0 : 1);
+	RETURN_BOOL((code < 0) ? 0 : 1);
 }
 
 static inline void call_read(async_tcp_socket *socket, zval *return_value, zend_execute_data *execute_data)
@@ -584,6 +584,7 @@ static inline void call_read(async_tcp_socket *socket, zval *return_value, zend_
 	zend_string *str;
 	zval *hint;
 	size_t len;
+	int code;
 	
 	hint = NULL;
 	
@@ -610,10 +611,10 @@ static inline void call_read(async_tcp_socket *socket, zval *return_value, zend_
 
 		return;
 	}
-	
-	len = async_stream_read_string(socket->stream, &str, len);
 
-	if (str != NULL) {
+	code = async_stream_read_string(socket->stream, &str, len);
+	
+	if (code > 0) {
 		RETURN_STR(str);
 	}
 }
@@ -1100,8 +1101,6 @@ static void async_tcp_server_object_destroy(zend_object *object)
 
 	server = (async_tcp_server *) object;
 
-	zval_ptr_dtor(&server->error);
-
 #ifdef HAVE_ASYNC_SSL
 	if (server->ctx != NULL) {
 		SSL_CTX_free(server->ctx);
@@ -1112,6 +1111,10 @@ static void async_tcp_server_object_destroy(zend_object *object)
 	}
 #endif
 
+	ASYNC_DELREF(&server->scheduler->std);
+	
+	zval_ptr_dtor(&server->error);
+	
 	if (server->name != NULL) {
 		zend_string_release(server->name);
 	}
@@ -1119,8 +1122,6 @@ static void async_tcp_server_object_destroy(zend_object *object)
 	if (server->addr != NULL) {
 		zend_string_release(server->addr);
 	}
-	
-	ASYNC_DELREF(&server->scheduler->std);
 
 	zend_object_std_dtor(&server->std);
 }
@@ -1265,7 +1266,7 @@ ZEND_METHOD(TcpServer, getAddress)
 
 	server = (async_tcp_server *) Z_OBJ_P(getThis());
 
-	RETURN_STR(server->name);
+	RETURN_STR_COPY(server->name);
 }
 
 ZEND_METHOD(TcpServer, getPort)
@@ -1302,7 +1303,7 @@ ZEND_METHOD(TcpServer, setOption)
 		break;
 	}
 
-	RETURN_LONG((code < 0) ? 0 : 1);
+	RETURN_BOOL((code < 0) ? 0 : 1);
 }
 
 ZEND_METHOD(TcpServer, accept)

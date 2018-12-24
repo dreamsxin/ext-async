@@ -35,6 +35,8 @@ static zend_object *async_udp_datagram_object_create(zend_class_entry *ce);
 #define ASYNC_UDP_SOCKET_CONST(name, value) \
 	zend_declare_class_constant_long(async_udp_socket_ce, name, sizeof(name)-1, (zend_long)value);
 
+#define ASYNC_UDP_FLAG_RECEIVING 1
+
 typedef struct {
 	zend_object std;
 	
@@ -48,6 +50,8 @@ typedef struct {
 	
 	uv_udp_t handle;
 	async_task_scheduler *scheduler;
+	
+	uint8_t flags;
 	
 	zend_string *name;
 	zend_string *ip;
@@ -355,9 +359,7 @@ ZEND_METHOD(UdpSocket, getAddress)
 
 	socket = (async_udp_socket *) Z_OBJ_P(getThis());
 
-	if (USED_RET()) {
-		ZVAL_STR_COPY(return_value, socket->ip);
-	}
+	RETURN_STR_COPY(socket->ip);
 }
 
 ZEND_METHOD(UdpSocket, getPort)
@@ -400,7 +402,7 @@ ZEND_METHOD(UdpSocket, setOption)
 		break;
 	}
 
-	RETURN_LONG((code < 0) ? 0 : 1);
+	RETURN_BOOL((code < 0) ? 0 : 1);
 }
 
 static void socket_received(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buffer, const struct sockaddr* addr, unsigned int flags)
@@ -443,6 +445,8 @@ static void socket_received(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buffer
 	
 	if (socket->receivers.first == NULL) {
 		uv_udp_recv_stop(udp);
+		
+		socket->flags ^= ASYNC_UDP_FLAG_RECEIVING;
 	}
 }
 
@@ -473,11 +477,13 @@ ZEND_METHOD(UdpSocket, receive)
 
 		return;
 	}
-	
-	if (socket->receivers.first == NULL) {
+
+	if (!(socket->flags & ASYNC_UDP_FLAG_RECEIVING)) {
 		code = uv_udp_recv_start(&socket->handle, socket_alloc_buffer, socket_received);
 		
 		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to receive UDP data: %s", uv_strerror(code));
+		
+		socket->flags |= ASYNC_UDP_FLAG_RECEIVING;
 	}
 	
 	context = async_context_get();

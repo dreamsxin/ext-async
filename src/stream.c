@@ -145,8 +145,10 @@ void async_stream_shutdown(async_stream *stream, int how)
 	if (how & ASYNC_STREAM_SHUT_RD && !(stream->flags & ASYNC_STREAM_SHUT_RD)) {
 		stream->flags |= ASYNC_STREAM_SHUT_RD;
 		
-		if (uv_is_active((uv_handle_t *) stream->handle)) {
+		if (stream->flags & ASYNC_STREAM_READING) {
 			uv_read_stop(stream->handle);
+			
+			stream->flags ^= ASYNC_STREAM_READING;
 		}
 		
 		if (stream->read != NULL) {
@@ -291,6 +293,8 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 	if (nread < 0 && nread != UV_EOF) {
 		uv_read_stop(handle);
 		
+		stream->flags ^= ASYNC_STREAM_READING;
+		
 		while (stream->read != NULL) {
 			read = stream->read;
 			stream->read = NULL;
@@ -315,6 +319,8 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 			}
 		
 			uv_read_stop(handle);
+			
+			stream->flags ^= ASYNC_STREAM_READING;
 			
 			while (stream->read != NULL) {
 				read = stream->read;
@@ -356,6 +362,8 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 	
 	if (nread == UV_EOF) {
 		uv_read_stop(handle);
+		
+		stream->flags ^= ASYNC_STREAM_READING;
 
 		while (stream->read != NULL) {
 			read = stream->read;
@@ -371,6 +379,8 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 	
 	if (!ASYNC_STREAM_SHOULD_READ(stream)) {
 		uv_read_stop(handle);
+		
+		stream->flags ^= ASYNC_STREAM_READING;
 	}
 }
 
@@ -418,8 +428,10 @@ int async_stream_read(async_stream *stream, char *buf, size_t len)
 		ASYNC_STREAM_BUFFER_CONSUME(stream, len);
 		
 		if (!(stream->flags && ASYNC_STREAM_EOF) && ASYNC_STREAM_SHOULD_READ(stream)) {
-			if (!uv_is_active((uv_handle_t *) stream->handle)) {
+			if (!(stream->flags & ASYNC_STREAM_READING)) {
 				uv_read_start(stream->handle, read_alloc_cb, read_cb);
+				
+				stream->flags |= ASYNC_STREAM_READING;
 			}
 		}
 		
@@ -430,8 +442,10 @@ int async_stream_read(async_stream *stream, char *buf, size_t len)
 		return 0;
 	}
 	
-	if (!uv_is_active((uv_handle_t *) stream->handle)) {
+	if (!(stream->flags & ASYNC_STREAM_READING)) {
 		uv_read_start(stream->handle, read_alloc_cb, read_cb);
+		
+		stream->flags |= ASYNC_STREAM_READING;
 	}
 	
 	ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_stream_read_op));
@@ -513,8 +527,10 @@ int async_stream_read_string(async_stream *stream, zend_string **str, size_t len
 		ASYNC_STREAM_BUFFER_CONSUME(stream, len);
 		
 		if (!(stream->flags && ASYNC_STREAM_EOF) && ASYNC_STREAM_SHOULD_READ(stream)) {
-			if (!uv_is_active((uv_handle_t *) stream->handle)) {
+			if (!(stream->flags & ASYNC_STREAM_READING)) {
 				uv_read_start(stream->handle, read_alloc_cb, read_cb);
+				
+				stream->flags |= ASYNC_STREAM_READING;
 			}
 		}
 		
@@ -525,8 +541,10 @@ int async_stream_read_string(async_stream *stream, zend_string **str, size_t len
 		return 0;
 	}
 	
-	if (!uv_is_active((uv_handle_t *) stream->handle)) {
+	if (!(stream->flags & ASYNC_STREAM_READING)) {
 		uv_read_start(stream->handle, read_alloc_cb, read_cb);
+		
+		stream->flags |= ASYNC_STREAM_READING;
 	}
 	
 	ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_stream_read_op));

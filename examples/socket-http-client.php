@@ -10,7 +10,7 @@ try {
     var_dump($socket->getAddress(), $socket->getPort());
     var_dump($socket->getRemoteAddress(), $socket->getRemotePort());
     
-    $socket->setOption(TcpSocket::NODELAY, true);
+    var_dump($socket->setOption(TcpSocket::NODELAY, true));
     
     if ($tls) {
         $socket->encrypt();

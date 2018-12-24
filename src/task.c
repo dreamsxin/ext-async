@@ -149,45 +149,31 @@ static void async_task_fiber_func(async_fiber *fiber)
 
 void async_task_start(async_task *task)
 {
-	async_context *context;
-
 	task->operation = ASYNC_TASK_OPERATION_NONE;
 	task->fiber.context = async_fiber_create_context();
 
 	ASYNC_CHECK_FATAL(task->fiber.context == NULL, "Failed to create native fiber context");
-	ASYNC_CHECK_FATAL(!async_fiber_create(task->fiber.context, async_fiber_run, task->fiber.stack_size), "Failed to create native fiber");
-
-	task->fiber.stack = (zend_vm_stack) emalloc(ASYNC_FIBER_VM_STACK_SIZE);
-	task->fiber.stack->top = ZEND_VM_STACK_ELEMENTS(task->fiber.stack) + 1;
-	task->fiber.stack->end = (zval *) ((char *) task->fiber.stack + ASYNC_FIBER_VM_STACK_SIZE);
-	task->fiber.stack->prev = NULL;
+	ASYNC_CHECK_FATAL(!async_fiber_create(task->fiber.context, async_fiber_run, task->fiber.state.stack_page_size), "Failed to create native fiber");
+	
+	task->fiber.state.stack = (zend_vm_stack) emalloc(ASYNC_FIBER_VM_STACK_SIZE);
+	task->fiber.state.stack->top = ZEND_VM_STACK_ELEMENTS(task->fiber.state.stack) + 1;
+	task->fiber.state.stack->end = (zval *) ((char *) task->fiber.state.stack + ASYNC_FIBER_VM_STACK_SIZE);
+	task->fiber.state.stack->prev = NULL;
 
 	task->fiber.status = ASYNC_FIBER_STATUS_RUNNING;
 	task->fiber.func = async_task_fiber_func;
 
-	context = ASYNC_G(current_context);
-	ASYNC_G(current_context) = task->context;
-
-	ASYNC_CHECK_FATAL(!async_fiber_switch_to(&task->fiber), "Failed to switch to fiber");
-
-	ASYNC_G(current_context) = context;
+	async_fiber_context_start(&task->fiber, task->context, 1);
 
 	zend_fcall_info_args_clear(&task->fiber.fci, 1);
 }
 
 void async_task_continue(async_task *task)
 {
-	async_context *context;
-	
 	task->operation = ASYNC_TASK_OPERATION_NONE;
 	task->fiber.status = ASYNC_FIBER_STATUS_RUNNING;
-	
-	context = ASYNC_G(current_context);
-	ASYNC_G(current_context) = task->context;
 
-	ASYNC_CHECK_FATAL(!async_fiber_switch_to(&task->fiber), "Failed to switch to fiber");
-	
-	ASYNC_G(current_context) = context;
+	async_fiber_context_switch(task->fiber.context, 1);
 }
 
 static inline void async_task_execute_inline(async_task *task, async_task *inner)
@@ -261,8 +247,12 @@ static void continue_op_root(async_op *op)
 	if (op->flags & ASYNC_OP_FLAG_CANCELLED) {
 		return;
 	}
+	
+	scheduler->current = ASYNC_G(active_context);
 
-	async_task_scheduler_stop_loop(scheduler);
+	async_fiber_context_switch(scheduler->caller, 0);
+
+	scheduler->current = NULL;
 }
 
 /* Continue fiber-based task due to cancellation of an async operation. */
@@ -307,8 +297,7 @@ int async_await_op(async_op *op)
 	async_task *task;
 	async_task_scheduler *scheduler;
 	async_context *context;
-	size_t stack_page_size;
-	
+
 	ZEND_ASSERT(op->status == ASYNC_OP_PENDING);
 
 	fiber = ASYNC_G(current_fiber);
@@ -329,7 +318,11 @@ int async_await_op(async_op *op)
 			ASYNC_ENQUEUE_OP(&scheduler->operations, op);
 		}
 		
+		context = ASYNC_G(current_context);
+		
 		async_task_scheduler_run_loop(scheduler);
+		
+		ASYNC_G(current_context) = context;
 	} else {
 		ASYNC_OP_CHECK_ERROR(op, fiber->type != ASYNC_FIBER_TYPE_TASK, "Await must be called from within a running task");
 		ASYNC_OP_CHECK_ERROR(op, fiber->status != ASYNC_FIBER_STATUS_RUNNING, "Cannot await in a task that is not running");
@@ -367,11 +360,7 @@ int async_await_op(async_op *op)
 		
 		task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
 	
-		ASYNC_FIBER_BACKUP_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
-		ASYNC_CHECK_FATAL(!async_fiber_yield(task->fiber.context), "Failed to yield from fiber");
-		ASYNC_FIBER_RESTORE_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
-	
-		ASYNC_G(current_context) = context;
+		async_fiber_context_yield();
 		
 		if (context->cancel != NULL) {
 			ASYNC_DELREF(&context->std);
@@ -419,7 +408,7 @@ async_task *async_task_object_create(zend_execute_data *call, async_task_schedul
 		stack_size = 4096 * (((sizeof(void *)) < 8) ? 16 : 128);
 	}
 
-	task->fiber.stack_size = stack_size;
+	task->fiber.state.stack_page_size = stack_size;
 
 	ZVAL_NULL(&task->result);
 	ZVAL_UNDEF(&task->error);
@@ -600,9 +589,8 @@ ZEND_METHOD(Task, await)
 	async_task_scheduler *scheduler;
 	async_deferred_state *state;
 	async_context *context;
-	size_t stack_page_size;
-	zend_bool busy;
 
+	zend_bool busy;
 	zval *val;
 	zval error;
 
@@ -692,7 +680,7 @@ ZEND_METHOD(Task, await)
 		ASYNC_CHECK_ERROR(inner->scheduler != task->scheduler, "Cannot await a task that runs on a different task scheduler");
 
 		// Perform task-inlining optimization where applicable.
-		if (inner->fiber.status == ASYNC_FIBER_STATUS_INIT && inner->fiber.stack_size <= task->fiber.stack_size) {
+		if (inner->fiber.status == ASYNC_FIBER_STATUS_INIT && inner->fiber.state.stack_page_size <= task->fiber.state.stack_page_size) {
 			async_task_execute_inline(task, inner);
 		}
 
@@ -732,13 +720,7 @@ ZEND_METHOD(Task, await)
 	task->fiber.value = USED_RET() ? return_value : NULL;
 	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
 	
-	context = ASYNC_G(current_context);
-	
-	ASYNC_FIBER_BACKUP_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
-	ASYNC_CHECK_FATAL(!async_fiber_yield(task->fiber.context), "Failed to yield from fiber");
-	ASYNC_FIBER_RESTORE_EG(task->fiber.stack, stack_page_size, task->fiber.exec);
-
-	ASYNC_G(current_context) = context;
+	async_fiber_context_yield();
 	
 	if (busy) {
 		ASYNC_BUSY_EXIT(task->scheduler);

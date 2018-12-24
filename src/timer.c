@@ -258,7 +258,7 @@ ZEND_METHOD(Timer, awaitTimeout)
 		return;
 	}
 	
-	if (timer->timeouts.first == NULL) {
+	if (timer->timeouts.first == NULL && !uv_is_active((uv_handle_t *) &timer->handle)) {
 		uv_timer_start(&timer->handle, trigger_timer, timer->delay, timer->delay);
 	}
 	
@@ -268,7 +268,7 @@ ZEND_METHOD(Timer, awaitTimeout)
 	ASYNC_ENQUEUE_OP(&timer->timeouts, op);
 
 	ASYNC_UNREF_ENTER(context, timer);
-	
+
 	if (async_await_op(op) == FAILURE) {
 		ASYNC_FORWARD_OP_ERROR(op);
 	}

@@ -346,9 +346,9 @@ PHP_RINIT_FUNCTION(async)
 PHP_RSHUTDOWN_FUNCTION(async)
 {
 	async_shutdown();
-
+	
 	async_task_scheduler_shutdown();
-
+	
 	async_context_shutdown();
 	async_fiber_shutdown();
 

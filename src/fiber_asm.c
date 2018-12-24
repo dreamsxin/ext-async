@@ -42,17 +42,42 @@ typedef struct {
 extern fcontext_t ASM_CALLDECL make_fcontext(void *sp, size_t size, void (*fn)(transfer_t));
 extern transfer_t ASM_CALLDECL jump_fcontext(fcontext_t to, void *vp);
 
-typedef struct {
+#define ASYNC_FIBER_ASM_TRANSFER(fctx, source) do { \
+	transfer_t tmp; \
+	tmp = jump_fcontext(fctx, source); \
+	((async_fiber_context_asm *) tmp.data)->ctx = tmp.ctx; \
+} while (0)
+
+static int counter = 0;
+
+typedef struct async_fiber_context_asm_ async_fiber_context_asm;
+
+struct async_fiber_context_asm_ {
 	fcontext_t ctx;
-	fcontext_t caller;
 	async_fiber_stack stack;
+	async_fiber_context_asm *caller;
+	int id;
 	zend_bool initialized;
 	zend_bool root;
-} async_fiber_context_asm;
+};
 
 typedef struct {
+	async_fiber_context_asm *context;
 	async_fiber_func func;
 } async_fiber_record_asm;
+
+/* Perform a fiber switch and ensure the correct fcontext is stored within the fiber context. */
+static inline void switch_context(async_fiber_context_asm *from, fcontext_t to)
+{
+	async_fiber_context_asm *context;
+	transfer_t trans;
+
+	trans = jump_fcontext(to, from);
+	context = (async_fiber_context_asm *) trans.data;
+
+	context->ctx = trans.ctx;
+}
+
 
 char *async_fiber_backend_info()
 {
@@ -62,16 +87,12 @@ char *async_fiber_backend_info()
 static void async_fiber_asm_start(transfer_t trans)
 {
 	async_fiber_record_asm *record;
-	async_fiber_context_asm *context;
 
 	record = (async_fiber_record_asm *) trans.data;
 
-	trans = jump_fcontext(trans.ctx, 0);
-	context = (async_fiber_context_asm *) trans.data;
+	ZEND_ASSERT(record != NULL);
 
-	if (context != NULL) {
-		context->caller = trans.ctx;
-	}
+	switch_context(record->context, trans.ctx);
 
 	record->func();
 }
@@ -95,6 +116,8 @@ async_fiber_context async_fiber_create_context()
 
 	context = emalloc(sizeof(async_fiber_context_asm));
 	ZEND_SECURE_ZERO(context, sizeof(async_fiber_context_asm));
+
+	context->id = ++counter;
 
 	return (async_fiber_context) context;
 }
@@ -123,6 +146,7 @@ zend_bool async_fiber_create(async_fiber_context ctx, async_fiber_func func, siz
 	void *sp = (void *) (context->stack.size - record_size + (char *) context->stack.pointer);
 
 	record = (async_fiber_record_asm *) sp;
+	record->context = context;
 	record->func = func;
 
 	sp -= 64;
@@ -151,7 +175,7 @@ void async_fiber_destroy(async_fiber_context ctx)
 	}
 }
 
-zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next)
+zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next, zend_bool yieldable)
 {
 	async_fiber_context_asm *from;
 	async_fiber_context_asm *to;
@@ -167,7 +191,13 @@ zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_co
 		return 0;
 	}
 
-	to->ctx = jump_fcontext(to->ctx, to).ctx;
+	if (yieldable) {
+		to->caller = from;
+	}
+
+	ASYNC_DEBUG_LOG("FIBER SWITCH: %d -> %d\n", from->id, to->id);
+
+	switch_context(from, to->ctx);
 
 	return 1;
 }
@@ -186,7 +216,9 @@ zend_bool async_fiber_yield(async_fiber_context current)
 		return 0;
 	}
 
-	fiber->caller = jump_fcontext(fiber->caller, 0).ctx;
+	ASYNC_DEBUG_LOG("FIBER YIELD: %d -> %d\n", fiber->id, fiber->caller->id);
+
+	switch_context(fiber, fiber->caller->ctx);
 
 	return 1;
 }

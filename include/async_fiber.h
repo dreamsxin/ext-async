@@ -29,9 +29,29 @@ async_fiber_context async_fiber_create_context();
 zend_bool async_fiber_create(async_fiber_context context, async_fiber_func func, size_t stack_size);
 void async_fiber_destroy(async_fiber_context context);
 
-zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next);
-zend_bool async_fiber_switch_to(async_fiber *fiber);
+async_fiber_context async_fiber_context_get();
+void async_fiber_context_start(async_fiber *fiber, async_context *context, zend_bool yieldable);
+void async_fiber_context_switch(async_fiber_context *context, zend_bool yieldable);
+void async_fiber_context_yield();
+
+zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next, zend_bool yieldable);
 zend_bool async_fiber_yield(async_fiber_context current);
+
+#define ASYNC_FIBER_BACKUP_VM_STATE(state) do { \
+	(state)->stack = EG(vm_stack); \
+	(state)->stack->top = EG(vm_stack_top); \
+	(state)->stack->end = EG(vm_stack_end); \
+	(state)->stack_page_size = EG(vm_stack_page_size); \
+	(state)->exec = EG(current_execute_data); \
+} while (0)
+
+#define ASYNC_FIBER_RESTORE_VM_STATE(state) do { \
+	EG(vm_stack) = (state)->stack; \
+	EG(vm_stack_top) = (state)->stack->top; \
+	EG(vm_stack_end) = (state)->stack->end; \
+	EG(vm_stack_page_size) = (state)->stack_page_size; \
+	EG(current_execute_data) = (state)->exec; \
+} while (0)
 
 #endif
 

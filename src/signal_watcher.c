@@ -252,7 +252,7 @@ ZEND_METHOD(SignalWatcher, awaitSignal)
 		return;
 	}
 	
-	if (watcher->observers.first == NULL) {
+	if (watcher->observers.first == NULL && !uv_is_active((uv_handle_t *) &watcher->handle)) {
 		uv_signal_start(&watcher->handle, trigger_signal, watcher->signum);
 	}
 

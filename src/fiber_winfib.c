@@ -20,12 +20,17 @@
 
 #include "async_fiber.h"
 
-typedef struct {
+static int counter = 0;
+
+typedef struct async_fiber_context_win32_ async_fiber_context_win32;
+
+struct async_fiber_context_win32_ {
 	void *fiber;
-	void *caller;
+	async_fiber_context_win32 *caller;
+	int id;
 	zend_bool root;
 	zend_bool initialized;
-} async_fiber_context_win32;
+};
 
 char *async_fiber_backend_info()
 {
@@ -36,7 +41,9 @@ async_fiber_context async_fiber_create_root_context()
 {
 	async_fiber_context_win32 *context;
 
-	context = (async_fiber_context_win32 *) async_fiber_create_context();
+	context = emalloc(sizeof(async_fiber_context_win32));
+	ZEND_SECURE_ZERO(context, sizeof(async_fiber_context_win32));
+
 	context->root = 1;
 	context->initialized = 1;
 
@@ -59,6 +66,8 @@ async_fiber_context async_fiber_create_context()
 
 	context = emalloc(sizeof(async_fiber_context_win32));
 	ZEND_SECURE_ZERO(context, sizeof(async_fiber_context_win32));
+
+	context->id = ++counter;
 
 	return (async_fiber_context) context;
 }
@@ -102,7 +111,7 @@ void async_fiber_destroy(async_fiber_context ctx)
 	}
 }
 
-zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next)
+zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next, zend_bool yieldable)
 {
 	async_fiber_context_win32 *from;
 	async_fiber_context_win32 *to;
@@ -118,28 +127,34 @@ zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_co
 		return 0;
 	}
 
-	to->caller = from->fiber;
+	if (yieldable) {
+		to->caller = from;
+	}
+
+	ASYNC_DEBUG_LOG("FIBER SWITCH: %d -> %d\n", from->id, to->id);
+
 	SwitchToFiber(to->fiber);
-	to->caller = NULL;
 
 	return 1;
 }
 
 zend_bool async_fiber_yield(async_fiber_context current)
 {
-	async_fiber_context_win32 *from;
+	async_fiber_context_win32 *fiber;
 
 	if (UNEXPECTED(current == NULL)) {
 		return 0;
 	}
 
-	from = (async_fiber_context_win32 *) current;
+	fiber = (async_fiber_context_win32 *) current;
 
-	if (UNEXPECTED(from->initialized == 0)) {
+	if (UNEXPECTED(fiber->initialized == 0)) {
 		return 0;
 	}
 
-	SwitchToFiber(from->caller);
+	ASYNC_DEBUG_LOG("FIBER YIELD: %d -> %d\n", fiber->id, fiber->caller->id);
+
+	SwitchToFiber(fiber->caller->fiber);
 
 	return 1;
 }

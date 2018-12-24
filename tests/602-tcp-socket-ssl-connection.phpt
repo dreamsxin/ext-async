@@ -68,10 +68,10 @@ try {
 
 --EXPECT--
 string(6) "LISTEN"
-string(9) "CONNECTED"
-string(22) "START CLIENT HANDSHAKE"
 string(8) "ACCEPTED"
 string(22) "START SERVER HANDSHAKE"
+string(9) "CONNECTED"
+string(22) "START CLIENT HANDSHAKE"
 string(21) "SERVER HANDSHAKE DONE"
 string(21) "CLIENT HANDSHAKE DONE"
 string(5) "Hello"

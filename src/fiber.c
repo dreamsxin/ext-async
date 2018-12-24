@@ -43,37 +43,126 @@ void async_fiber_init_metadata(async_fiber *fiber, zend_execute_data *call)
 	}
 }
 
-zend_bool async_fiber_switch_to(async_fiber *fiber)
+async_fiber_context async_fiber_context_get()
 {
-	async_fiber_context root;
-	async_fiber *prev;
-	zend_bool result;
-	zend_execute_data *exec;
-	zend_vm_stack stack;
-	size_t stack_page_size;
+	async_fiber_context *context;
+	async_fiber *fiber;
 
-	root = ASYNC_G(root);
+	fiber = ASYNC_G(current_fiber);
 
-	if (root == NULL) {
-		root = async_fiber_create_root_context();
-
-		if (root == NULL) {
-			return 0;
-		}
-
-		ASYNC_G(root) = root;
+	if (fiber != NULL) {
+		return fiber->context;
 	}
 
-	prev = ASYNC_G(current_fiber);
+	context = ASYNC_G(active_context);
+
+	if (context != NULL) {
+		return context;
+	}
+
+	context = ASYNC_G(root);
+
+	if (context == NULL) {
+		context = async_fiber_create_root_context();
+
+		ASYNC_CHECK_FATAL(context == NULL, "Failed to create root fiber context");
+
+		ASYNC_G(root) = context;
+	}
+
+	return context;
+}
+
+void async_fiber_context_start(async_fiber *to, async_context *context, zend_bool yieldable)
+{
+	async_fiber_context *from;
+	async_fiber *fiber;
+	async_context *prev;
+	async_vm_state state;
+
+	from = async_fiber_context_get();
+
+	fiber = ASYNC_G(current_fiber);
+	prev = ASYNC_G(current_context);
+
+	if (fiber == NULL) {
+		ASYNC_FIBER_BACKUP_VM_STATE(&state);
+	} else {
+		ASYNC_FIBER_BACKUP_VM_STATE(&fiber->state);
+	}
+
+	ASYNC_G(active_context) = to->context;
+	ASYNC_G(current_fiber) = to;
+	ASYNC_G(current_context) = context;
+
+	ASYNC_CHECK_FATAL(!async_fiber_switch_context(from, to->context, yieldable), "Failed to switch fiber");
+
+	ASYNC_G(active_context) = from;
 	ASYNC_G(current_fiber) = fiber;
+	ASYNC_G(current_context) = prev;
 
-	ASYNC_FIBER_BACKUP_EG(stack, stack_page_size, exec);
-	result = async_fiber_switch_context((prev == NULL) ? root : prev->context, fiber->context);
-	ASYNC_FIBER_RESTORE_EG(stack, stack_page_size, exec);
+	if (fiber == NULL) {
+		ASYNC_FIBER_RESTORE_VM_STATE(&state);
+	} else {
+		ASYNC_FIBER_RESTORE_VM_STATE(&fiber->state);
+	}
+}
 
-	ASYNC_G(current_fiber) = prev;
+void async_fiber_context_switch(async_fiber_context *to, zend_bool yieldable)
+{
+	async_fiber_context *current;
+	async_fiber *fiber;
+	async_context *context;
+	async_vm_state state;
 
-	return result;
+	current = async_fiber_context_get();
+
+	fiber = ASYNC_G(current_fiber);
+	context = ASYNC_G(current_context);
+
+	if (fiber == NULL) {
+		ASYNC_FIBER_BACKUP_VM_STATE(&state);
+	} else {
+		ASYNC_FIBER_BACKUP_VM_STATE(&fiber->state);
+	}
+
+	ASYNC_G(active_context) = to;
+	ASYNC_G(current_fiber) = NULL;
+	ASYNC_G(current_context) = NULL;
+
+	ASYNC_CHECK_FATAL(!async_fiber_switch_context(current, to, yieldable), "Failed to switch fiber");
+
+	ASYNC_G(active_context) = current;
+	ASYNC_G(current_fiber) = fiber;
+	ASYNC_G(current_context) = context;
+
+	if (fiber == NULL) {
+		ASYNC_FIBER_RESTORE_VM_STATE(&state);
+	} else {
+		ASYNC_FIBER_RESTORE_VM_STATE(&fiber->state);
+	}
+}
+
+void async_fiber_context_yield()
+{
+	async_fiber_context *current;
+	async_fiber *fiber;
+	async_context *context;
+
+	fiber = ASYNC_G(current_fiber);
+
+	ZEND_ASSERT(fiber != NULL);
+
+	current = async_fiber_context_get();
+	context = ASYNC_G(current_context);
+
+	ASYNC_FIBER_BACKUP_VM_STATE(&fiber->state);
+	ASYNC_CHECK_FATAL(!async_fiber_yield(current), "Failed to yield from fiber");
+	ASYNC_FIBER_RESTORE_VM_STATE(&fiber->state);
+
+	ASYNC_G(active_context) = current;
+	ASYNC_G(current_fiber) = fiber;
+	ASYNC_G(current_context) = context;
 }
 
 
@@ -84,28 +173,28 @@ void async_fiber_run()
 	fiber = ASYNC_G(current_fiber);
 	ZEND_ASSERT(fiber != NULL);
 
-	EG(vm_stack) = fiber->stack;
-	EG(vm_stack_top) = fiber->stack->top;
-	EG(vm_stack_end) = fiber->stack->end;
+	EG(vm_stack) = fiber->state.stack;
+	EG(vm_stack_top) = fiber->state.stack->top;
+	EG(vm_stack_end) = fiber->state.stack->end;
 	EG(vm_stack_page_size) = ASYNC_FIBER_VM_STACK_SIZE;
 
-	fiber->exec = (zend_execute_data *) EG(vm_stack_top);
-	EG(vm_stack_top) = (zval *) fiber->exec + ZEND_CALL_FRAME_SLOT;
-	zend_vm_init_call_frame(fiber->exec, ZEND_CALL_TOP_FUNCTION, (zend_function *) &fiber_run_func, 0, NULL, NULL);
-	fiber->exec->opline = fiber_run_op;
-	fiber->exec->call = NULL;
-	fiber->exec->return_value = NULL;
-	fiber->exec->prev_execute_data = NULL;
+	fiber->state.exec = (zend_execute_data *) EG(vm_stack_top);
+	EG(vm_stack_top) = (zval *) fiber->state.exec + ZEND_CALL_FRAME_SLOT;
+	zend_vm_init_call_frame(fiber->state.exec, ZEND_CALL_TOP_FUNCTION, (zend_function *) &fiber_run_func, 0, NULL, NULL);
+	fiber->state.exec->opline = fiber_run_op;
+	fiber->state.exec->call = NULL;
+	fiber->state.exec->return_value = NULL;
+	fiber->state.exec->prev_execute_data = NULL;
 
-	EG(current_execute_data) = fiber->exec;
+	EG(current_execute_data) = fiber->state.exec;
 
-	execute_ex(fiber->exec);
+	execute_ex(fiber->state.exec);
 
 	zend_vm_stack_destroy();
-	fiber->stack = NULL;
-	fiber->exec = NULL;
+	fiber->state.stack = NULL;
+	fiber->state.exec = NULL;
 
-	ASYNC_CHECK_FATAL(!async_fiber_yield(fiber->context), "Failed to yield from fiber");
+	async_fiber_context_yield();
 }
 
 
@@ -174,7 +263,7 @@ static void async_fiber_object_destroy(zend_object *object)
 		fiber->disposed = 1;
 		fiber->status = ASYNC_FIBER_STATUS_RUNNING;
 
-		ASYNC_CHECK_FATAL(!async_fiber_switch_to(fiber), "Failed to switch to fiber");
+		async_fiber_context_switch(fiber->context, 1);
 	}
 
 	if (fiber->status == ASYNC_FIBER_STATUS_INIT && fiber->func == NULL) {
@@ -213,7 +302,7 @@ ZEND_METHOD(Fiber, __construct)
 	}
 
 	fiber->status = ASYNC_FIBER_STATUS_INIT;
-	fiber->stack_size = stack_size;
+	fiber->state.stack_page_size = stack_size;
 
 	// Keep a reference to closures or callable objects as long as the fiber lives.
 	Z_TRY_ADDREF_P(&fiber->fci.function_name);
@@ -274,16 +363,16 @@ ZEND_METHOD(Fiber, start)
 	fiber->context = async_fiber_create_context();
 
 	ASYNC_CHECK_ERROR(fiber->context == NULL, "Failed to create native fiber context");
-	ASYNC_CHECK_ERROR(!async_fiber_create(fiber->context, async_fiber_run, fiber->stack_size), "Failed to create native fiber");
+	ASYNC_CHECK_ERROR(!async_fiber_create(fiber->context, async_fiber_run, fiber->state.stack_page_size), "Failed to create native fiber");
 
-	fiber->stack = (zend_vm_stack) emalloc(ASYNC_FIBER_VM_STACK_SIZE);
-	fiber->stack->top = ZEND_VM_STACK_ELEMENTS(fiber->stack) + 1;
-	fiber->stack->end = (zval *) ((char *) fiber->stack + ASYNC_FIBER_VM_STACK_SIZE);
-	fiber->stack->prev = NULL;
+	fiber->state.stack = (zend_vm_stack) emalloc(ASYNC_FIBER_VM_STACK_SIZE);
+	fiber->state.stack->top = ZEND_VM_STACK_ELEMENTS(fiber->state.stack) + 1;
+	fiber->state.stack->end = (zval *) ((char *) fiber->state.stack + ASYNC_FIBER_VM_STACK_SIZE);
+	fiber->state.stack->prev = NULL;
 
 	fiber->value = USED_RET() ? return_value : NULL;
 
-	ASYNC_CHECK_ERROR(!async_fiber_switch_to(fiber), "Failed switching to fiber");
+	async_fiber_context_start(fiber, ASYNC_G(current_context), 1);
 }
 /* }}} */
 
@@ -314,7 +403,7 @@ ZEND_METHOD(Fiber, resume)
 	fiber->status = ASYNC_FIBER_STATUS_RUNNING;
 	fiber->value = USED_RET() ? return_value : NULL;
 
-	ASYNC_CHECK_ERROR(!async_fiber_switch_to(fiber), "Failed switching to fiber");
+	async_fiber_context_switch(fiber->context, 1);
 }
 /* }}} */
 
@@ -344,7 +433,7 @@ ZEND_METHOD(Fiber, throw)
 	fiber->status = ASYNC_FIBER_STATUS_RUNNING;
 	fiber->value = USED_RET() ? return_value : NULL;
 
-	ASYNC_CHECK_ERROR(!async_fiber_switch_to(fiber), "Failed switching to fiber");
+	async_fiber_context_switch(fiber->context, 1);
 }
 /* }}} */
 
@@ -375,7 +464,6 @@ ZEND_METHOD(Fiber, backend)
 ZEND_METHOD(Fiber, yield)
 {
 	async_fiber *fiber;
-	size_t stack_page_size;
 
 	zval *val;
 	zval *error;
@@ -402,9 +490,7 @@ ZEND_METHOD(Fiber, yield)
 	fiber->status = ASYNC_FIBER_STATUS_SUSPENDED;
 	fiber->value = USED_RET() ? return_value : NULL;
 
-	ASYNC_FIBER_BACKUP_EG(fiber->stack, stack_page_size, fiber->exec);
-	async_fiber_yield(fiber->context);
-	ASYNC_FIBER_RESTORE_EG(fiber->stack, stack_page_size, fiber->exec);
+	async_fiber_context_yield();
 
 	ASYNC_CHECK_ERROR(fiber->disposed, "Fiber has been destroyed");
 
@@ -413,9 +499,9 @@ ZEND_METHOD(Fiber, yield)
 	if (error != NULL) {
 		ASYNC_G(error) = NULL;
 
-		fiber->exec->opline--;
+		fiber->state.exec->opline--;
 		zend_throw_exception_internal(error);
-		fiber->exec->opline++;
+		fiber->state.exec->opline++;
 	}
 }
 /* }}} */
