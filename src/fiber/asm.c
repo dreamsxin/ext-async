@@ -42,12 +42,6 @@ typedef struct {
 extern fcontext_t ASM_CALLDECL make_fcontext(void *sp, size_t size, void (*fn)(transfer_t));
 extern transfer_t ASM_CALLDECL jump_fcontext(fcontext_t to, void *vp);
 
-#define ASYNC_FIBER_ASM_TRANSFER(fctx, source) do { \
-	transfer_t tmp; \
-	tmp = jump_fcontext(fctx, source); \
-	((async_fiber_context_asm *) tmp.data)->ctx = tmp.ctx; \
-} while (0)
-
 static int counter = 0;
 
 typedef struct async_fiber_context_asm_ async_fiber_context_asm;

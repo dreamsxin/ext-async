@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2018-12-10</date>
-  <time>15:52:30</time>
+  <date>2018-12-24</date>
+  <time>09:56:55</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -41,11 +41,11 @@
       <file role="src" name="src/context.c"/>
       <file role="src" name="src/deferred.c"/>
       <file role="src" name="src/dns.c"/>
+      <file role="src" name="src/fiber/asm.c"/>
+      <file role="src" name="src/fiber/stack.c"/>
+      <file role="src" name="src/fiber/ucontext.c"/>
+      <file role="src" name="src/fiber/winfib.c"/>
       <file role="src" name="src/fiber.c"/>
-      <file role="src" name="src/fiber_asm.c"/>
-      <file role="src" name="src/fiber_stack.c"/>
-      <file role="src" name="src/fiber_ucontext.c"/>
-      <file role="src" name="src/fiber_winfib.c"/>
       <file role="src" name="src/filesystem.c"/>
       <file role="src" name="src/process.c"/>
       <file role="src" name="src/signal_watcher.c"/>
@@ -311,6 +311,7 @@
       <file role="test" name="tests/606-tcp-closed-read-stream.phpt"/>
       <file role="test" name="tests/607-tcp-cancel-accept.phpt"/>
       <file role="test" name="tests/608-tcp-cancel-read.phpt"/>
+      <file role="test" name="tests/609-tcp-socket-pair-watcher.phpt"/>
       <file role="test" name="tests/650-udp-unicast.phpt"/>
       <file role="test" name="tests/651-udp-cancel-receiver.phpt"/>
       <file role="test" name="tests/652-udp-async-send.phpt"/>

@@ -18,7 +18,7 @@ if (PHP_ASYNC != 'no') {
 		'src\\deferred.c',
 		'src\\dns.c',
 		'src\\fiber.c',
-		'src\\fiber_winfib.c',
+		'src\\fiber\\winfib.c',
 		'src\\filesystem.c',
 		'src\\process.c',
 		'src\\signal_watcher.c',

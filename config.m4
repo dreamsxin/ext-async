@@ -91,7 +91,7 @@ if test "$PHP_ASYNC" != "no"; then
     src/deferred.c \
     src/dns.c \
     src/fiber.c \
-    src/fiber_stack.c \
+    src/fiber/stack.c \
     src/filesystem.c \
     src/process.c \
     src/signal_watcher.c \
@@ -139,12 +139,12 @@ if test "$PHP_ASYNC" != "no"; then
   
   if test "$async_use_asm" = 'yes'; then
     async_source_files="$async_source_files \
-      src/fiber_asm.c \
+      src/fiber/asm.c \
       thirdparty/boost/asm/make_${async_asm_file} \
       thirdparty/boost/asm/jump_${async_asm_file}"
   elif test "$async_use_ucontext" = 'yes'; then
     async_source_files="$async_source_files \
-      src/fiber_ucontext.c"
+      src/fiber/ucontext.c"
   fi
   
   PHP_ADD_INCLUDE("$srcdir/thirdparty/libuv/include")
