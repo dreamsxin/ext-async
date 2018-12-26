@@ -148,7 +148,7 @@ void async_stream_shutdown(async_stream *stream, int how)
 		if (stream->flags & ASYNC_STREAM_READING) {
 			uv_read_stop(stream->handle);
 			
-			stream->flags ^= ASYNC_STREAM_READING;
+			stream->flags &= ~ASYNC_STREAM_READING;
 		}
 		
 		if (stream->read != NULL) {
@@ -293,7 +293,7 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 	if (nread < 0 && nread != UV_EOF) {
 		uv_read_stop(handle);
 		
-		stream->flags ^= ASYNC_STREAM_READING;
+		stream->flags &= ~ASYNC_STREAM_READING;
 		
 		while (stream->read != NULL) {
 			read = stream->read;
@@ -320,7 +320,7 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 		
 			uv_read_stop(handle);
 			
-			stream->flags ^= ASYNC_STREAM_READING;
+			stream->flags &= ~ASYNC_STREAM_READING;
 			
 			while (stream->read != NULL) {
 				read = stream->read;
@@ -363,7 +363,7 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 	if (nread == UV_EOF) {
 		uv_read_stop(handle);
 		
-		stream->flags ^= ASYNC_STREAM_READING;
+		stream->flags &= ~ASYNC_STREAM_READING;
 
 		while (stream->read != NULL) {
 			read = stream->read;
@@ -380,7 +380,7 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 	if (!ASYNC_STREAM_SHOULD_READ(stream)) {
 		uv_read_stop(handle);
 		
-		stream->flags ^= ASYNC_STREAM_READING;
+		stream->flags &= ~ASYNC_STREAM_READING;
 	}
 }
 

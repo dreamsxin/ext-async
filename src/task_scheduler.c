@@ -202,10 +202,24 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler)
 
 	async_fiber_context_switch((scheduler->current == NULL) ? scheduler->fiber : scheduler->current, 0);
 
-	scheduler->flags ^= ASYNC_TASK_SCHEDULER_FLAG_RUNNING;
+	scheduler->flags &= ~ASYNC_TASK_SCHEDULER_FLAG_RUNNING;
 	scheduler->caller = NULL;
 
 	ASYNC_G(current_scheduler) = prev;
+}
+
+void async_task_scheduler_call_nowait(async_task_scheduler *scheduler, zend_fcall_info *fci, zend_fcall_info_cache *fcc)
+{
+	zend_bool flag;
+
+	flag = (scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT) ? 1 : 0;
+	scheduler->flags |= ASYNC_TASK_SCHEDULER_FLAG_NOWAIT;
+
+	zend_call_function(fci, fcc);
+
+	if (!flag) {
+		scheduler->flags &= ~ASYNC_TASK_SCHEDULER_FLAG_NOWAIT;
+	}
 }
 
 static void run_func()

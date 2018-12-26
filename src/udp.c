@@ -446,7 +446,7 @@ static void socket_received(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buffer
 	if (socket->receivers.first == NULL) {
 		uv_udp_recv_stop(udp);
 		
-		socket->flags ^= ASYNC_UDP_FLAG_RECEIVING;
+		socket->flags &= ~ASYNC_UDP_FLAG_RECEIVING;
 	}
 }
 

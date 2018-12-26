@@ -509,8 +509,8 @@ struct _async_task {
 };
 
 #define ASYNC_TASK_SCHEDULER_FLAG_RUNNING 1
-#define ASYNC_TASK_SCHEDULER_FLAG_DISPOSED 2
-#define ASYNC_TASK_SCHEDULER_FLAG_NOWAIT 4
+#define ASYNC_TASK_SCHEDULER_FLAG_DISPOSED (1 << 1)
+#define ASYNC_TASK_SCHEDULER_FLAG_NOWAIT (1 << 2)
 
 struct _async_task_scheduler {
 	/* PHP object handle. */

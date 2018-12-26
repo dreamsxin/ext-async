@@ -281,7 +281,7 @@ static int async_xp_socket_set_option(php_stream *stream, int option, int value,
 		} else {
 			stream->readbuflen = MAX(*((size_t *) ptrparam), 0x8000);
 			stream->readbuf = perealloc(stream->readbuf, stream->readbuflen, stream->is_persistent);
-			stream->flags ^= PHP_STREAM_FLAG_NO_BUFFER;
+			stream->flags &= ~PHP_STREAM_FLAG_NO_BUFFER;
 		}
 
 		return PHP_STREAM_OPTION_RETURN_OK;

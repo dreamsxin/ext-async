@@ -22,7 +22,7 @@
 static php_stream_transport_factory orig_udp_factory;
 static php_stream_ops udp_socket_ops;
 
-#define ASYNC_XP_SOCKET_UDP_FLAG_RECEIVING 1 << 10
+#define ASYNC_XP_SOCKET_UDP_FLAG_RECEIVING (1 << 10)
 
 typedef struct {
 	ASYNC_XP_SOCKET_DATA_BASE;
@@ -191,7 +191,7 @@ static void udp_socket_receive_cb(uv_udp_t *handle, ssize_t nread, const uv_buf_
 	if (udp->receivers.first == NULL) {
 		uv_udp_recv_stop(handle);
 		
-		udp->flags ^= ASYNC_XP_SOCKET_UDP_FLAG_RECEIVING;
+		udp->flags &= ~ASYNC_XP_SOCKET_UDP_FLAG_RECEIVING;
 	}
 }
 

@@ -217,6 +217,7 @@ static inline void async_task_execute_inline(async_task *task, async_task *inner
 static void continue_op_task(async_op *op)
 {
 	async_task *task;
+	zend_bool flag;
 	
 	task = (async_task *) op->arg;
 	
@@ -227,8 +228,18 @@ static void continue_op_task(async_op *op)
 	if (op->flags & ASYNC_OP_FLAG_DEFER) {
 		async_task_scheduler_enqueue(task);
 	} else {
+		flag = (task->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT) ? 1 : 0;
+
+		if (flag) {
+			task->scheduler->flags &= ~ASYNC_TASK_SCHEDULER_FLAG_NOWAIT;
+		}
+
 		async_task_continue(task);
 		
+		if (flag) {
+			task->scheduler->flags |= ASYNC_TASK_SCHEDULER_FLAG_NOWAIT;
+		}
+
 		if (task->fiber.status == ASYNC_OP_RESOLVED || task->fiber.status == ASYNC_OP_FAILED) {
 			async_task_dispose(task);
 			
@@ -241,6 +252,7 @@ static void continue_op_task(async_op *op)
 static void continue_op_root(async_op *op)
 {
 	async_task_scheduler *scheduler;
+	zend_bool flag;
 	
 	scheduler = (async_task_scheduler *) op->arg;
 	
@@ -250,7 +262,17 @@ static void continue_op_root(async_op *op)
 	
 	scheduler->current = ASYNC_G(active_context);
 
+	flag = (scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT) ? 1 : 0;
+
+	if (flag) {
+		scheduler->flags &= ~ASYNC_TASK_SCHEDULER_FLAG_NOWAIT;
+	}
+
 	async_fiber_context_switch(scheduler->caller, 0);
+
+	if (flag) {
+		scheduler->flags |= ASYNC_TASK_SCHEDULER_FLAG_NOWAIT;
+	}
 
 	scheduler->current = NULL;
 }
@@ -610,7 +632,7 @@ ZEND_METHOD(Task, await)
 
 		ASYNC_CHECK_ERROR(scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED, "Cannot await after the task scheduler has been disposed");
 		ASYNC_CHECK_ERROR(scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_RUNNING, "Cannot await in the fiber that is running the task scheduler loop");
-		ASYNC_CHECK_ERROR(scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT, "Cannot await in the current context");
+		ASYNC_CHECK_ERROR(scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT, "Cannot await within the current execution");
 
 		if (ce == async_deferred_awaitable_ce) {
 			state = ((async_deferred_awaitable *) Z_OBJ_P(val))->state;
@@ -672,7 +694,7 @@ ZEND_METHOD(Task, await)
 	task = (async_task *) fiber;
 
 	ASYNC_CHECK_ERROR(task->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED, "Cannot await after the task scheduler has been disposed");
-	ASYNC_CHECK_ERROR(task->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT, "Cannot await in the current context");
+	ASYNC_CHECK_ERROR(task->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT, "Cannot await within the current execution");
 
 	if (ce == async_task_ce) {
 		inner = (async_task *) Z_OBJ_P(val);

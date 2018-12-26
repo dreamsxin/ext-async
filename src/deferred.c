@@ -17,6 +17,7 @@
 */
 
 #include "php_async.h"
+#include "async_task.h"
 
 zend_class_entry *async_deferred_ce;
 zend_class_entry *async_deferred_awaitable_ce;
@@ -173,7 +174,7 @@ static void cancel_defer(void *obj, zval* error)
 	defer->fci.retval = &retval;
 	defer->fci.no_separation = 1;
 
-	zend_call_function(&defer->fci, &defer->fcc);
+	async_task_scheduler_call_nowait(async_task_scheduler_get(), &defer->fci, &defer->fcc);
 
 	zval_ptr_dtor(&args[0]);
 	zval_ptr_dtor(&args[1]);
@@ -182,23 +183,6 @@ static void cancel_defer(void *obj, zval* error)
 	zval_ptr_dtor(&defer->fci.function_name);
 
 	ASYNC_CHECK_FATAL(UNEXPECTED(EG(exception)), "Must not throw an error from cancellation handler");
-}
-
-static inline void invoke_continuation_callback(zend_fcall_info *fci, zend_fcall_info_cache *fcc)
-{
-	async_task_scheduler *scheduler;
-	zend_bool flag;
-
-	scheduler = async_task_scheduler_get();
-
-	flag = (scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT) ? 1 : 0;
-	scheduler->flags |= ASYNC_TASK_SCHEDULER_FLAG_NOWAIT;
-
-	zend_call_function(fci, fcc);
-
-	if (!flag) {
-		scheduler->flags ^= ASYNC_TASK_SCHEDULER_FLAG_NOWAIT;
-	}
 }
 
 
@@ -547,7 +531,7 @@ static void combine_cb(async_op *op)
 	combined->fci.params = args;
 	combined->fci.retval = &retval;
 
-	invoke_continuation_callback(&combined->fci, &combined->fcc);
+	async_task_scheduler_call_nowait(async_task_scheduler_get(), &combined->fci, &combined->fcc);
 
 	for (i = 0; i < 5; i++) {
 		zval_ptr_dtor(&args[i]);
@@ -695,7 +679,7 @@ static void transform_cb(async_op *op)
 	trans->fci.params = args;
 	trans->fci.retval = &retval;
 
-	invoke_continuation_callback(&trans->fci, &trans->fcc);
+	async_task_scheduler_call_nowait(async_task_scheduler_get(), &trans->fci, &trans->fcc);
 
 	zval_ptr_dtor(&trans->fci.function_name);
 
