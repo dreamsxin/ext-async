@@ -58,5 +58,5 @@ string(4) "FOO!"
 NULL
 string(4) "BAR!"
 string(4) "FOO!"
-string(35) "Cannot await in the current context"
-string(35) "Cannot await in the current context"
+string(41) "Cannot await within the current execution"
+string(41) "Cannot await within the current execution"
