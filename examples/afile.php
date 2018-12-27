@@ -38,6 +38,7 @@ $fp = fopen($file, 'w');
 var_dump(flock($fp, LOCK_EX));
 var_dump(fwrite($fp, "Some more data...\n"));
 var_dump(fwrite($fp, "DONE\n\n"));
+var_dump(ftruncate($fp, 12));
 fclose($fp);
 
 print_r(array_filter(stat(__FILE__), 'is_string', ARRAY_FILTER_USE_KEY));

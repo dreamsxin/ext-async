@@ -513,9 +513,21 @@ static int async_filestream_seek(php_stream *stream, zend_off_t offset, int when
 	return 0;
 }
 
+static int async_truncate(async_filestream_data *data, int64_t nsize)
+{
+	uv_fs_t req;
+
+	ASYNC_FS_CALL(data, &req, uv_fs_ftruncate, data->file, nsize);
+
+	uv_fs_req_cleanup(&req);
+
+	return (req.result < 0) ? FAILURE : SUCCESS;
+}
+
 static int async_filestream_set_option(php_stream *stream, int option, int value, void *ptrparam)
 {
 	async_filestream_data *data;
+	ptrdiff_t nsize;
 	
 	data = (async_filestream_data *) stream->abstract;
 	
@@ -542,8 +554,7 @@ static int async_filestream_set_option(php_stream *stream, int option, int value
 			return PHP_STREAM_OPTION_RETURN_OK;
 		}
 		
-		// TODO: See if non-blocking locks can be implemented...
-		
+		// TODO: Check if non-blocking locks can be implemented...
 		if (!flock((int) data->file, value)) {
 			data->lock_flag = value;
 			return PHP_STREAM_OPTION_RETURN_OK;
@@ -552,10 +563,26 @@ static int async_filestream_set_option(php_stream *stream, int option, int value
 		return PHP_STREAM_OPTION_RETURN_ERR;
 	case PHP_STREAM_OPTION_MMAP_API:
 		// TODO: Investigate support for mmap() combined with libuv.
-		
+		switch (value) {
+		case PHP_STREAM_MMAP_SUPPORTED:
+		case PHP_STREAM_MMAP_MAP_RANGE:
+		case PHP_STREAM_MMAP_UNMAP:
+			return PHP_STREAM_OPTION_RETURN_ERR;
+		}
 		return PHP_STREAM_OPTION_RETURN_ERR;
 	case PHP_STREAM_OPTION_TRUNCATE_API:
-		return PHP_STREAM_OPTION_RETURN_ERR;
+		switch (value) {
+		case PHP_STREAM_TRUNCATE_SUPPORTED:
+			return PHP_STREAM_OPTION_RETURN_OK;
+		case PHP_STREAM_TRUNCATE_SET_SIZE:
+			nsize = *(ptrdiff_t *) ptrparam;
+
+			if (nsize < 0) {
+				return PHP_STREAM_OPTION_RETURN_ERR;
+			}
+
+			return (async_truncate(data, nsize) == SUCCESS) ? PHP_STREAM_OPTION_RETURN_OK : PHP_STREAM_OPTION_RETURN_ERR;
+		}
 	}
 
 	return PHP_STREAM_OPTION_RETURN_NOTIMPL;
