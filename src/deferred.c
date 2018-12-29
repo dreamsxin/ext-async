@@ -94,19 +94,23 @@ static void release_state(async_deferred_state *state)
 		return;
 	}
 	
+	ZEND_ASSERT(state->status == ASYNC_DEFERRED_STATUS_PENDING || state->operations.first == NULL);
+
 	if (state->cancel.object != NULL) {
 		ASYNC_Q_DETACH(&state->scheduler->shutdown, &state->cancel);
 		state->cancel.object = NULL;
 	}
 
-	state->status = ASYNC_OP_FAILED;
+	if (state->status == ASYNC_DEFERRED_STATUS_PENDING) {
+		state->status = state->status == ASYNC_DEFERRED_STATUS_FAILED;
 
-	if (state->operations.first != NULL) {
-		ASYNC_PREPARE_ERROR(&state->result, "Awaitable has been disposed before it was resolved");
+		if (state->operations.first != NULL) {
+			ASYNC_PREPARE_ERROR(&state->result, "Awaitable has been disposed before it was resolved");
 
-		while (state->operations.first != NULL) {
-			ASYNC_DEQUEUE_OP(&state->operations, op);
-			ASYNC_FAIL_OP(op, &state->result);
+			while (state->operations.first != NULL) {
+				ASYNC_DEQUEUE_OP(&state->operations, op);
+				ASYNC_FAIL_OP(op, &state->result);
+			}
 		}
 	}
 
@@ -121,11 +125,11 @@ static void release_state(async_deferred_state *state)
 
 #define ASYNC_DEFERRED_CLEANUP_CANCEL(defer) do { \
 	if (Z_TYPE_P(&defer->fci.function_name) != IS_UNDEF) { \
-			if (defer->cancel.object != NULL) { \
-				ASYNC_Q_DETACH(&defer->state->context->cancel->callbacks, &defer->cancel); \
-				defer->cancel.object = NULL; \
-			} \
+		if (defer->cancel.object != NULL) { \
+			ASYNC_Q_DETACH(&defer->state->context->cancel->callbacks, &defer->cancel); \
+			defer->cancel.object = NULL; \
 		} \
+	} \
 } while (0);
 
 
@@ -278,12 +282,14 @@ static void async_deferred_object_destroy(zend_object *object)
 
 	ASYNC_DEFERRED_CLEANUP_CANCEL(defer);
 	
-	if (defer->state->status == ASYNC_DEFERRED_STATUS_PENDING) {
-		defer->state->status = ASYNC_OP_FAILED;
-		ASYNC_PREPARE_ERROR(&defer->state->result, "Awaitable has been disposed before it was resolved");
-		
-		trigger_ops(defer->state);
-	}
+	// TODO: Rework disposal of deferred within destructor!
+
+//	if (defer->state->status == ASYNC_DEFERRED_STATUS_PENDING) {
+//		defer->state->status = ASYNC_OP_FAILED;
+//		ASYNC_PREPARE_ERROR(&defer->state->result, "Awaitable has been disposed before it was resolved");
+//
+//		trigger_ops(defer->state);
+//	}
 	
 	release_state(defer->state);
 

@@ -35,6 +35,6 @@ try {
 
 ?>
 --EXPECT--
-string(50) "Awaitable has been disposed before it was resolved"
-string(50) "Awaitable has been disposed before it was resolved"
-string(50) "Awaitable has been disposed before it was resolved"
+string(31) "Awaitable has not been resolved"
+string(31) "Awaitable has not been resolved"
+string(31) "Awaitable has not been resolved"
