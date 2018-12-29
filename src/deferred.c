@@ -53,7 +53,7 @@ static void shutdown_state(void *obj, zval *error)
 	state = (async_deferred_state *) obj;
 	
 	ZEND_ASSERT(state != NULL);
-	
+
 	state->cancel.object = NULL;
 	state->status = ASYNC_DEFERRED_STATUS_FAILED;
 	
@@ -483,7 +483,8 @@ ZEND_METHOD(Deferred, error)
 
 typedef struct {
 	async_deferred *defer;
-	zend_long counter;
+	uint32_t counter;
+	uint32_t started;
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
 } async_defer_combine;
@@ -509,12 +510,11 @@ static void combine_cb(async_op *op)
 	ZEND_ASSERT(cb != NULL);
 
 	combined = cb->combine;
-	combined->counter--;
 
 	ZVAL_OBJ(&args[0], &combined->defer->std);
 	ASYNC_ADDREF(&combined->defer->std);
 
-	ZVAL_BOOL(&args[1], combined->counter == 0);
+	ZVAL_BOOL(&args[1], 0 == --combined->started);
 	ZVAL_COPY(&args[2], &cb->key);
 
 	zval_ptr_dtor(&cb->key);
@@ -549,14 +549,14 @@ static void combine_cb(async_op *op)
 
 			ZVAL_OBJ(&state->result, EG(exception));
 			EG(exception) = NULL;
-			
+
 			trigger_ops(state);
 		} else {
 			EG(exception) = NULL;
 		}
 	}
 
-	if (combined->counter == 0) {
+	if (0 == --combined->counter) {
 		zval_ptr_dtor(&combined->fci.function_name);
 
 		if (state->status == ASYNC_DEFERRED_STATUS_PENDING) {
@@ -622,6 +622,7 @@ ZEND_METHOD(Deferred, combine)
 	combined = emalloc(sizeof(async_defer_combine));
 	combined->defer = defer;
 	combined->counter = count;
+	combined->started = count;
 	combined->fci = fci;
 	combined->fcc = fcc;
 

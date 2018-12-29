@@ -674,7 +674,7 @@ int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 	data->async = async;
 	data->scheduler = async_task_scheduler_get();
 	
-	GC_ADDREF(&data->scheduler->std);
+	ASYNC_ADDREF(&data->scheduler->std);
 
 	return stream;
 }
@@ -773,7 +773,7 @@ int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 
 	data->scheduler = async_task_scheduler_get();
 	
-	GC_ADDREF(&data->scheduler->std);
+	ASYNC_ADDREF(&data->scheduler->std);
 
 	return stream;
 }
