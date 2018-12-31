@@ -282,14 +282,12 @@ static void async_deferred_object_destroy(zend_object *object)
 
 	ASYNC_DEFERRED_CLEANUP_CANCEL(defer);
 	
-	// TODO: Rework disposal of deferred within destructor!
+	if (defer->state->status == ASYNC_DEFERRED_STATUS_PENDING) {
+		defer->state->status = ASYNC_OP_FAILED;
+		ASYNC_PREPARE_ERROR(&defer->state->result, "Awaitable has been disposed before it was resolved");
 
-//	if (defer->state->status == ASYNC_DEFERRED_STATUS_PENDING) {
-//		defer->state->status = ASYNC_OP_FAILED;
-//		ASYNC_PREPARE_ERROR(&defer->state->result, "Awaitable has been disposed before it was resolved");
-//
-//		trigger_ops(defer->state);
-//	}
+		trigger_ops(defer->state);
+	}
 	
 	release_state(defer->state);
 
@@ -498,6 +496,7 @@ typedef struct {
 typedef struct {
 	async_op base;
 	async_defer_combine *combine;
+	async_deferred_awaitable *awaitable;
 	zval key;
 } async_defer_combine_op;
 
@@ -510,6 +509,7 @@ static void combine_cb(async_op *op)
 
 	zval args[5];
 	zval retval;
+	zend_object *error;
 
 	cb = (async_defer_combine_op *) op;
 
@@ -537,6 +537,14 @@ static void combine_cb(async_op *op)
 	combined->fci.params = args;
 	combined->fci.retval = &retval;
 
+	error = EG(exception);
+	EG(exception) = NULL;
+
+	// TODO: Check why keeping a reference is necessary...
+	if (error != NULL) {
+		ASYNC_ADDREF(error);
+	}
+
 	async_task_scheduler_call_nowait(async_task_scheduler_get(), &combined->fci, &combined->fcc);
 
 	for (i = 0; i < 5; i++) {
@@ -544,6 +552,10 @@ static void combine_cb(async_op *op)
 	}
 
 	zval_ptr_dtor(&retval);
+
+	if (cb->awaitable != NULL) {
+		ASYNC_DELREF(&cb->awaitable->std);
+	}
 
 	ASYNC_FREE_OP(op);
 
@@ -577,6 +589,8 @@ static void combine_cb(async_op *op)
 
 		efree(combined);
 	}
+
+	EG(exception) = error;
 }
 
 ZEND_METHOD(Deferred, combine)
@@ -651,7 +665,12 @@ ZEND_METHOD(Deferred, combine)
 		if (ce == async_task_ce) {
 			register_task_op((async_op *) op, (async_task *) Z_OBJ_P(entry));
 		} else {
-			register_defer_op((async_op *) op, ((async_deferred_awaitable *) Z_OBJ_P(entry))->state);
+			op->awaitable = (async_deferred_awaitable *) Z_OBJ_P(entry);
+
+			// Keep a reference to the awaitable because the args array could be garbage collected before combine resolves.
+			ASYNC_ADDREF(&op->awaitable->std);
+
+			register_defer_op((async_op *) op, op->awaitable->state);
 		}
 	} ZEND_HASH_FOREACH_END();
 
@@ -673,6 +692,7 @@ static void transform_cb(async_op *op)
 	
 	zval args[2];
 	zval retval;
+	zend_object *error;
 	
 	if (op->status == ASYNC_STATUS_RESOLVED) {
 		ZVAL_NULL(&args[0]);
@@ -685,6 +705,14 @@ static void transform_cb(async_op *op)
 	trans->fci.param_count = 2;
 	trans->fci.params = args;
 	trans->fci.retval = &retval;
+
+	error = EG(exception);
+	EG(exception) = NULL;
+
+	// TODO: Check why keeping a reference is necessary...
+	if (error != NULL) {
+		ASYNC_ADDREF(error);
+	}
 
 	async_task_scheduler_call_nowait(async_task_scheduler_get(), &trans->fci, &trans->fcc);
 
@@ -711,6 +739,8 @@ static void transform_cb(async_op *op)
 	zval_ptr_dtor(&retval);
 
 	release_state(trans->state);
+
+	EG(exception) = error;
 }
 
 ZEND_METHOD(Deferred, transform)
