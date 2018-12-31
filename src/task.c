@@ -72,7 +72,7 @@ zval *async_task_get_debug_info(async_task *task, zval *retval)
 	add_assoc_string(retval, "status", async_status_label(task->fiber.status));
 	add_assoc_bool(retval, "suspended", task->fiber.status == ASYNC_FIBER_STATUS_SUSPENDED);
 	add_assoc_str(retval, "file", zend_string_copy(task->fiber.file));
-	add_assoc_bool(retval, "line", task->fiber.line);
+	add_assoc_long(retval, "line", task->fiber.line);
 
 	if (Z_TYPE_P(&task->result) != IS_UNDEF) {
 		Z_TRY_ADDREF_P(&task->result);
