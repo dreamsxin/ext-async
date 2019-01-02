@@ -18,7 +18,7 @@ $process = $builder->start(__DIR__ . '/process-p2.php');
     $process->signal(\Concurrent\SignalWatcher::SIGINT);
 });
 
-$code = $process->awaitExit();
+$code = $process->join();
 
 echo "\nEXIT CODE: ", $code, "\n";
 
@@ -39,7 +39,7 @@ try {
     $stdin->close();
 }
 
-$code = $process->awaitExit();
+$code = $process->join();
 
 echo "\nEXIT CODE: ", $code, "\n";
 
@@ -70,7 +70,7 @@ if ($win32) {
 
 $reader($process->getStdout(), 256);
 
-$code = $process->awaitExit();
+$code = $process->join();
 
 echo "\nEXIT CODE: ", $code, "\n";
 

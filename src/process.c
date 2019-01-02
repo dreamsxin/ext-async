@@ -960,7 +960,7 @@ ZEND_METHOD(Process, signal)
 	ASYNC_CHECK_ERROR(code != 0, "Failed to signal process: %s", uv_strerror(code));
 }
 
-ZEND_METHOD(Process, awaitExit)
+ZEND_METHOD(Process, join)
 {
 	async_process *proc;
 	async_context *context;
@@ -1020,7 +1020,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_signal, 0, 1, IS_VOID, 0
 	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_await_exit, 0, 0, IS_LONG, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_join, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_process_functions[] = {
@@ -1031,7 +1031,7 @@ static const zend_function_entry async_process_functions[] = {
 	ZEND_ME(Process, getStdout, arginfo_process_get_stdout, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, getStderr, arginfo_process_get_stderr, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, signal, arginfo_process_signal, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, awaitExit, arginfo_process_await_exit, ZEND_ACC_PUBLIC)
+	ZEND_ME(Process, join, arginfo_process_join, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 

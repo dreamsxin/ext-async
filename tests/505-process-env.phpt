@@ -34,7 +34,7 @@ try {
 var_dump($buffer[0] == getenv('PATH'));
 var_dump($buffer[1] == 'BAR');
 
-var_dump($process->awaitExit());
+var_dump($process->join());
 var_dump('FINISHED');
 
 --EXPECT--

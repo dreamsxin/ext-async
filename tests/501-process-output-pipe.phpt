@@ -28,8 +28,8 @@ try {
     $stdout->close();
 }
 
-var_dump($process->awaitExit());
-var_dump($process->awaitExit());
+var_dump($process->join());
+var_dump($process->join());
 
 var_dump($process->isRunning(), 'FINISHED');
 

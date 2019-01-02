@@ -22,7 +22,7 @@ var_dump('SEND SIGNAL');
 
 $process->signal(\Concurrent\SignalWatcher::SIGINT);
 
-var_dump($process->awaitExit());
+var_dump($process->join());
 var_dump('FINISHED');
 
 --EXPECT--

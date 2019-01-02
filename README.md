@@ -552,7 +552,7 @@ final class ProcessBuilder
 
 ### Process
 
-The `Process` class provides access to a started process. You can use `isRunning()` to check if the process has terminated yet. The process identifier can be accessed using `getPid()`. Iy any pipe was configured using `STDIO_PIPE` it will be accessible via the corresponding getter method. You can send a signal to the process using `signal()`, on Windows systems only `SIGHUP` and `SIGINT` are supported (you should use the class constants defined in `SignalWatcher` to avoid magic numbers). Calling `awaitExit()` will suspend the current task until the process has terminated and return the exit code of the process.
+The `Process` class provides access to a started process. You can use `isRunning()` to check if the process has terminated yet. The process identifier can be accessed using `getPid()`. Iy any pipe was configured using `STDIO_PIPE` it will be accessible via the corresponding getter method. You can send a signal to the process using `signal()`, on Windows systems only `SIGHUP` and `SIGINT` are supported (you should use the class constants defined in `SignalWatcher` to avoid magic numbers). Calling `join()` will suspend the current task until the process has terminated and return the exit code of the process.
 
 ```php
 namespace Concurrent\Process;
@@ -574,7 +574,7 @@ final class Process
     
     public function signal(int $signum): void { }
     
-    public function awaitExit(): int { }
+    public function join(): int { }
 }
 ```
 
