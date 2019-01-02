@@ -16,8 +16,10 @@ list ($a, $b) = TcpSocket::pair();
 
 Task::async(function () use ($a) {
     try {
-        var_dump($a->readStream()->read());
-        $a->readStream()->close();
+    	$b = $a->getReadableStream();
+    
+        var_dump($b->read());
+        $b->close();
         
         $a->write('DONE');
     } finally {

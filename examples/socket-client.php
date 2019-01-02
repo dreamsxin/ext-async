@@ -19,7 +19,7 @@ try {
     }
     
     $socket->write('Hello World :)');
-    $socket->writeStream()->close();
+    $socket->getWritableStream()->close();
     
     while (null !== ($chunk = $socket->read())) {
         var_dump($chunk);

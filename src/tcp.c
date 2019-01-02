@@ -624,7 +624,7 @@ ZEND_METHOD(TcpSocket, read)
 	call_read((async_tcp_socket *) Z_OBJ_P(getThis()), return_value, execute_data);
 }
 
-ZEND_METHOD(TcpSocket, readStream)
+ZEND_METHOD(TcpSocket, getReadableStream)
 {
 	async_tcp_socket *socket;
 
@@ -720,7 +720,7 @@ ZEND_METHOD(TcpSocket, getWriteQueueSize)
 	RETURN_LONG((Z_TYPE_P(&socket->write_error) == IS_UNDEF) ? socket->handle.write_queue_size : 0);
 }
 
-ZEND_METHOD(TcpSocket, writeStream)
+ZEND_METHOD(TcpSocket, getWritableStream)
 {
 	async_tcp_socket *socket;
 
@@ -842,7 +842,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_read, 0, 0, IS_STRING
 	ZEND_ARG_TYPE_INFO(0, length, IS_LONG, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_read_stream, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_get_readable_stream, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_write, 0, 1, IS_VOID, 0)
@@ -856,7 +856,7 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_write_queue_size, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_write_stream, 0, 0, Concurrent\\Stream\\WritableStream, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_get_writable_stream, 0, 0, Concurrent\\Stream\\WritableStream, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_encrypt, 0, 0, IS_VOID, 0)
@@ -872,11 +872,11 @@ static const zend_function_entry async_tcp_socket_functions[] = {
 	ZEND_ME(TcpSocket, getRemoteAddress, arginfo_tcp_socket_get_remote_address, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, getRemotePort, arginfo_tcp_socket_get_remote_port, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, read, arginfo_tcp_socket_read, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, readStream, arginfo_tcp_socket_read_stream, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getReadableStream, arginfo_tcp_socket_get_readable_stream, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, write, arginfo_tcp_socket_write, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, writeAsync, arginfo_tcp_socket_write_async, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, getWriteQueueSize, arginfo_tcp_socket_get_write_queue_size, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, writeStream, arginfo_tcp_socket_write_stream, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getWritableStream, arginfo_tcp_socket_get_writable_stream, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, encrypt, arginfo_tcp_socket_encrypt, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };

@@ -1208,18 +1208,18 @@ static const zend_function_entry async_writable_stream_functions[] = {
 };
 
 
-ZEND_METHOD(DuplexStream, readStream) { }
-ZEND_METHOD(DuplexStream, writeStream) { }
+ZEND_METHOD(DuplexStream, getReadableStream) { }
+ZEND_METHOD(DuplexStream, getWritableStream) { }
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_duplex_stream_read_stream, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_duplex_stream_get_readable_stream, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_duplex_stream_write_stream, 0, 0, Concurrent\\Stream\\WritableStream, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_duplex_stream_get_writable_stream, 0, 0, Concurrent\\Stream\\WritableStream, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_duplex_stream_functions[] = {
-	ZEND_ME(DuplexStream, readStream, arginfo_duplex_stream_read_stream, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
-	ZEND_ME(DuplexStream, writeStream, arginfo_duplex_stream_write_stream, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
+	ZEND_ME(DuplexStream, getReadableStream, arginfo_duplex_stream_get_readable_stream, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
+	ZEND_ME(DuplexStream, getWritableStream, arginfo_duplex_stream_get_writable_stream, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_FE_END
 };
 

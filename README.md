@@ -320,16 +320,16 @@ interface WritableStream
 
 ### DuplexStream
 
-The duplex stream implements both `ReadableStream` and `WritableStream`. Streams backed by a socket will usually be compatible with (and implement) this interface. You can call `readStream()` or `writeStream()` to aquire a stream that is restricted to one of the combined interfaces. This is especially useful if you want calls to `close()` to result in a half-closed stream.
+The duplex stream implements both `ReadableStream` and `WritableStream`. Streams backed by a socket will usually be compatible with (and implement) this interface. You can call `getReadableStream()` or `getWritableStream()` to aquire a stream that is restricted to one of the combined interfaces. This is especially useful if you want calls to `close()` to result in a half-closed stream.
 
 ```php
 namespace Concurrent\Stream;
 
 interface DuplexStream extends ReadableStream, WritableStream
 {
-    public function readStream(): ReadableStream;
+    public function getReadableStream(): ReadableStream;
     
-    public function writeStream(): WritableStream;
+    public function getWritableStream(): WritableStream;
 }
 ```
 
@@ -392,7 +392,7 @@ interface Server extends Socket
 
 ### TcpSocket
 
-A `TcpSocket` wraps a TCP network conneciton. It implements `DuplexStream` to provide access based on the stream API. Closing a TCP socket will close both read and write sides of the stream. You can use `writeStream()` to aquire the writer and call `close()` on it to signal the remote peer that the stream is half-closed, you can still read data from the remote peer until the stream is closed by the remote peer.
+A `TcpSocket` wraps a TCP network conneciton. It implements `DuplexStream` to provide access based on the stream API. Closing a TCP socket will close both read and write sides of the stream. You can use `getWritableStream()` to aquire the writer and call `close()` on it to signal the remote peer that the stream is half-closed, you can still read data from the remote peer until the stream is closed by the remote peer.
 
 ```php
 namespace Concurrent\Network;

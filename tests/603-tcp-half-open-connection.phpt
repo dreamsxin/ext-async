@@ -27,8 +27,7 @@ Task::async(function () use ($a) {
 });
 
 try {
-    $c = $b->writeStream();
-
+    $c = $b->getWritableStream();
     $c->write('Hello');
     
     (new Timer(50))->awaitTimeout();
