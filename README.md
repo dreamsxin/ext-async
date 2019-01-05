@@ -145,6 +145,42 @@ final class TaskScheduler
 }
 ```
 
+### Channel
+
+You can use `Channel` objects to exchange messages between different tasks. Every call to `send()` will pause the calling task until the message has been received by another task. A channel can buffer a number of messages specified by `$capacity` within the constructor. If capacity is bigger than 0 calls to `send()` will succedd immediately if there is some space left in the channel's buffer.
+
+Reading from a channel is done using PHP's iterator API. You can use `foreach` to iterate over a channel object. Be sure to call `getIterator()` and return just the created `ChannelIterator` if you want to expose the contents of a channel. This way you prevent thirdparty code from calling `close()` or sending messages into your channel.
+
+```php
+namespace Concurrent;
+
+final class Channel implements \IteratorAggregate
+{
+    public function __construct(int $capacity = 0) { }
+    
+    public function close(?\Throwable $e = null): void { }
+    
+    public function send($message): void { }
+}
+```
+
+### ChannelGroup
+
+Working with multiple channels at once can be done by using a `ChannelGroup`. The group provides the very useful `select()` call that allows to read from multiple channels concurrently, it will return once a message has been received from any channel that is part of the group. You can use the `$timeout` parameter to specify a maximum wait time (in milliseconds). If no message has been received `select()` will return `NULL`. Whenever a message has been received `select()` will return the index of the channel in the wrapped `$channel` array. You have to pass a variable by reference to `select()` if you want to receive the message payload (this is not necessary if you just want to know the origin of the message but you do not care about the actual payload).
+
+The constructor accepts a `$channels` array that must contain eighter `Channel` objects or objects that implement `IteratorAggregate` and return a `ChannelIterator` object when `getIterator()` is called. You can call `count()` to check how many of the wrapped channels are still open and therefore considered to be readable. Keep in mind that you need to call `select()` before checking the count because channels can only be checked for closed state during `select()` (consider using a `do / while` loop and check `count()` as the loop condition). Closed channels are silently removed from the group if they are not closed with an error. If any of the input channels is closed with an error it will be forwarded exactly once by `select()` after that the closed channel will be removed!
+
+```php
+namespace Concurrent;
+
+final class Channelgroup implements \Countable
+{
+    public function __construct(array $channels, ?int $timeout = null, bool $shuffle = false) { }
+    
+    public function select(& $value = null) { }
+}
+```
+
 ### Context
 
 Each async operation is associated with a `Context` object that provides a logical execution context. The context can be used to carry execution-specific variables and (in a later revision) cancellation signals across API boundaries. The context is immutable, a new context must be derived whenever anything needs to be changed for the current execution. You can pass a `Context` to `Task::asyncWithContext()` or `TaskScheduler::runWithContext()` that will become the current context for the new task. It is also possible to enable a context for the duration of a callback execution using the `run()` method. Every call to `Task::await()` will backup the current context and restore it when the task is resumed.

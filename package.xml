@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2018-12-24</date>
-  <time>09:56:55</time>
+  <date>2019-01-05</date>
+  <time>18:28:43</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -38,6 +38,7 @@
       <file role="src" name="include/async_task.h"/>
       <file role="src" name="include/async_xp.h"/>
       <file role="src" name="src/awaitable.c"/>
+      <file role="src" name="src/channel.c"/>
       <file role="src" name="src/context.c"/>
       <file role="src" name="src/deferred.c"/>
       <file role="src" name="src/dns.c"/>
@@ -278,6 +279,17 @@
       <file role="test" name="tests/307-deferred-transform.phpt"/>
       <file role="test" name="tests/308-deferred-transform-task.phpt"/>
       <file role="test" name="tests/309-deferred-combine-tasks.phpt"/>
+      <file role="test" name="tests/310-deferred-suspend-during-continuation.phpt"/>
+      <file role="test" name="tests/350-channel-unbuffered.phpt"/>
+      <file role="test" name="tests/351-channel-buffered.phpt"/>
+      <file role="test" name="tests/352-channel-concurrent-producers.phpt"/>
+      <file role="test" name="tests/353-channel-concurrent-consumers.phpt"/>
+      <file role="test" name="tests/354-channel-close-permits-send.phpt"/>
+      <file role="test" name="tests/355-channel-close-reason-forwarding.phpt"/>
+      <file role="test" name="tests/356-channel-select-blocking.phpt"/>
+      <file role="test" name="tests/357-channel-select-nonblocking.phpt"/>
+      <file role="test" name="tests/358-channel-select-timeout.phpt"/>
+      <file role="test" name="tests/359-channel-select-error.phpt"/>
       <file role="test" name="tests/400-timer-at-root-level.phpt"/>
       <file role="test" name="tests/401-timer-within-task.phpt"/>
       <file role="test" name="tests/402-timer-disposed-within-task.phpt"/>

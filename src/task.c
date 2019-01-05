@@ -47,21 +47,20 @@ static zend_object_handlers async_task_handlers;
 } while (0)
 
 #define ASYNC_TASK_DELEGATE_OP_RESULT(op) do { \
-	async_op *tmp; \
-	tmp = (async_op *) op; \
-	if (op->status == ASYNC_STATUS_RESOLVED) { \
-		ZVAL_COPY(return_value, &tmp->result); \
-		ASYNC_FREE_OP(op); \
-		return; \
-	} else if (Z_TYPE_P(&tmp->result) != IS_UNDEF) { \
-		Z_ADDREF_P(&tmp->result); \
+	if ((op)->status == ASYNC_STATUS_RESOLVED) { \
+		RETURN_ZVAL(&(op)->result, 1, 1); \
+	} \
+	if (Z_TYPE_P(&(op)->result) != IS_UNDEF) { \
 		EG(current_execute_data)->opline--; \
-		zend_throw_exception_internal(&tmp->result); \
+		zend_throw_exception_internal(&(op)->result); \
 		EG(current_execute_data)->opline++; \
-		ASYNC_FREE_OP(op); \
 		return; \
 	} \
-	ASYNC_FREE_OP(op); \
+	zval_ptr_dtor(&(op)->result); \
+	if (UNEXPECTED(EG(exception) == NULL)) { \
+		zend_throw_error(NULL, "Awaitable has not been resolved"); \
+	} \
+	return; \
 } while (0)
 
 
@@ -102,7 +101,6 @@ static void async_task_fiber_func(async_fiber *fiber)
 {
 	async_task *task;
 
-	zval obj;
 	zval retval;
 	zval tmp;
 
@@ -119,12 +117,8 @@ static void async_task_fiber_func(async_fiber *fiber)
 		if (instanceof_function(Z_OBJCE_P(&retval), async_awaitable_ce) != 0) {
 			tmp = retval;
 			
-			ZVAL_OBJ(&obj, &task->fiber.std);
-			ASYNC_ADDREF(&task->fiber.std);
+			zend_call_method_with_1_params(NULL, async_task_ce, NULL, "await", &retval, &tmp);
 			
-			zend_call_method_with_1_params(&obj, async_task_ce, NULL, "await", &retval, &tmp);
-			
-			zval_ptr_dtor(&obj);
 			zval_ptr_dtor(&tmp);
 		}
 	}
@@ -604,7 +598,6 @@ ZEND_METHOD(Task, asyncWithContext)
 ZEND_METHOD(Task, await)
 {
 	zend_class_entry *ce;
-	async_op *op;
 	async_fiber *fiber;
 	async_task *task;
 	async_task *inner;
@@ -638,14 +631,13 @@ ZEND_METHOD(Task, await)
 			state = ((async_deferred_awaitable *) Z_OBJ_P(val))->state;
 
 			ASYNC_TASK_DELEGATE_RESULT(state->status, &state->result);
-
-			ASYNC_ALLOC_OP(op);
 			
-			op->status = ASYNC_STATUS_RUNNING;
-			op->callback = continue_op_root;
-			op->arg = scheduler;
+			scheduler->op.status = ASYNC_STATUS_RUNNING;
+			scheduler->op.flags = 0;
+			scheduler->op.callback = continue_op_root;
+			scheduler->op.arg = scheduler;
 			
-			ASYNC_ENQUEUE_OP(&state->operations, op);
+			ASYNC_ENQUEUE_OP(&state->operations, &scheduler->op);
 			
 			if (!context->background && state->context->background) {
 				ASYNC_BUSY_ENTER(scheduler);
@@ -657,14 +649,13 @@ ZEND_METHOD(Task, await)
 			ASYNC_CHECK_ERROR(inner->scheduler != scheduler, "Cannot await a task that runs on a different task scheduler");
 
 			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
-
-			ASYNC_ALLOC_OP(op);
 			
-			op->status = ASYNC_STATUS_RUNNING;
-			op->callback = continue_op_root;
-			op->arg = scheduler;
+			scheduler->op.status = ASYNC_STATUS_RUNNING;
+			scheduler->op.flags = 0;
+			scheduler->op.callback = continue_op_root;
+			scheduler->op.arg = scheduler;
 			
-			ASYNC_ENQUEUE_OP(&inner->operations, op);
+			ASYNC_ENQUEUE_OP(&inner->operations, &scheduler->op);
 			
 			if (!context->background && inner->context->background) {
 				ASYNC_BUSY_ENTER(scheduler);
@@ -678,13 +669,7 @@ ZEND_METHOD(Task, await)
 			ASYNC_BUSY_EXIT(scheduler);
 		}
 		
-		ASYNC_TASK_DELEGATE_OP_RESULT(op);
-				
-		if (UNEXPECTED(EG(exception) == NULL)) {
-			zend_throw_error(NULL, "Awaitable has not been resolved");
-		}
-
-		return;
+		ASYNC_TASK_DELEGATE_OP_RESULT(&scheduler->op);
 	}
 
 	ASYNC_CHECK_ERROR(fiber->type != ASYNC_FIBER_TYPE_TASK, "Await must be called from within a running task");
@@ -707,14 +692,13 @@ ZEND_METHOD(Task, await)
 		}
 
 		ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
-
-		ASYNC_ALLOC_OP(op);
-			
-		op->status = ASYNC_STATUS_RUNNING;
-		op->callback = continue_op_task;
-		op->arg = task;
 		
-		ASYNC_ENQUEUE_OP(&inner->operations, op);
+		task->op.status = ASYNC_STATUS_RUNNING;
+		task->op.flags = 0;
+		task->op.callback = continue_op_task;
+		task->op.arg = task;
+		
+		ASYNC_ENQUEUE_OP(&inner->operations, &task->op);
 		
 		if (!task->context->background && inner->context->background) {
 			ASYNC_BUSY_ENTER(task->scheduler);
@@ -724,14 +708,13 @@ ZEND_METHOD(Task, await)
 		state = ((async_deferred_awaitable *) Z_OBJ_P(val))->state;
 
 		ASYNC_TASK_DELEGATE_RESULT(state->status, &state->result);
-		
-		ASYNC_ALLOC_OP(op);
-			
-		op->status = ASYNC_STATUS_RUNNING;
-		op->callback = continue_op_task;
-		op->arg = task;
+					
+		task->op.status = ASYNC_STATUS_RUNNING;
+		task->op.flags = 0;
+		task->op.callback = continue_op_task;
+		task->op.arg = task;
 
-		ASYNC_ENQUEUE_OP(&state->operations, op);
+		ASYNC_ENQUEUE_OP(&state->operations, &task->op);
 		
 		if (!task->context->background && state->context->background) {
 			ASYNC_BUSY_ENTER(task->scheduler);
@@ -750,7 +733,7 @@ ZEND_METHOD(Task, await)
 	
 	// Re-throw error provided by task scheduler.
 	if (Z_TYPE_P(&task->error) != IS_UNDEF) {
-		ASYNC_FREE_OP(op);
+		zval_ptr_dtor(&task->op.result);
 	
 		error = task->error;
 		ZVAL_UNDEF(&task->error);
@@ -762,11 +745,7 @@ ZEND_METHOD(Task, await)
 		return;
 	}
 	
-	ASYNC_TASK_DELEGATE_OP_RESULT(op);
-	
-	if (UNEXPECTED(EG(exception) == NULL)) {
-		zend_throw_error(NULL, "Awaitable has not been resolved");
-	}
+	ASYNC_TASK_DELEGATE_OP_RESULT(&task->op);
 }
 
 ZEND_METHOD(Task, __wakeup)

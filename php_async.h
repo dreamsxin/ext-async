@@ -98,11 +98,6 @@ typedef struct {
 } php_socket;
 #endif
 
-ASYNC_API void *async_malloc(size_t size);
-ASYNC_API void *async_realloc(void *ptr, size_t size);
-ASYNC_API void *async_calloc(size_t count, size_t size);
-ASYNC_API void async_free(void *ptr);
-
 #define ASYNC_FIBER_VM_STACK_SIZE 4096
 
 #define ASYNC_OP_PENDING 0
@@ -114,6 +109,10 @@ ASYNC_API extern zend_bool async_cli;
 ASYNC_API extern char async_ssl_config_file[MAXPATHLEN];
 
 ASYNC_API extern zend_class_entry *async_awaitable_ce;
+ASYNC_API extern zend_class_entry *async_channel_ce;
+ASYNC_API extern zend_class_entry *async_channel_closed_exception_ce;
+ASYNC_API extern zend_class_entry *async_channel_group_ce;
+ASYNC_API extern zend_class_entry *async_channel_iterator_ce;
 ASYNC_API extern zend_class_entry *async_context_ce;
 ASYNC_API extern zend_class_entry *async_context_var_ce;
 ASYNC_API extern zend_class_entry *async_deferred_ce;
@@ -145,6 +144,7 @@ ASYNC_API extern zend_class_entry *async_writable_stream_ce;
 
 
 void async_awaitable_ce_register();
+void async_channel_ce_register();
 void async_context_ce_register();
 void async_deferred_ce_register();
 void async_dns_ce_register();
@@ -187,6 +187,10 @@ void async_task_scheduler_shutdown();
 typedef struct _async_cancel_cb                     async_cancel_cb;
 typedef struct _async_cancellation_handler          async_cancellation_handler;
 typedef struct _async_cancellation_token            async_cancellation_token;
+typedef struct _async_channel                       async_channel;
+typedef struct _async_channel_buffer                async_channel_buffer;
+typedef struct _async_channel_group                 async_channel_group;
+typedef struct _async_channel_iterator              async_channel_iterator;
 typedef struct _async_context                       async_context;
 typedef struct _async_context_var                   async_context_var;
 typedef struct _async_deferred                      async_deferred;
@@ -204,6 +208,11 @@ typedef struct {
 	async_cancel_cb *first;
 	async_cancel_cb *last;
 } async_cancel_queue;
+
+typedef struct {
+	async_channel_buffer *first;
+	async_channel_buffer *last;
+} async_channel_buffer_queue;
 
 typedef struct {
 	async_op *first;
@@ -283,6 +292,49 @@ struct _async_cancel_cb {
 	async_cancel_cb *next;
 };
 
+#define ASYNC_OP_FLAG_CANCELLED 1
+#define ASYNC_OP_FLAG_DEFER 2
+
+typedef enum {
+	ASYNC_STATUS_PENDING,
+	ASYNC_STATUS_RUNNING,
+	ASYNC_STATUS_RESOLVED,
+	ASYNC_STATUS_FAILED
+} async_status;
+
+struct _async_op {
+	/* One of the ASYNC_STATUS_ constants. */
+	async_status status;
+	
+	/* Callback being used to continue the suspended execution. */
+	void (* callback)(async_op *op);
+	
+	/* Callback being used to mark the operation as cancelled and continue the suspended execution. */
+	async_cancel_cb cancel;
+	
+	/* Opaque pointer that can be used to pass data to the continuation callback. */
+	void *arg;
+	
+	/* Result variable, will hold an error object if an operation fails or is cancelled. */
+	zval result;
+	
+	/* Combined ASYNC_OP flags. */
+	uint8_t flags;
+	
+	/* Refers to an operation queue if the operation is queued for execution. */
+	async_op_queue *q;
+	async_op *next;
+	async_op *prev;
+};
+
+typedef struct {
+	/* Async operation structure, must be first element to allow for casting to async_op. */
+	async_op base;
+	
+	/* Result status code provided by libuv. */
+	int code;
+} async_uv_op;
+
 struct _async_cancellation_handler {
 	/* PHP object handle. */
 	zend_object std;
@@ -312,6 +364,121 @@ struct _async_cancellation_token {
 
 	/* The context being observed for cancellation. */
 	async_context *context;
+};
+
+#define ASYNC_CHANNEL_FLAG_CLOSED 1
+
+struct _async_channel {
+	/* PHP object handle. */
+	zend_object std;
+	
+	/* Channel flags. */
+	uint8_t flags;
+	
+	/* reference to the task scheduler. */
+	async_task_scheduler *scheduler;
+	
+	/* Error object that has been passed as close reason. */
+	zval error;
+	
+	/* Shutdown callback registered with the scheduler. */
+	async_cancel_cb cancel;
+	
+	/* Pending send operations. */
+	async_op_queue senders;
+	
+	/* Pending receive operations. */
+	async_op_queue receivers;
+	
+	/* Maximum channel buffer size. */
+	uint32_t size;
+	
+	/* Current channel buffer size. */
+	uint32_t buffered;
+	
+	/* Queue of buffered messages. */
+	async_channel_buffer_queue buffer;
+};
+
+struct _async_channel_buffer {
+	/* The value to be sent. */
+	zval value;
+	
+	/* References to previous and next buffer value. */
+	async_channel_buffer *prev;
+	async_channel_buffer *next;
+};
+
+typedef struct {
+	/* Base async op data. */
+	async_op base;
+	
+	/* Wrapped channel iterator. */
+	async_channel_iterator *it;
+	
+	/* Key being used to register the iterator with the channel group. */
+	zval key;
+} async_channel_select_entry;
+
+typedef struct {
+	/* base async op data. */
+	async_op base;
+	
+	/* Number of pending select operations, needed to stop select if all channels are closed. */
+	uint32_t pending;
+	
+	/* refers to the registration of the iterator that completed the select. */
+	async_channel_select_entry *entry;
+} async_channel_select_op;
+
+#define ASYNC_CHANNEL_GROUP_FLAG_SHUFFLE 1
+
+struct _async_channel_group {
+	/* PHP object handle. */
+	zend_object std;
+	
+	/* griup flags. */
+	uint8_t flags;
+	
+	/* Reference to the task scheudler. */
+	async_task_scheduler *scheduler;
+	
+	/* Number of (supposedly) unclosed channel iterators. */
+	uint32_t count;
+	
+	/* Array of registered channel iterators (closed channels will be removed without leaving gaps). */
+	async_channel_select_entry *entries;
+	
+	/* Basic select operation being used to suspend the calling task. */
+	async_channel_select_op select;
+	
+	/* Timeout paramter, -1 when a blocking call is requested. */
+	zend_long timeout;
+	
+	/* Timer being used to stop select, only initialized if timeout > 0. */
+	uv_timer_t timer;
+};
+
+#define ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING 1
+
+struct _async_channel_iterator {
+	/* PHP object handle. */
+	zend_object std;
+	
+	/* Iterator flags. */
+	uint8_t flags;
+	
+	/* Reference to the channel being iterated. */
+	async_channel *channel;
+	
+	/* Current key (ascending counter). */
+	zend_long pos;
+	
+	/* Current entry. */
+	zval entry;
+	
+	/* Reused receive operation. */
+	async_op op;
 };
 
 struct _async_context {
@@ -419,49 +586,6 @@ struct _async_fiber {
 	size_t line;
 };
 
-#define ASYNC_OP_FLAG_CANCELLED 1
-#define ASYNC_OP_FLAG_DEFER 2
-
-typedef enum {
-	ASYNC_STATUS_PENDING,
-	ASYNC_STATUS_RUNNING,
-	ASYNC_STATUS_RESOLVED,
-	ASYNC_STATUS_FAILED
-} async_status;
-
-struct _async_op {
-	/* One of the ASYNC_STATUS_ constants. */
-	async_status status;
-	
-	/* Callback being used to continue the suspended execution. */
-	void (* callback)(async_op *op);
-	
-	/* Callback being used to mark the operation as cancelled and continue the suspended execution. */
-	async_cancel_cb cancel;
-	
-	/* Opaque pointer that can be used to pass data to the continuation callback. */
-	void *arg;
-	
-	/* Result variable, will hold an error object if an operation fails or is cancelled. */
-	zval result;
-	
-	/* Combined ASYNC_OP flags. */
-	uint8_t flags;
-	
-	/* Refers to an operation queue if the operation is queued for execution. */
-	async_op_queue *q;
-	async_op *next;
-	async_op *prev;
-};
-
-typedef struct {
-	/* Async operation structure, must be first element to allow for casting to async_op. */
-	async_op base;
-	
-	/* Result status code provided by libuv. */
-	int code;
-} async_uv_op;
-
 typedef struct {
 	/* Base pointer being used to allocate and free buffer memory. */
 	char *base;
@@ -506,6 +630,9 @@ struct _async_task {
 	
 	/* Queued operations waiting for task completion. */
 	async_op_queue operations;
+	
+	/* Current await operation. */
+	async_op op;
 };
 
 #define ASYNC_TASK_SCHEDULER_FLAG_RUNNING 1
@@ -527,6 +654,9 @@ struct _async_task_scheduler {
 	
 	/* Pending operations that have not completed yet. */
 	async_op_queue operations;
+	
+	/* Root level awaited operation. */
+	async_op op;
 	
 	/** Queue of shutdown callbacks that need to be executed when the scheduler is disposed. */
 	async_cancel_queue shutdown;

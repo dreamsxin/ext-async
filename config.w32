@@ -14,6 +14,7 @@ if (PHP_ASYNC != 'no') {
 	var async_source_files = [
 		'php_async.c',
 		'src\\awaitable.c',
+		'src\\channel.c',
 		'src\\context.c',
 		'src\\deferred.c',
 		'src\\dns.c',

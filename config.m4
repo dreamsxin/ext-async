@@ -87,6 +87,7 @@ if test "$PHP_ASYNC" != "no"; then
 
   async_source_files="php_async.c \
     src/awaitable.c \
+    src/channel.c \
     src/context.c \
     src/deferred.c \
     src/dns.c \

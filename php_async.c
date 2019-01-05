@@ -281,6 +281,7 @@ PHP_MINIT_FUNCTION(async)
 	async_socket_ce_register();
 
 	async_awaitable_ce_register();
+	async_channel_ce_register();
 	async_context_ce_register();
 	async_deferred_ce_register();
 	async_dns_ce_register();
