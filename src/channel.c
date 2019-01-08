@@ -30,14 +30,17 @@ static zend_object_handlers async_channel_handlers;
 static zend_object_handlers async_channel_group_handlers;
 static zend_object_handlers async_channel_iterator_handlers;
 
-static async_channel_iterator *async_channel_iterator_object_create(async_channel *channel);
+static async_channel_iterator *async_channel_iterator_object_create(async_channel_state *state);
 
-#define ASYNC_CHANNEL_READABLE_NONBLOCK(channel) ((channel)->receivers.first != NULL || (channel)->buffer.first != NULL)
-#define ASYNC_CHANNEL_READABLE(channel) (!((channel)->flags & ASYNC_CHANNEL_FLAG_CLOSED) || ASYNC_CHANNEL_READABLE_NONBLOCK(channel))
+#define ASYNC_CHANNEL_READABLE_NONBLOCK(state) ((state)->receivers.first != NULL || (state)->buffer.first != NULL)
+#define ASYNC_CHANNEL_READABLE(state) (!((state)->flags & ASYNC_CHANNEL_FLAG_CLOSED) || ASYNC_CHANNEL_READABLE_NONBLOCK(state))
+
+#define ASYNC_CHANNEL_SEND_FLAG_BUFFERED 1
 
 typedef struct {
 	async_op base;
-	zval* value;
+	uint8_t flags;
+	zval value;
 } async_channel_send_op;
 
 static inline void forward_error(zval *cause)
@@ -54,42 +57,39 @@ static inline void forward_error(zval *cause)
 	EG(current_execute_data)->opline++;
 }
 
-static inline int fetch_noblock(async_channel *channel, zval *entry)
+static inline int fetch_noblock(async_channel_state *state, zval *entry)
 {
-	async_channel_buffer *buffer;
 	async_channel_send_op *send;
 
-	if (channel->buffer.first != NULL) {
-		ASYNC_Q_DEQUEUE(&channel->buffer, buffer);
+	if (state->buffer.first != NULL) {
+		ASYNC_DEQUEUE_CUSTOM_OP(&state->buffer, send, async_channel_send_op);
 		
-		ZVAL_COPY(entry, &buffer->value);
-		zval_ptr_dtor(&buffer->value);
+		ZVAL_COPY(entry, &send->value);
+		zval_ptr_dtor(&send->value);
 		
-		efree(buffer);
+		ASYNC_FREE_OP(send);
 		
 		// Release first pending send operation into the channel's buffer queue.
-		if (channel->senders.first != NULL) {
-			ASYNC_DEQUEUE_CUSTOM_OP(&channel->senders, send, async_channel_send_op);
+		if (state->senders.first != NULL) {
+			ASYNC_DEQUEUE_CUSTOM_OP(&state->senders, send, async_channel_send_op);
 			
-			buffer = emalloc(sizeof(async_channel_buffer));
-			
-			ZVAL_COPY(&buffer->value, send->value);
-
-			ASYNC_Q_ENQUEUE(&channel->buffer, buffer);
+			send->flags |= ASYNC_CHANNEL_SEND_FLAG_BUFFERED;
 			
 			ASYNC_FINISH_OP(send);
+
+			ASYNC_ENQUEUE_OP(&state->buffer, send);
 		} else {
-			channel->buffered--;
+			state->buffered--;
 		}
 		
 		return SUCCESS;
 	}
 	
 	// Grab next message the first pending send operation.
-	if (channel->senders.first != NULL) {
-		ASYNC_DEQUEUE_CUSTOM_OP(&channel->senders, send, async_channel_send_op);
+	if (state->senders.first != NULL) {
+		ASYNC_DEQUEUE_CUSTOM_OP(&state->senders, send, async_channel_send_op);
 		
-		ZVAL_COPY(entry, send->value);
+		ZVAL_COPY(entry, &send->value);
 		
 		ASYNC_FINISH_OP(send);
 		
@@ -99,43 +99,82 @@ static inline int fetch_noblock(async_channel *channel, zval *entry)
 	return FAILURE;
 }
 
-static void dispose_channel(void *arg, zval *error)
+static void dispose_state(void *arg, zval *error)
 {
-	async_channel *channel;
+	async_channel_state *state;
 	async_op *op;
 	
-	channel = (async_channel *) arg;
+	state = (async_channel_state *) arg;
 	
-	ZEND_ASSERT(channel != NULL);
+	ZEND_ASSERT(state != NULL);
 	
-	channel->cancel.func = NULL;
-	channel->flags |= ASYNC_CHANNEL_FLAG_CLOSED;
+	state->cancel.func = NULL;
+	state->flags |= ASYNC_CHANNEL_FLAG_CLOSED;
 	
-	if (Z_TYPE_P(&channel->error) == IS_UNDEF) {
+	if (Z_TYPE_P(&state->error) == IS_UNDEF) {
 		if (error != NULL) {
-			ZVAL_COPY(&channel->error, error);
+			ZVAL_COPY(&state->error, error);
 		}
 	}
 	
-	while (channel->receivers.first != NULL) {
-		ASYNC_DEQUEUE_OP(&channel->receivers, op);
+	while (state->receivers.first != NULL) {
+		ASYNC_DEQUEUE_OP(&state->receivers, op);
 		
-		if (Z_TYPE_P(&channel->error) == IS_UNDEF) {
+		if (Z_TYPE_P(&state->error) == IS_UNDEF) {
 			ASYNC_FINISH_OP(op);
 		} else {
-			ASYNC_FAIL_OP(op, &channel->error);
+			ASYNC_FAIL_OP(op, &state->error);
 		}
 	}
 	
-	while (channel->senders.first != NULL) {
-		ASYNC_DEQUEUE_OP(&channel->senders, op);
+	while (state->senders.first != NULL) {
+		ASYNC_DEQUEUE_OP(&state->senders, op);
 		
-		if (Z_TYPE_P(&channel->error) == IS_UNDEF) {
+		if (Z_TYPE_P(&state->error) == IS_UNDEF) {
 			ASYNC_FINISH_OP(op);
 		} else {
-			ASYNC_FAIL_OP(op, &channel->error);
+			ASYNC_FAIL_OP(op, &state->error);
 		}
 	}
+}
+
+static inline async_channel_state *create_state()
+{
+	async_channel_state *state;
+	
+	state = emalloc(sizeof(async_channel_state));
+	ZEND_SECURE_ZERO(state, sizeof(async_channel_state));
+	
+	state->refcount = 1;
+	state->scheduler = async_task_scheduler_get();
+	
+	ASYNC_ADDREF(&state->scheduler->std);
+	
+	state->cancel.object = state;
+	state->cancel.func = dispose_state;
+	
+	ASYNC_Q_ENQUEUE(&state->scheduler->shutdown, &state->cancel);
+	
+	return state;
+}
+
+static inline void release_state(async_channel_state *state)
+{
+	if (0 != --state->refcount) {
+		return;
+	}
+	
+	if (state->cancel.func != NULL) {
+		ASYNC_Q_DETACH(&state->scheduler->shutdown, &state->cancel);
+		
+		state->cancel.func(state, NULL);
+	}
+	
+	zval_ptr_dtor(&state->error);
+	
+	ASYNC_DELREF(&state->scheduler->std);
+	
+	efree(state);
 }
 
 
@@ -149,49 +188,31 @@ static zend_object *async_channel_object_create(zend_class_entry *ce)
 	zend_object_std_init(&channel->std, ce);
 	channel->std.handlers = &async_channel_handlers;
 	
-	channel->scheduler = async_task_scheduler_get();
-	
-	ASYNC_ADDREF(&channel->scheduler->std);
-	
-	channel->cancel.object = channel;
-	channel->cancel.func = dispose_channel;
-	
-	ASYNC_Q_ENQUEUE(&channel->scheduler->shutdown, &channel->cancel);
+	channel->state = create_state();
 	
 	return &channel->std;
 }
 
 static void async_channel_object_dtor(zend_object *object)
 {
-	async_channel *channel;
+	async_channel_state *state;
 	
-	channel = (async_channel *) object;
+	state = ((async_channel *) object)->state;
 	
-	if (channel->cancel.func != NULL) {
-		ASYNC_Q_DETACH(&channel->scheduler->shutdown, &channel->cancel);
+	if (state->cancel.func != NULL) {
+		ASYNC_Q_DETACH(&state->scheduler->shutdown, &state->cancel);
 		
-		channel->cancel.func(channel, NULL);
+		state->cancel.func(state, NULL);
 	}
 }
 
 static void async_channel_object_destroy(zend_object *object)
 {
 	async_channel *channel;
-	async_channel_buffer *buffer;
 	
 	channel = (async_channel *) object;
 	
-	while (channel->buffer.first != NULL) {
-		ASYNC_Q_DEQUEUE(&channel->buffer, buffer);
-		
-		zval_ptr_dtor(&buffer->value);
-		
-		efree(buffer);
-	}
-	
-	zval_ptr_dtor(&channel->error);
-	
-	ASYNC_DELREF(&channel->scheduler->std);
+	release_state(channel->state);
 	
 	zend_object_std_dtor(&channel->std);
 }
@@ -213,7 +234,7 @@ ZEND_METHOD(Channel, __construct)
 	
 	channel = (async_channel *) Z_OBJ_P(getThis());
 	
-	channel->size = (uint32_t) size;
+	channel->state->size = (uint32_t) size;
 }
 
 ZEND_METHOD(Channel, getIterator)
@@ -227,7 +248,7 @@ ZEND_METHOD(Channel, getIterator)
 	
 	channel = (async_channel *) Z_OBJ_P(getThis());
 	
-	it = async_channel_iterator_object_create(channel);
+	it = async_channel_iterator_object_create(channel->state);
 	
 	ZVAL_OBJ(&obj, &it->std);
 	
@@ -236,7 +257,7 @@ ZEND_METHOD(Channel, getIterator)
 
 ZEND_METHOD(Channel, close)
 {
-	async_channel *channel;
+	async_channel_state *state;
 	
 	zval *val;
 
@@ -247,19 +268,52 @@ ZEND_METHOD(Channel, close)
 		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
 	
-	channel = (async_channel *) Z_OBJ_P(getThis());
+	state = ((async_channel *) Z_OBJ_P(getThis()))->state;
 	
-	if (channel->cancel.func != NULL) {
-		ASYNC_Q_DETACH(&channel->scheduler->shutdown, &channel->cancel);
+	if (state->cancel.func != NULL) {
+		ASYNC_Q_DETACH(&state->scheduler->shutdown, &state->cancel);
 		
-		channel->cancel.func(channel, (val == NULL || Z_TYPE_P(val) == IS_NULL) ? NULL : val);
+		state->cancel.func(state, (val == NULL || Z_TYPE_P(val) == IS_NULL) ? NULL : val);
 	}
+}
+
+ZEND_METHOD(Channel, isClosed)
+{
+	async_channel_state *state;
+	
+	ZEND_PARSE_PARAMETERS_NONE();
+	
+	state = ((async_channel *) Z_OBJ_P(getThis()))->state;
+	
+	RETURN_BOOL(state->cancel.func == NULL);
+}
+
+ZEND_METHOD(Channel, isReadyForReceive)
+{
+	async_channel_state *state;
+	
+	ZEND_PARSE_PARAMETERS_NONE();
+	
+	state = ((async_channel *) Z_OBJ_P(getThis()))->state;
+	
+	RETURN_BOOL(ASYNC_CHANNEL_READABLE_NONBLOCK(state));
+}
+
+ZEND_METHOD(Channel, isReadyForSend)
+{
+	async_channel_state *state;
+	
+	ZEND_PARSE_PARAMETERS_NONE();
+	
+	state = ((async_channel *) Z_OBJ_P(getThis()))->state;
+	
+	RETURN_BOOL(state->cancel.func != NULL && (state->receivers.first != NULL || state->buffered < state->size));
 }
 
 ZEND_METHOD(Channel, send)
 {
-	async_channel *channel;
-	async_channel_buffer *buffer;
+	async_channel_state *state;
+	async_context *context;
 	async_channel_send_op *send;
 	async_op *op;
 	
@@ -269,49 +323,61 @@ ZEND_METHOD(Channel, send)
 		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
 	
-	channel = (async_channel *) Z_OBJ_P(getThis());
+	state = ((async_channel *) Z_OBJ_P(getThis()))->state;
 	
-	if (Z_TYPE_P(&channel->error) != IS_UNDEF) {
-		forward_error(&channel->error);
+	if (Z_TYPE_P(&state->error) != IS_UNDEF) {
+		forward_error(&state->error);
 	
 		return;
 	}
 	
-	ASYNC_CHECK_EXCEPTION(channel->flags & ASYNC_CHANNEL_FLAG_CLOSED, async_channel_closed_exception_ce, "Channel has been closed");
+	ASYNC_CHECK_EXCEPTION(state->flags & ASYNC_CHANNEL_FLAG_CLOSED, async_channel_closed_exception_ce, "Channel has been closed");
 	
 	// Fast forward message to first waiting receiver.
-	if (channel->receivers.first != NULL) {	
-		ASYNC_DEQUEUE_OP(&channel->receivers, op);
+	if (state->receivers.first != NULL) {	
+		ASYNC_DEQUEUE_OP(&state->receivers, op);
 		ASYNC_RESOLVE_OP(op, val);
 
 		return;
 	}
 	
+	ASYNC_ALLOC_CUSTOM_OP(send, sizeof(async_channel_send_op));
+	
+	ZVAL_COPY(&send->value, val);
+	
 	// There is space in the channel's buffer, enqueue value and return.
-	if (channel->buffered < channel->size) {
-		buffer = emalloc(sizeof(async_channel_buffer));
+	if (state->buffered < state->size) {
+		send->flags |= ASYNC_CHANNEL_SEND_FLAG_BUFFERED;
+	
+		ASYNC_ENQUEUE_OP(&state->buffer, send);
 		
-		ZVAL_COPY(&buffer->value, val);
-		
-		ASYNC_Q_ENQUEUE(&channel->buffer, buffer);
-		
-		channel->buffered++;
+		state->buffered++;
 		
 		return;
 	}
 	
-	// Allocate async operationd and queue it up.
-	ASYNC_ALLOC_CUSTOM_OP(send, sizeof(async_channel_send_op));
+	// Send cannot be buffered at this point, await completion...
+	ASYNC_ENQUEUE_OP(&state->senders, send);
 	
-	send->value = val;
+	context = async_context_get();
 	
-	ASYNC_ENQUEUE_OP(&channel->senders, send);
-	
-	if (async_await_op((async_op *) send) == FAILURE) {
-		ASYNC_FORWARD_OP_ERROR(send);
+	if (!context->background) {
+		ASYNC_BUSY_ENTER(state->scheduler);
 	}
 	
-	ASYNC_FREE_OP(send);
+	if (async_await_op((async_op *) send) == FAILURE) {
+		forward_error(&send->base.result);
+	}
+	
+	if (!context->background) {
+		ASYNC_BUSY_EXIT(state->scheduler);
+	}
+	
+	if (!(send->flags & ASYNC_CHANNEL_SEND_FLAG_BUFFERED)) {
+		zval_ptr_dtor(&send->value);
+	
+		ASYNC_FREE_OP(send);
+	}
 }
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_channel_ctor, 0, 0, 0)
@@ -325,6 +391,15 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_close, 0, 0, IS_VOID, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_is_closed, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_is_ready_for_receive, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_is_ready_for_send, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_send, 0, 1, IS_VOID, 0)
 	ZEND_ARG_INFO(0, message)
 ZEND_END_ARG_INFO()
@@ -333,6 +408,9 @@ static const zend_function_entry channel_functions[] = {
 	ZEND_ME(Channel, __construct, arginfo_channel_ctor, ZEND_ACC_PUBLIC)
 	ZEND_ME(Channel, getIterator, arginfo_channel_get_iterator, ZEND_ACC_PUBLIC)
 	ZEND_ME(Channel, close, arginfo_channel_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(Channel, isClosed, arginfo_channel_is_closed, ZEND_ACC_PUBLIC)
+	ZEND_ME(Channel, isReadyForReceive, arginfo_channel_is_ready_for_receive, ZEND_ACC_PUBLIC)
+	ZEND_ME(Channel, isReadyForSend, arginfo_channel_is_ready_for_send, ZEND_ACC_PUBLIC)
 	ZEND_ME(Channel, send, arginfo_channel_send, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
@@ -518,7 +596,7 @@ static void continue_select(async_op *op)
 		return;
 	}
 	
-	if (entry->it->channel->flags & ASYNC_CHANNEL_FLAG_CLOSED) {
+	if (entry->it->state->flags & ASYNC_CHANNEL_FLAG_CLOSED) {
 		if (group->select.pending == 0) {
 			ASYNC_FINISH_OP(&group->select);
 		}
@@ -546,7 +624,8 @@ ZEND_METHOD(ChannelGroup, select)
 	async_channel_select_entry buf;
 	async_channel_select_entry *entry;
 	async_channel_select_entry *first;
-	async_channel *channel;
+	async_channel_state *state;
+	async_context *context;
 	
 	zval *val;
 	zval tmp;
@@ -581,9 +660,9 @@ ZEND_METHOD(ChannelGroup, select)
 	
 	for (first = NULL, i = 0; i < group->count; i++) {
 		entry = &group->entries[i];
-		channel = entry->it->channel;
+		state = entry->it->state;
 		
-		if (ASYNC_CHANNEL_READABLE_NONBLOCK(channel)) {
+		if (ASYNC_CHANNEL_READABLE_NONBLOCK(state)) {
 			if (first == NULL) {
 				first = entry;
 			}
@@ -592,7 +671,7 @@ ZEND_METHOD(ChannelGroup, select)
 		}
 		
 		// Perform error forwarding and inline compaction of the group.
-		if (channel->flags & ASYNC_CHANNEL_FLAG_CLOSED) {
+		if (state->flags & ASYNC_CHANNEL_FLAG_CLOSED) {
 			ASYNC_DELREF(&entry->it->std);
 			zval_ptr_dtor(&entry->key);
 		
@@ -603,15 +682,15 @@ ZEND_METHOD(ChannelGroup, select)
 			group->count--;
 			i--;
 			
-			if (Z_TYPE_P(&channel->error) != IS_UNDEF) {
-				forward_error(&channel->error);
+			if (Z_TYPE_P(&state->error) != IS_UNDEF) {
+				forward_error(&state->error);
 				return;
 			}
 		}
 	}
 	
 	// Perform a non-blocking select if a channel is ready.
-	if (first != NULL && fetch_noblock(first->it->channel, &tmp) == SUCCESS) {
+	if (first != NULL && fetch_noblock(first->it->state, &tmp) == SUCCESS) {
 		if (val != NULL) {
 			ZVAL_COPY(val, &tmp);
 		}
@@ -641,7 +720,13 @@ ZEND_METHOD(ChannelGroup, select)
 		entry->base.callback = continue_select;
 		entry->base.arg = group;
 	
-		ASYNC_ENQUEUE_OP(&entry->it->channel->receivers, entry);
+		ASYNC_ENQUEUE_OP(&entry->it->state->receivers, entry);
+	}
+	
+	context = async_context_get();
+	
+	if (!context->background) {
+		ASYNC_BUSY_ENTER(group->scheduler);
 	}
 	
 	if (group->timeout > 0) {
@@ -654,6 +739,10 @@ ZEND_METHOD(ChannelGroup, select)
 	
 	if (group->timeout > 0) {
 		uv_timer_stop(&group->timer);
+	}
+	
+	if (!context->background) {
+		ASYNC_BUSY_EXIT(group->scheduler);
 	}
 	
 	// Populate return values.
@@ -670,15 +759,15 @@ ZEND_METHOD(ChannelGroup, select)
 	// Cleanup pending operations.
 	for (i = 0; i < group->count; i++) {
 		entry = &group->entries[i];
-		channel = entry->it->channel;
+		state = entry->it->state;
 	
 		zval_ptr_dtor(&entry->base.result);
 		
-		ASYNC_Q_DETACH(&channel->receivers, (async_op *) entry);
+		ASYNC_Q_DETACH(&state->receivers, (async_op *) entry);
 		
-		if (channel->flags & ASYNC_CHANNEL_FLAG_CLOSED) {
+		if (state->flags & ASYNC_CHANNEL_FLAG_CLOSED) {
 			// Do not remove channels that were closed with an error unless the error is being forwarded.
-			if (Z_TYPE_P(&channel->error) == IS_UNDEF || entry == group->select.entry) {
+			if (Z_TYPE_P(&state->error) == IS_UNDEF || entry == group->select.entry) {
 				ASYNC_DELREF(&entry->it->std);
 				zval_ptr_dtor(&entry->key);
 			
@@ -718,13 +807,14 @@ static const zend_function_entry channel_group_functions[] = {
 
 static void fetch_next_entry(async_channel_iterator *it)
 {
-	async_channel *channel;
+	async_channel_state *state;
+	async_context *context;
 	
 	ASYNC_CHECK_ERROR(it->flags & ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING, "Cannot advance iterator while already awaiting next channel value");
 	
-	channel = it->channel;
+	state = it->state;
 	
-	if (fetch_noblock(channel, &it->entry) == SUCCESS) {
+	if (fetch_noblock(state, &it->entry) == SUCCESS) {
 		it->pos++;
 	
 		return;
@@ -736,14 +826,24 @@ static void fetch_next_entry(async_channel_iterator *it)
 	it->op.status = ASYNC_STATUS_PENDING;
 	it->op.flags = 0;
 	
-	ASYNC_ENQUEUE_OP(&channel->receivers, &it->op);
+	ASYNC_ENQUEUE_OP(&state->receivers, &it->op);
+	
+	context = async_context_get();
+	
+	if (!context->background) {
+		ASYNC_BUSY_ENTER(state->scheduler);
+	}
 	
 	if (async_await_op(&it->op) == FAILURE) {
 		forward_error(&it->op.result);
-	} else if (!(channel->flags & ASYNC_CHANNEL_FLAG_CLOSED)) {
+	} else if (!(state->flags & ASYNC_CHANNEL_FLAG_CLOSED)) {
 		it->pos++;
 		
 		ZVAL_COPY(&it->entry, &it->op.result);
+	}
+	
+	if (!context->background) {
+		ASYNC_BUSY_EXIT(state->scheduler);
 	}
 	
 	zval_ptr_dtor(&it->op.result);
@@ -751,20 +851,20 @@ static void fetch_next_entry(async_channel_iterator *it)
 	it->flags &= ~ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING;
 }
 
-static async_channel_iterator *async_channel_iterator_object_create(async_channel *channel)
+static async_channel_iterator *async_channel_iterator_object_create(async_channel_state *state)
 {
 	async_channel_iterator *it;
 	
-	it = emalloc(sizeof(async_channel));
-	ZEND_SECURE_ZERO(it, sizeof(async_channel));
+	it = emalloc(sizeof(async_channel_iterator));
+	ZEND_SECURE_ZERO(it, sizeof(async_channel_iterator));
 	
 	zend_object_std_init(&it->std, async_channel_iterator_ce);
 	it->std.handlers = &async_channel_iterator_handlers;
 	
 	it->pos = -1;
-	it->channel = channel;
+	it->state = state;
 	
-	ASYNC_ADDREF(&channel->std);
+	state->refcount++;
 	
 	return it;
 }
@@ -777,7 +877,7 @@ static void async_channel_iterator_object_destroy(zend_object *object)
 	
 	zval_ptr_dtor(&it->entry);
 	
-	ASYNC_DELREF(&it->channel->std);
+	release_state(it->state);
 	
 	zend_object_std_dtor(&it->std);
 }
@@ -793,10 +893,10 @@ ZEND_METHOD(ChannelIterator, rewind)
 	zval_ptr_dtor(&it->entry);
 	ZVAL_UNDEF(&it->entry);
 	
-	if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->channel)) {
+	if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->state)) {
 		fetch_next_entry(it);
-	} else if (Z_TYPE_P(&it->channel->error) != IS_UNDEF) {
-		forward_error(&it->channel->error);
+	} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
+		forward_error(&it->state->error);
 	}
 }
 
@@ -819,10 +919,10 @@ ZEND_METHOD(ChannelIterator, current)
 	
 	it = (async_channel_iterator *) Z_OBJ_P(getThis());
 	
-	if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->channel)) {
+	if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->state)) {
 		fetch_next_entry(it);
-	} else if (Z_TYPE_P(&it->channel->error) != IS_UNDEF) {
-		forward_error(&it->channel->error);
+	} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
+		forward_error(&it->state->error);
 	}
 	
 	if (Z_TYPE_P(&it->entry) != IS_UNDEF) {
@@ -838,10 +938,10 @@ ZEND_METHOD(ChannelIterator, key)
 	
 	it = (async_channel_iterator *) Z_OBJ_P(getThis());
 	
-	if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->channel)) {
+	if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->state)) {
 		fetch_next_entry(it);
-	} else if (Z_TYPE_P(&it->channel->error) != IS_UNDEF) {
-		forward_error(&it->channel->error);
+	} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
+		forward_error(&it->state->error);
 	}
 	
 	if (it->pos >= 0 && Z_TYPE_P(&it->entry) != IS_UNDEF) {
@@ -860,10 +960,10 @@ ZEND_METHOD(ChannelIterator, next)
 	zval_ptr_dtor(&it->entry);
 	ZVAL_UNDEF(&it->entry);
 	
-	if (ASYNC_CHANNEL_READABLE(it->channel)) {
+	if (ASYNC_CHANNEL_READABLE(it->state)) {
 		fetch_next_entry(it);
-	} else if (Z_TYPE_P(&it->channel->error) != IS_UNDEF) {
-		forward_error(&it->channel->error);
+	} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
+		forward_error(&it->state->error);
 	}
 }
 

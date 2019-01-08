@@ -28,6 +28,8 @@ for ($i = 0; $i < 8; $i++) {
     $channel->send($i);
 }
 
+$channel->close();
+
 --EXPECT--
 string(1) "A"
 int(0)

@@ -9,19 +9,19 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$channel = new Channel();
+call_user_func(function () {
+    $channel = new Channel();
 
-Task::async(function (\Iterator $it) {
-    foreach ($it as $v) {
-        var_dump($v);
+    Task::async(function (\Iterator $it) {
+        foreach ($it as $v) {
+            var_dump($v);
+        }
+    }, $channel->getIterator());
+
+    for ($i = 0; $i < 5; $i++) {
+        $channel->send($i);
     }
-}, $channel->getIterator());
-
-for ($i = 0; $i < 5; $i++) {
-    $channel->send($i);
-}
-
-$channel->close();
+});
 
 --EXPECT--
 int(0)

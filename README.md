@@ -123,6 +123,8 @@ final class Task implements Awaitable
     /* Should be replaced with extended async keyword expression if merged into PHP core. */
     public static function asyncWithContext(Context $context, callable $callback, ...$args): Task { }
     
+    public static function background(callable $callback, ...$args): Task { }
+    
     /* Should be replaced with await keyword if merged into PHP core. */
     public static function await(Awaitable $awaitable): mixed { }
 }
@@ -151,6 +153,8 @@ You can use `Channel` objects to exchange messages between different tasks. Ever
 
 Reading from a channel is done using PHP's iterator API. You can use `foreach` to iterate over a channel object. Be sure to call `getIterator()` and return just the created `ChannelIterator` if you want to expose the contents of a channel. This way you prevent thirdparty code from calling `close()` or sending messages into your channel.
 
+You can use `isReadyForSend()` to check if a value can be sent into the channel without blocking, this is possible when there is space left in the channel's buffer or a receive operation is pending. Likewise you can use `isReadyForReceive()` to check if a message can be received without blocking (this is true when a message has been buffered or a send operation is pending).
+
 ```php
 namespace Concurrent;
 
@@ -159,6 +163,12 @@ final class Channel implements \IteratorAggregate
     public function __construct(int $capacity = 0) { }
     
     public function close(?\Throwable $e = null): void { }
+    
+    public function isClosed(): bool { }
+    
+    public function isReadyForSend(): bool { }
+    
+    public function isReadyForReceive(): bool { }
     
     public function send($message): void { }
 }
@@ -190,21 +200,25 @@ namespace Concurrent;
 
 final class Context
 {
-    public function isBackground(): bool { }
+    public readonly bool $background;
     
+    public readonly bool $cancelled;
+
     public function with(ContextVar $var, $value): Context { }
     
     public function withTimeout(int $milliseconds): Context { }
     
+    public function withCancel(& $cancel): Context { }
+    
     public function shield(): Context { }
     
-    public function token(): CancellationToken { }
-    
-    public function background(): Context { }
+    public function throwIfCancelled(): void { }
     
     public function run(callable $callback, ...$args): mixed { }
     
     public static function current(): Context { }
+    
+    public static function isBackground(): bool { }
 }
 ```
 
@@ -223,33 +237,14 @@ final class ContextVar
 
 ### CancellationHandler
 
-You can use a `CancellationHandler` to inherit a cancellable `Context` from any context. The cancellation handler uses the context passed to the constructor (or the current context when no context is passed) and provides a derived context with cancellation handling via `context()`. A call to `cancel()` will cancel the provided context, the optional error argument will registered as previous error with the cancellation exception.
+You can use a `CancellationHandler` to inherit a cancellable `Context` from any context. The cancellation handler uses the context passed to the constructor (or the current context when no context is passed) and provides a derived context with cancellation handling via `context()`. A call to `cancel()` will cancel the provided context, the optional error argument will registered as previous error with the thrown `CancellationException`.
 
 ```php
 namespace Concurrent;
 
 final class CancellationHandler
 {
-    public function __construct(?Context $context = null) { }
-    
-    public function context(): Context { }
-    
-    public function cancel(?\Throwable $e = null): void { }
-}
-```
-
-### CancellationToken
-
-You can grab a `CancellationToken` from a `Context` to check if the context has been cancelled. This is useful in combination with `Context::shield()` to perform cancellation checks at specific times (a shielded context is not part of transitive cancellation, that is it will not be cancelled if the parent context is cancelled).
-
-```php
-namespace Concurrent;
-
-final class CancellationToken
-{
-    public function isCancelled(): bool { }
-    
-    public function throwIfCancelled(): void { }
+    public function __invoke(?\Throwable $e = null): void { }
 }
 ```
 
@@ -527,11 +522,11 @@ namespace Concurrent\Network;
 
 final class UdpDatagram
 {
-    public readonly $data;
+    public readonly string $data;
     
-    public readonly $address;
+    public readonly string $address;
     
-    public readonly $port;
+    public readonly int $port;
 
     public function __construct(string $data, string $address, int $port) { }
     
@@ -629,9 +624,9 @@ final class Fiber
     public const STATUS_FINISHED;
     public const STATUS_FAILED;
     
-    public function __construct(callable $callback, ?int $stack_size = null) { }
+    public readonly int $status;
     
-    public function status(): int { }
+    public function __construct(callable $callback, ?int $stack_size = null) { }
     
     public function start(...$args): mixed { }
     
@@ -639,11 +634,11 @@ final class Fiber
     
     public function throw(\Throwable $e): mixed { }
     
+    public static function yield($val = null): mixed { }
+    
     public static function isRunning(): bool { }
     
     public static function backend(): string { }
-    
-    public static function yield($val = null): mixed { }
 }
 ```
 

@@ -1,6 +1,23 @@
 <?php
 
+// Pass an int arg via CLI to set the channel buffer size to the given number.
+
 namespace Concurrent;
+
+class Wrap
+{
+    private $val;
+
+    public function __construct($val)
+    {
+        $this->val = $val;
+    }
+
+    public function __toString()
+    {
+        return (string) $this->val;
+    }
+}
 
 $work = function (string $label, int $delay, iterable $it) {
     $timer = new Timer($delay);
@@ -27,7 +44,7 @@ Task::async($work, 'A', 50, $channel);
 Task::async($work, 'B', 140, $channel->getIterator());
 
 for ($i = 0; $i <= 20; $i++) {
-    $channel->send($i);
+    $channel->send(new Wrap($i));
     printf("C <- %u\n", $i);
 }
 

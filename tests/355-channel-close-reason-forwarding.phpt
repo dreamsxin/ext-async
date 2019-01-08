@@ -10,6 +10,16 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 namespace Concurrent;
 
 $channel = new Channel();
+$channel->close();
+
+try {
+    $channel->send('X');
+} catch (ChannelClosedException $e) {
+    var_dump($e->getMessage());
+    var_dump($e->getPrevious());
+}
+
+$channel = new Channel();
 $channel->close(new \Error('FOO!'));
 
 try {
@@ -20,5 +30,7 @@ try {
 }
 
 --EXPECT--
+string(23) "Channel has been closed"
+NULL
 string(23) "Channel has been closed"
 string(4) "FOO!"

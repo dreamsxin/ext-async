@@ -17,21 +17,20 @@
 */
 
 #include "php_async.h"
+#include "zend_inheritance.h"
 
 zend_class_entry *async_context_ce;
 zend_class_entry *async_context_var_ce;
 zend_class_entry *async_cancellation_handler_ce;
-zend_class_entry *async_cancellation_token_ce;
+zend_class_entry *async_cancellation_exception_ce;
 
 static zend_object_handlers async_context_handlers;
 static zend_object_handlers async_context_var_handlers;
 static zend_object_handlers async_cancellation_handler_handlers;
-static zend_object_handlers async_cancellation_token_handlers;
-
 
 static async_context *async_context_object_create(async_context_var *var, zval *value);
-static zend_object *async_cancellation_handler_object_create(zend_class_entry *ce);
-static zend_object *async_cancellation_token_object_create(async_context *context);
+static async_cancellation_handler *async_cancellation_handler_object_create();
+
 
 async_context *async_context_get()
 {
@@ -53,6 +52,28 @@ async_context *async_context_get()
 
 	ASYNC_G(context) = context;
 
+	return context;
+}
+
+async_context *async_context_create_background()
+{
+	async_context *root;
+	async_context *context;
+	
+	root = ASYNC_G(context);
+	
+	if (root == NULL) {
+		root = async_context_object_create(NULL, NULL);
+		
+		ASYNC_G(context) = root;
+	}
+	
+	context = async_context_object_create(NULL, NULL);
+	context->background = 1;
+	context->parent = root;
+	
+	ASYNC_ADDREF(&root->std);
+	
 	return context;
 }
 
@@ -125,7 +146,7 @@ static void timed_out(uv_timer_t *timer)
 		return;
 	}
 
-	ASYNC_PREPARE_ERROR(&handler->error, "Context timed out");
+	ASYNC_PREPARE_EXCEPTION(&handler->error, async_cancellation_exception_ce, "Context has timed out");
 
 	while (handler->callbacks.first != NULL) {
 		ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);
@@ -182,6 +203,50 @@ static void async_context_object_destroy(zend_object *object)
 	zend_object_std_dtor(&context->std);
 }
 
+static zval *read_context_prop(zval *object, zval *member, int type, void **cache_slot, zval *rv)
+{
+	async_context *context;
+	
+	char *key;
+	
+	context = (async_context *) Z_OBJ_P(object);
+	
+	key = Z_STRVAL_P(member);
+	
+	if (strcmp(key, "background") == 0) {
+		ZVAL_BOOL(rv, context->background);
+	} else if (strcmp(key, "cancelled") == 0) {
+		ZVAL_BOOL(rv, context->cancel != NULL && Z_TYPE_P(&context->cancel->error) != IS_UNDEF);
+	} else {
+		rv = &EG(uninitialized_zval);
+	}
+	
+	return rv;
+}
+
+static int has_context_prop(zval *object, zval *member, int has_set_exists, void **cache_slot)
+{
+	zval rv;
+	zval *val;
+
+    val = read_context_prop(object, member, 0, cache_slot, &rv);
+    
+    if (val == &EG(uninitialized_zval)) {
+    	return 0;
+    }
+    
+    switch (has_set_exists) {
+    	case ZEND_PROPERTY_EXISTS:
+    	case ZEND_PROPERTY_ISSET:
+    		zval_ptr_dtor(val);
+    		return 1;
+    }
+    
+    convert_to_boolean(val);
+    
+    return (Z_TYPE_P(val) == IS_TRUE) ? 1 : 0;
+}
+
 ZEND_METHOD(Context, __construct)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
@@ -224,8 +289,8 @@ ZEND_METHOD(Context, with)
 
 ZEND_METHOD(Context, withTimeout)
 {
-	async_cancellation_handler *handler;
 	async_context *context;
+	async_cancellation_handler *handler;
 
 	zend_long timeout;
 
@@ -236,8 +301,7 @@ ZEND_METHOD(Context, withTimeout)
 	ZEND_PARSE_PARAMETERS_END();
 
 	context = (async_context *) Z_OBJ_P(getThis());
-
-	handler = (async_cancellation_handler *) async_cancellation_handler_object_create(async_cancellation_handler_ce);
+	handler = async_cancellation_handler_object_create();
 
 	init_cancellation(handler, context);
 
@@ -250,6 +314,31 @@ ZEND_METHOD(Context, withTimeout)
 	uv_timer_start(&handler->timer, timed_out, (uint64_t) timeout, 0);
 	uv_unref((uv_handle_t *) &handler->timer);
 
+	ZVAL_OBJ(&obj, &handler->context->std);
+
+	RETURN_ZVAL(&obj, 1, 0);
+}
+
+ZEND_METHOD(Context, withCancel)
+{
+	async_context *context;
+	async_cancellation_handler *handler;
+
+	zval *val;
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ZVAL_DEREF(val)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	zval_ptr_dtor(val);
+
+	context = (async_context *) Z_OBJ_P(getThis());
+	handler = async_cancellation_handler_object_create();
+
+	init_cancellation(handler, context);
+	
+	ZVAL_OBJ(val, &handler->std);
 	ZVAL_OBJ(&obj, &handler->context->std);
 
 	RETURN_ZVAL(&obj, 1, 0);
@@ -277,19 +366,21 @@ ZEND_METHOD(Context, shield)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(Context, token)
+ZEND_METHOD(Context, throwIfCancelled)
 {
 	async_context *context;
-
-	zval obj;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	context = (async_context *) Z_OBJ_P(getThis());
 
-	ZVAL_OBJ(&obj, async_cancellation_token_object_create(context));
+	if (context->cancel != NULL && Z_TYPE_P(&context->cancel->error) != IS_UNDEF) {
+		Z_ADDREF_P(&context->cancel->error);
 
-	RETURN_ZVAL(&obj, 1, 1);
+		execute_data->opline--;
+		zend_throw_exception_internal(&context->cancel->error);
+		execute_data->opline++;
+	}
 }
 
 ZEND_METHOD(Context, run)
@@ -348,41 +439,10 @@ ZEND_METHOD(Context, current)
 
 ZEND_METHOD(Context, isBackground)
 {
-	async_context *context;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	context = (async_context *) Z_OBJ_P(getThis());
-
-	RETURN_BOOL(context->background);
-}
-
-ZEND_METHOD(Context, background)
-{
-	async_context *context;
-	async_context *current;
-
-	zval obj;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	current = (async_context *) Z_OBJ_P(getThis());
-
-	context = async_context_object_create(NULL, NULL);
-	context->parent = current;
-	context->background = 1;
-
-	ASYNC_ADDREF(&current->std);
-
-	ZVAL_OBJ(&obj, &context->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
+	RETURN_BOOL(async_context_get()->background);
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_context_ctor, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_context_is_background, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_with, 0, 2, Concurrent\\Context, 0)
@@ -394,13 +454,17 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_with_timeout, 0, 1, Concu
 	ZEND_ARG_TYPE_INFO(0, milliseconds, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_with_cancel, 0, 1, Concurrent\\Context, 0)
+	ZEND_ARG_INFO(1, cancel)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_shield, 0, 0, Concurrent\\Context, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_token, 0, 0, Concurrent\\CancellationToken, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_context_is_cancelled, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_background, 0, 0, Concurrent\\Context, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_context_throw_if_cancelled, 0, 0, IS_VOID, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_context_run, 0, 0, 1)
@@ -411,16 +475,19 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_current, 0, 0, Concurrent\\Context, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_context_is_background, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
 static const zend_function_entry async_context_functions[] = {
 	ZEND_ME(Context, __construct, arginfo_context_ctor, ZEND_ACC_PRIVATE)
-	ZEND_ME(Context, isBackground, arginfo_context_is_background, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, with, arginfo_context_with, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, withTimeout, arginfo_context_with_timeout, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, withCancel, arginfo_context_with_cancel, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, shield, arginfo_context_shield, ZEND_ACC_PUBLIC)
-	ZEND_ME(Context, token, arginfo_context_token, ZEND_ACC_PUBLIC)
-	ZEND_ME(Context, background, arginfo_context_background, ZEND_ACC_PUBLIC)
+	ZEND_ME(Context, throwIfCancelled, arginfo_context_throw_if_cancelled, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, run, arginfo_context_run, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, current, arginfo_context_current, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Context, isBackground, arginfo_context_is_background, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_FE_END
 };
 
@@ -497,14 +564,14 @@ static const zend_function_entry async_context_var_functions[] = {
 };
 
 
-static zend_object *async_cancellation_handler_object_create(zend_class_entry *ce)
+static async_cancellation_handler *async_cancellation_handler_object_create()
 {
 	async_cancellation_handler *handler;
 
 	handler = emalloc(sizeof(async_cancellation_handler));
 	ZEND_SECURE_ZERO(handler, sizeof(async_cancellation_handler));
 
-	zend_object_std_init(&handler->std, ce);
+	zend_object_std_init(&handler->std, async_cancellation_handler_ce);
 	handler->std.handlers = &async_cancellation_handler_handlers;
 
 	ZVAL_UNDEF(&handler->error);
@@ -513,7 +580,7 @@ static zend_object *async_cancellation_handler_object_create(zend_class_entry *c
 	
 	ASYNC_ADDREF(&handler->scheduler->std);
 
-	return &handler->std;
+	return handler;
 }
 
 static void async_cancellation_handler_object_dtor(zend_object *object)
@@ -561,47 +628,7 @@ static void async_cancellation_handler_object_destroy(zend_object *object)
 	zend_object_std_dtor(&handler->std);
 }
 
-ZEND_METHOD(CancellationHandler, __construct)
-{
-	async_cancellation_handler *handler;
-	async_context *context;
-
-	zval *val;
-
-	val = NULL;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
-	ZEND_PARSE_PARAMETERS_END();
-
-	handler = (async_cancellation_handler *) Z_OBJ_P(getThis());
-
-	if (val == NULL || Z_TYPE_P(val) == IS_NULL) {
-		context = async_context_get();
-	} else {
-		context = (async_context *) Z_OBJ_P(val);
-	}
-
-	init_cancellation(handler, context);
-}
-
-ZEND_METHOD(CancellationHandler, context)
-{
-	async_cancellation_handler *handler;
-
-	zval obj;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	handler = (async_cancellation_handler *) Z_OBJ_P(getThis());
-
-	ZVAL_OBJ(&obj, &handler->context->std);
-
-	RETURN_ZVAL(&obj, 1, 0);
-}
-
-ZEND_METHOD(CancellationHandler, cancel)
+ZEND_METHOD(CancellationHandler, __invoke)
 {
 	async_cancellation_handler *handler;
 	async_cancel_cb *cancel;
@@ -625,7 +652,7 @@ ZEND_METHOD(CancellationHandler, cancel)
 		uv_timer_stop(&handler->timer);
 	}
 
-	ASYNC_PREPARE_ERROR(&handler->error, "Context has been cancelled");
+	ASYNC_PREPARE_EXCEPTION(&handler->error, async_cancellation_exception_ce, "Context has been cancelled");
 
 	if (err != NULL && Z_TYPE_P(err) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&handler->error), Z_OBJ_P(err));
@@ -643,100 +670,19 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_cancellation_handler_ctor, 0, 0, 0)
 	ZEND_ARG_OBJ_INFO(0, context, Concurrent\\Context, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_cancellation_handler_context, 0, 0, Concurrent\\Context, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_INFO_EX(arginfo_cancellation_handler_cancel, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_cancellation_handler_invoke, 0, 0, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_cancellation_handler_functions[] = {
-	ZEND_ME(CancellationHandler, __construct, arginfo_cancellation_handler_ctor, ZEND_ACC_PUBLIC)
-	ZEND_ME(CancellationHandler, context, arginfo_cancellation_handler_context, ZEND_ACC_PUBLIC)
-	ZEND_ME(CancellationHandler, cancel, arginfo_cancellation_handler_cancel, ZEND_ACC_PUBLIC)
+	ZEND_ME(CancellationHandler, __invoke, arginfo_cancellation_handler_invoke, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
 
-static zend_object *async_cancellation_token_object_create(async_context *context)
-{
-	async_cancellation_token *token;
-
-	token = emalloc(sizeof(async_cancellation_token));
-	ZEND_SECURE_ZERO(token, sizeof(async_cancellation_token));
-
-	zend_object_std_init(&token->std, async_cancellation_token_ce);
-	token->std.handlers = &async_cancellation_token_handlers;
-
-	token->context = context;
-
-	ASYNC_ADDREF(&context->std);
-
-	return &token->std;
-}
-
-static void async_cancellation_token_object_destroy(zend_object *object)
-{
-	async_cancellation_token *token;
-
-	token = (async_cancellation_token *) object;
-
-	ASYNC_DELREF(&token->context->std);
-
-	zend_object_std_dtor(&token->std);
-}
-
-ZEND_METHOD(CancellationToken, __construct)
-{
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	zend_throw_error(NULL, "Cancellation token must not be created in userland");
-}
-
-ZEND_METHOD(CancellationToken, isCancelled)
-{
-	async_cancellation_token *token;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	token = (async_cancellation_token *) Z_OBJ_P(getThis());
-
-	RETURN_BOOL(token->context->cancel != NULL && Z_TYPE_P(&token->context->cancel->error) != IS_UNDEF);
-}
-
-ZEND_METHOD(CancellationToken, throwIfCancelled)
-{
-	async_cancellation_token *token;
-
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	token = (async_cancellation_token *) Z_OBJ_P(getThis());
-
-	if (token->context->cancel != NULL && Z_TYPE_P(&token->context->cancel->error) != IS_UNDEF) {
-		Z_ADDREF_P(&token->context->cancel->error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&token->context->cancel->error);
-		execute_data->opline++;
-	}
-}
-
-ZEND_BEGIN_ARG_INFO(arginfo_cancellation_token_ctor, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_cancellation_token_is_cancelled, 0, 0, _IS_BOOL, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_cancellation_token_throw_if_cancelled, 0, 0, IS_VOID, 0)
-ZEND_END_ARG_INFO()
-
-static const zend_function_entry async_cancellation_token_functions[] = {
-	ZEND_ME(CancellationToken, __construct, arginfo_cancellation_token_ctor, ZEND_ACC_PRIVATE)
-	ZEND_ME(CancellationToken, isCancelled, arginfo_cancellation_token_is_cancelled, ZEND_ACC_PUBLIC)
-	ZEND_ME(CancellationToken, throwIfCancelled, arginfo_cancellation_token_throw_if_cancelled, ZEND_ACC_PUBLIC)
+static const zend_function_entry empty_funcs[] = {
 	ZEND_FE_END
 };
-
 
 void async_context_ce_register()
 {
@@ -751,6 +697,8 @@ void async_context_ce_register()
 	memcpy(&async_context_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_context_handlers.free_obj = async_context_object_destroy;
 	async_context_handlers.clone_obj = NULL;
+	async_context_handlers.has_property = has_context_prop;
+	async_context_handlers.read_property = read_context_prop;
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\ContextVar", async_context_var_functions);
 	async_context_var_ce = zend_register_internal_class(&ce);
@@ -766,7 +714,7 @@ void async_context_ce_register()
 	INIT_CLASS_ENTRY(ce, "Concurrent\\CancellationHandler", async_cancellation_handler_functions);
 	async_cancellation_handler_ce = zend_register_internal_class(&ce);
 	async_cancellation_handler_ce->ce_flags |= ZEND_ACC_FINAL;
-	async_cancellation_handler_ce->create_object = async_cancellation_handler_object_create;
+	async_cancellation_handler_ce->create_object = NULL;
 	async_cancellation_handler_ce->serialize = zend_class_serialize_deny;
 	async_cancellation_handler_ce->unserialize = zend_class_unserialize_deny;
 
@@ -774,16 +722,11 @@ void async_context_ce_register()
 	async_cancellation_handler_handlers.dtor_obj = async_cancellation_handler_object_dtor;
 	async_cancellation_handler_handlers.free_obj = async_cancellation_handler_object_destroy;
 	async_cancellation_handler_handlers.clone_obj = NULL;
+	
+	INIT_CLASS_ENTRY(ce, "Concurrent\\CancellationException", empty_funcs);
+	async_cancellation_exception_ce = zend_register_internal_class(&ce);
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\CancellationToken", async_cancellation_token_functions);
-	async_cancellation_token_ce = zend_register_internal_class(&ce);
-	async_cancellation_token_ce->ce_flags |= ZEND_ACC_FINAL;
-	async_cancellation_token_ce->serialize = zend_class_serialize_deny;
-	async_cancellation_token_ce->unserialize = zend_class_unserialize_deny;
-
-	memcpy(&async_cancellation_token_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	async_cancellation_token_handlers.free_obj = async_cancellation_token_object_destroy;
-	async_cancellation_token_handlers.clone_obj = NULL;
+	zend_do_inheritance(async_cancellation_exception_ce, zend_ce_exception);
 }
 
 void async_context_shutdown()

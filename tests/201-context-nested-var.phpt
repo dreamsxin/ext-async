@@ -19,7 +19,7 @@ var_dump($var->get());
 TaskScheduler::runWithContext($context, function () use ($var) {
     var_dump($var->get());
     
-    $ctx = Context::current()->background()->with($var, 'bar');
+    $ctx = Context::current()->with($var, 'bar');
     
     var_dump($var->get());
     

@@ -252,7 +252,6 @@ static zend_object *async_fiber_object_create(zend_class_entry *ce)
 	return &fiber->std;
 }
 
-
 static void async_fiber_object_destroy(zend_object *object)
 {
 	async_fiber *fiber;
@@ -279,8 +278,46 @@ static void async_fiber_object_destroy(zend_object *object)
 	zend_object_std_dtor(&fiber->std);
 }
 
+static zval *read_fiber_prop(zval *object, zval *member, int type, void **cache_slot, zval *rv)
+{
+	async_fiber *fiber;
+	
+	fiber = (async_fiber *) Z_OBJ_P(object);
+	
+	if (strcmp(Z_STRVAL_P(member), "status") == 0) {
+		ZVAL_LONG(rv, fiber->status);
+	} else {
+		rv = &EG(uninitialized_zval);
+	}
+	
+	return rv;
+}
 
-/* {{{ proto Fiber::__construct(callable $callback, int stack_size) */
+static int has_fiber_prop(zval *object, zval *member, int has_set_exists, void **cache_slot)
+{
+	async_fiber *fiber;
+	
+	zval val;
+	
+	fiber = (async_fiber *) Z_OBJ_P(object);
+	
+	if (strcmp(Z_STRVAL_P(member), "status") != 0) {
+		return 0;
+	}
+	
+	switch (has_set_exists) {
+    	case ZEND_PROPERTY_EXISTS:
+    	case ZEND_PROPERTY_ISSET:
+    		return 1;
+    }
+    
+    ZVAL_LONG(&val, fiber->status);
+    
+    convert_to_boolean(&val);
+    
+    return (Z_TYPE_P(&val) == IS_TRUE) ? 1 : 0;
+}
+
 ZEND_METHOD(Fiber, __construct)
 {
 	async_fiber *fiber;
@@ -307,19 +344,6 @@ ZEND_METHOD(Fiber, __construct)
 	// Keep a reference to closures or callable objects as long as the fiber lives.
 	Z_TRY_ADDREF_P(&fiber->fci.function_name);
 }
-/* }}} */
-
-
-/* {{{ proto int Fiber::status() */
-ZEND_METHOD(Fiber, status)
-{
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	async_fiber *fiber = (async_fiber *) Z_OBJ_P(getThis());
-
-	RETURN_LONG(fiber->status);
-}
-/* }}} */
 
 ZEND_METHOD(Fiber, __debugInfo)
 {
@@ -339,8 +363,6 @@ ZEND_METHOD(Fiber, __debugInfo)
 	}
 }
 
-
-/* {{{ proto mixed Fiber::start($params...) */
 ZEND_METHOD(Fiber, start)
 {
 	async_fiber *fiber;
@@ -374,10 +396,7 @@ ZEND_METHOD(Fiber, start)
 
 	async_fiber_context_start(fiber, ASYNC_G(current_context), 1);
 }
-/* }}} */
 
-
-/* {{{ proto mixed Fiber::resume($value) */
 ZEND_METHOD(Fiber, resume)
 {
 	async_fiber *fiber;
@@ -405,10 +424,7 @@ ZEND_METHOD(Fiber, resume)
 
 	async_fiber_context_switch(fiber->context, 1);
 }
-/* }}} */
 
-
-/* {{{ proto mixed Fiber::throw(Throwable $error) */
 ZEND_METHOD(Fiber, throw)
 {
 	async_fiber *fiber;
@@ -435,10 +451,7 @@ ZEND_METHOD(Fiber, throw)
 
 	async_fiber_context_switch(fiber->context, 1);
 }
-/* }}} */
 
-
-/* {{{ proto bool Fiber::isRunning() */
 ZEND_METHOD(Fiber, isRunning)
 {
 	async_fiber *fiber;
@@ -449,18 +462,14 @@ ZEND_METHOD(Fiber, isRunning)
 
 	RETURN_BOOL(fiber != NULL && fiber->type == ASYNC_FIBER_TYPE_DEFAULT);
 }
-/* }}} */
 
-/* {{{ proto bool Fiber::isRunning() */
 ZEND_METHOD(Fiber, backend)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	RETURN_STRING(async_fiber_backend_info());
 }
-/* }}} */
 
-/* {{{ proto mixed Fiber::yield([$value]) */
 ZEND_METHOD(Fiber, yield)
 {
 	async_fiber *fiber;
@@ -504,28 +513,21 @@ ZEND_METHOD(Fiber, yield)
 		fiber->state.exec->opline++;
 	}
 }
-/* }}} */
 
-
-/* {{{ proto Fiber::__wakeup() */
 ZEND_METHOD(Fiber, __wakeup)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	zend_throw_error(NULL, "Unserialization of a fiber is not allowed");
 }
-/* }}} */
 
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_create, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_ctor, 0, 0, 1)
 	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 	ZEND_ARG_TYPE_INFO(0, stack_size, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO(arginfo_fiber_debug_info, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_fiber_status, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_start, 0, 0, 1)
@@ -554,15 +556,14 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_fiber_yield, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry fiber_functions[] = {
-	ZEND_ME(Fiber, __construct, arginfo_fiber_create, ZEND_ACC_PUBLIC)
+	ZEND_ME(Fiber, __construct, arginfo_fiber_ctor, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, __debugInfo, arginfo_fiber_debug_info, ZEND_ACC_PUBLIC)
-	ZEND_ME(Fiber, status, arginfo_fiber_status, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, start, arginfo_fiber_start, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, resume, arginfo_fiber_resume, ZEND_ACC_PUBLIC)
 	ZEND_ME(Fiber, throw, arginfo_fiber_throw, ZEND_ACC_PUBLIC)
+	ZEND_ME(Fiber, yield, arginfo_fiber_yield, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Fiber, isRunning, arginfo_fiber_is_running, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Fiber, backend, arginfo_fiber_backend, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Fiber, yield, arginfo_fiber_yield, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Fiber, __wakeup, arginfo_fiber_void, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
@@ -609,6 +610,8 @@ void async_fiber_ce_register()
 	memcpy(&async_fiber_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_fiber_handlers.free_obj = async_fiber_object_destroy;
 	async_fiber_handlers.clone_obj = NULL;
+	async_fiber_handlers.has_property = has_fiber_prop;
+	async_fiber_handlers.read_property = read_fiber_prop;
 
 	ASYNC_FIBER_CONST("STATUS_INIT", ASYNC_FIBER_STATUS_INIT);
 	ASYNC_FIBER_CONST("STATUS_SUSPENDED", ASYNC_FIBER_STATUS_SUSPENDED);

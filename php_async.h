@@ -109,6 +109,8 @@ ASYNC_API extern zend_bool async_cli;
 ASYNC_API extern char async_ssl_config_file[MAXPATHLEN];
 
 ASYNC_API extern zend_class_entry *async_awaitable_ce;
+ASYNC_API extern zend_class_entry *async_cancellation_exception_ce;
+ASYNC_API extern zend_class_entry *async_cancellation_handler_ce;
 ASYNC_API extern zend_class_entry *async_channel_ce;
 ASYNC_API extern zend_class_entry *async_channel_closed_exception_ce;
 ASYNC_API extern zend_class_entry *async_channel_group_ce;
@@ -136,9 +138,13 @@ ASYNC_API extern zend_class_entry *async_task_ce;
 ASYNC_API extern zend_class_entry *async_task_scheduler_ce;
 ASYNC_API extern zend_class_entry *async_tcp_server_ce;
 ASYNC_API extern zend_class_entry *async_tcp_socket_ce;
+ASYNC_API extern zend_class_entry *async_tcp_socket_reader_ce;
+ASYNC_API extern zend_class_entry *async_tcp_socket_writer_ce;
 ASYNC_API extern zend_class_entry *async_tls_client_encryption_ce;
 ASYNC_API extern zend_class_entry *async_tls_server_encryption_ce;
 ASYNC_API extern zend_class_entry *async_timer_ce;
+ASYNC_API extern zend_class_entry *async_udp_datagram_ce;
+ASYNC_API extern zend_class_entry *async_udp_socket_ce;
 ASYNC_API extern zend_class_entry *async_writable_pipe_ce;
 ASYNC_API extern zend_class_entry *async_writable_stream_ce;
 
@@ -186,11 +192,10 @@ void async_task_scheduler_shutdown();
 
 typedef struct _async_cancel_cb                     async_cancel_cb;
 typedef struct _async_cancellation_handler          async_cancellation_handler;
-typedef struct _async_cancellation_token            async_cancellation_token;
 typedef struct _async_channel                       async_channel;
-typedef struct _async_channel_buffer                async_channel_buffer;
 typedef struct _async_channel_group                 async_channel_group;
 typedef struct _async_channel_iterator              async_channel_iterator;
+typedef struct _async_channel_state                 async_channel_state;
 typedef struct _async_context                       async_context;
 typedef struct _async_context_var                   async_context_var;
 typedef struct _async_deferred                      async_deferred;
@@ -208,11 +213,6 @@ typedef struct {
 	async_cancel_cb *first;
 	async_cancel_cb *last;
 } async_cancel_queue;
-
-typedef struct {
-	async_channel_buffer *first;
-	async_channel_buffer *last;
-} async_channel_buffer_queue;
 
 typedef struct {
 	async_op *first;
@@ -358,55 +358,14 @@ struct _async_cancellation_handler {
 	async_cancel_queue callbacks;
 };
 
-struct _async_cancellation_token {
-	/* PHP object handle. */
-	zend_object std;
-
-	/* The context being observed for cancellation. */
-	async_context *context;
-};
-
 #define ASYNC_CHANNEL_FLAG_CLOSED 1
 
 struct _async_channel {
 	/* PHP object handle. */
 	zend_object std;
 	
-	/* Channel flags. */
-	uint8_t flags;
-	
-	/* reference to the task scheduler. */
-	async_task_scheduler *scheduler;
-	
-	/* Error object that has been passed as close reason. */
-	zval error;
-	
-	/* Shutdown callback registered with the scheduler. */
-	async_cancel_cb cancel;
-	
-	/* Pending send operations. */
-	async_op_queue senders;
-	
-	/* Pending receive operations. */
-	async_op_queue receivers;
-	
-	/* Maximum channel buffer size. */
-	uint32_t size;
-	
-	/* Current channel buffer size. */
-	uint32_t buffered;
-	
-	/* Queue of buffered messages. */
-	async_channel_buffer_queue buffer;
-};
-
-struct _async_channel_buffer {
-	/* The value to be sent. */
-	zval value;
-	
-	/* References to previous and next buffer value. */
-	async_channel_buffer *prev;
-	async_channel_buffer *next;
+	/* Reference to the channel state being shared with iterators. */
+	async_channel_state *state;
 };
 
 typedef struct {
@@ -468,8 +427,8 @@ struct _async_channel_iterator {
 	/* Iterator flags. */
 	uint8_t flags;
 	
-	/* Reference to the channel being iterated. */
-	async_channel *channel;
+	/* Reference to the channel state of the iterated channel. */
+	async_channel_state *state;
 	
 	/* Current key (ascending counter). */
 	zend_long pos;
@@ -479,6 +438,38 @@ struct _async_channel_iterator {
 	
 	/* Reused receive operation. */
 	async_op op;
+};
+
+struct _async_channel_state {
+	/* Refcount being used by channel and ietartor objects to share the state. */
+	uint32_t refcount;
+
+	/* Channel flags. */
+	uint8_t flags;
+	
+	/* reference to the task scheduler. */
+	async_task_scheduler *scheduler;
+	
+	/* Error object that has been passed as close reason. */
+	zval error;
+	
+	/* Shutdown callback registered with the scheduler. */
+	async_cancel_cb cancel;
+	
+	/* Pending send operations. */
+	async_op_queue senders;
+	
+	/* Queue of buffered messages. */
+	async_op_queue buffer;
+	
+	/* Pending receive operations. */
+	async_op_queue receivers;
+	
+	/* Maximum channel buffer size. */
+	uint32_t size;
+	
+	/* Current channel buffer size. */
+	uint32_t buffered;
 };
 
 struct _async_context {
@@ -679,6 +670,7 @@ struct _async_task_scheduler {
 char *async_status_label(zend_uchar status);
 
 ASYNC_API async_context *async_context_get();
+ASYNC_API async_context *async_context_create_background();
 ASYNC_API async_task_scheduler *async_task_scheduler_get();
 
 ASYNC_API int async_await_op(async_op *op);

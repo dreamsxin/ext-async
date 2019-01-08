@@ -19,11 +19,11 @@ var_dump($f->__debugInfo()['suspended']);
 var_dump($f->__debugInfo()['file'] == __FILE__);
 var_dump($f->__debugInfo()['line'] == $line);
 
-var_dump($f->status() == Fiber::STATUS_INIT);
+var_dump($f->status == Fiber::STATUS_INIT);
 $f->start();
-var_dump($f->status() == Fiber::STATUS_SUSPENDED);
+var_dump($f->status == Fiber::STATUS_SUSPENDED);
 $f->resume();
-var_dump($f->status() == Fiber::STATUS_FINISHED);
+var_dump($f->status == Fiber::STATUS_FINISHED);
 
 try {
     $f->resume();
@@ -31,7 +31,7 @@ try {
     echo $e->getMessage(), PHP_EOL;
 }
 
-var_dump($f->status() == Fiber::STATUS_FINISHED);
+var_dump($f->status == Fiber::STATUS_FINISHED);
 
 $f = new Fiber(function () {
     throw new Exception('FOO!');
@@ -41,7 +41,7 @@ try {
 } catch (Throwable $e) {
     echo $e->getMessage(), PHP_EOL;
 }
-var_dump($f->status() == Fiber::STATUS_FAILED);
+var_dump($f->status == Fiber::STATUS_FAILED);
 
 ?>
 --EXPECT--

@@ -20,7 +20,7 @@ $t = Task::asyncWithContext(Context::current()->withTimeout(500), function () {
     try {
         return $server->accept();
     } catch (\Throwable $e) {
-        var_dump($e->getMessage());
+        var_dump(get_class($e));
         
         throw $e;
     }
@@ -29,10 +29,10 @@ $t = Task::asyncWithContext(Context::current()->withTimeout(500), function () {
 try {
     Task::await($t);
 } catch (\Throwable $e) {
-    var_dump($e->getMessage());
+    var_dump(get_class($e));
 }
 
 --EXPECT--
 string(12) "LISTENING..."
-string(17) "Context timed out"
-string(17) "Context timed out"
+string(32) "Concurrent\CancellationException"
+string(32) "Concurrent\CancellationException"

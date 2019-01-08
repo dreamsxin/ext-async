@@ -9,9 +9,10 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$handler = new CancellationHandler(Context::current());
+$cancel = null;
+$context = Context::current()->withCancel($cancel);
 
-Task::asyncWithContext($handler->context(), function () {
+Task::asyncWithContext($context, function () {
     $signal = new SignalWatcher(SignalWatcher::SIGINT);
     
     var_dump('AWAIT SIGNAL');
@@ -37,7 +38,7 @@ $timer = new Timer(25);
 $timer->awaitTimeout();
 
 var_dump('=> CANCEL');
-$handler->cancel();
+$cancel();
 
 $timer->awaitTimeout();
 

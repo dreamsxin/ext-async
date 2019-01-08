@@ -33,7 +33,7 @@ foreach ($channels as $k => $v) {
     $delay += 50;
 }
 
-$group = new ChannelGroup($channels);
+$group = new ChannelGroup($channels, null, true);
 $v = null;
 
 do {

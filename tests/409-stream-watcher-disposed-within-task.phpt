@@ -24,7 +24,7 @@ list ($a, $b) = pair();
 
 $watcher = new StreamWatcher($b);
 
-Task::asyncWithContext(Context::current()->background(), function () use ($watcher) {
+Task::background(function () use ($watcher) {
     try {
         $watcher->awaitReadable();
     } catch (\Throwable $e) {

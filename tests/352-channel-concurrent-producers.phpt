@@ -30,11 +30,14 @@ $channel = new Channel();
 Task::async($producer, $channel, 3, false);
 Task::async($producer, $channel, 5, true);
 
+var_dump($channel->isReadyForReceive());
+
 foreach ($channel as $v) {
     var_dump($v);
 }
 
 --EXPECT--
+bool(false)
 int(0)
 int(0)
 int(1)

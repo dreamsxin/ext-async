@@ -595,6 +595,51 @@ ZEND_METHOD(Task, asyncWithContext)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
+ZEND_METHOD(Task, background)
+{
+	async_task *task;
+
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+	uint32_t count;
+	uint32_t i;
+
+	zval *params;
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
+		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_VARIADIC('+', params, count)
+	ZEND_PARSE_PARAMETERS_END();
+
+	for (i = 1; i <= count; i++) {
+		ASYNC_CHECK_ERROR(ARG_SHOULD_BE_SENT_BY_REF(fcc.function_handler, i), "Cannot pass async call argument %d by reference", (int) i);
+	}
+
+	fci.no_separation = 1;
+
+	if (count == 0) {
+		fci.param_count = 0;
+	} else {
+		zend_fcall_info_argp(&fci, count, params);
+	}
+
+	Z_TRY_ADDREF_P(&fci.function_name);
+
+	task = async_task_object_create(EX(prev_execute_data), async_task_scheduler_get(), async_context_create_background());
+	task->fiber.fci = fci;
+	task->fiber.fcc = fcc;
+	
+	ASYNC_DELREF(&task->context->std);
+
+	async_task_scheduler_enqueue(task);
+
+	ZVAL_OBJ(&obj, &task->fiber.std);
+
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
 ZEND_METHOD(Task, await)
 {
 	zend_class_entry *ce;
@@ -775,6 +820,11 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_async_with_context, 0, 2, Co
 	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_background, 0, 1, Concurrent\\Task, 0)
+	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
+	ZEND_ARG_VARIADIC_INFO(0, arguments)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_await, 0, 0, 1)
 	ZEND_ARG_OBJ_INFO(0, awaitable, Concurrent\\Awaitable, 0)
 ZEND_END_ARG_INFO()
@@ -788,6 +838,7 @@ static const zend_function_entry task_functions[] = {
 	ZEND_ME(Task, isRunning, arginfo_task_is_running, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, async, arginfo_task_async, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, asyncWithContext, arginfo_task_async_with_context, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Task, background, arginfo_task_background, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, await, arginfo_task_await, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, __wakeup, arginfo_task_wakeup, ZEND_ACC_PUBLIC)
 	ZEND_FE_END

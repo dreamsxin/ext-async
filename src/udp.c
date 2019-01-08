@@ -748,52 +748,6 @@ static const zend_function_entry async_udp_socket_functions[] = {
 };
 
 
-static zval *async_udp_datagram_read_property(zval *object, zval *member, int type, void **cache_slot, zval *rv)
-{
-	async_udp_datagram *datagram;
-	
-	char *key;
-	
-	datagram = (async_udp_datagram *) Z_OBJ_P(object);
-	
-	key = Z_STRVAL_P(member);
-	
-	if (strcmp(key, "data") == 0) {
-		ZVAL_STR_COPY(rv, datagram->data);
-	} else if (strcmp(key, "address") == 0) {
-		ZVAL_STR_COPY(rv, datagram->address);
-	} else if (strcmp(key, "port") == 0) {
-		ZVAL_LONG(rv, datagram->port);
-	} else {
-		rv = &EG(uninitialized_zval);
-	}
-	
-	return rv;
-}
-
-int async_udp_datagram_has_property(zval *object, zval *member, int has_set_exists, void **cache_slot)
-{
-	zval rv;
-	zval *val;
-
-    val = async_udp_datagram_read_property(object, member, 0, cache_slot, &rv);
-    
-    if (val == &EG(uninitialized_zval)) {
-    	return zend_std_has_property(object, member, has_set_exists, cache_slot);
-    }
-    
-    switch (has_set_exists) {
-    	case ZEND_PROPERTY_EXISTS:
-    	case ZEND_PROPERTY_ISSET:
-    		zval_ptr_dtor(val);
-    		return 1;
-    }
-    
-    convert_to_boolean(val);
-    
-    return (Z_TYPE_P(val) == IS_TRUE) ? 1 : 0;
-}
-
 static zend_object *async_udp_datagram_object_create(zend_class_entry *ce)
 {
 	async_udp_datagram *datagram;
@@ -817,6 +771,52 @@ static void async_udp_datagram_object_destroy(zend_object *object)
 	zend_string_release(datagram->address);
 
 	zend_object_std_dtor(&datagram->std);
+}
+
+static zval *read_datagram_property(zval *object, zval *member, int type, void **cache_slot, zval *rv)
+{
+	async_udp_datagram *datagram;
+	
+	char *key;
+	
+	datagram = (async_udp_datagram *) Z_OBJ_P(object);
+	
+	key = Z_STRVAL_P(member);
+	
+	if (strcmp(key, "data") == 0) {
+		ZVAL_STR_COPY(rv, datagram->data);
+	} else if (strcmp(key, "address") == 0) {
+		ZVAL_STR_COPY(rv, datagram->address);
+	} else if (strcmp(key, "port") == 0) {
+		ZVAL_LONG(rv, datagram->port);
+	} else {
+		rv = &EG(uninitialized_zval);
+	}
+	
+	return rv;
+}
+
+static int has_datagram_property(zval *object, zval *member, int has_set_exists, void **cache_slot)
+{
+	zval rv;
+	zval *val;
+
+    val = read_datagram_property(object, member, 0, cache_slot, &rv);
+    
+    if (val == &EG(uninitialized_zval)) {
+    	return 0;
+    }
+    
+    switch (has_set_exists) {
+    	case ZEND_PROPERTY_EXISTS:
+    	case ZEND_PROPERTY_ISSET:
+    		zval_ptr_dtor(val);
+    		return 1;
+    }
+    
+    convert_to_boolean(val);
+    
+    return (Z_TYPE_P(val) == IS_TRUE) ? 1 : 0;
 }
 
 ZEND_METHOD(UdpDatagram, __construct)
@@ -966,8 +966,8 @@ void async_udp_socket_ce_register()
 	memcpy(&async_udp_datagram_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_udp_datagram_handlers.free_obj = async_udp_datagram_object_destroy;
 	async_udp_datagram_handlers.clone_obj = NULL;
-	async_udp_datagram_handlers.has_property = async_udp_datagram_has_property;
-	async_udp_datagram_handlers.read_property = async_udp_datagram_read_property;
+	async_udp_datagram_handlers.has_property = has_datagram_property;
+	async_udp_datagram_handlers.read_property = read_datagram_property;
 }
 
 

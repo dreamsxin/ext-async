@@ -9,9 +9,10 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$handler = new CancellationHandler();
+$cancel = null;
+$context = Context::current()->withCancel($cancel);
 
-Task::asyncWithContext($handler->context(), function (CancellationToken $token) {
+Task::asyncWithContext($context, function (Context $context) {
     $defer = new Deferred(function (Deferred $defer, \Throwable $e) {
         var_dump($e->getMessage());
         
@@ -19,17 +20,17 @@ Task::asyncWithContext($handler->context(), function (CancellationToken $token) 
     });
     
     var_dump('AWAIT DEFERRED');
-    var_dump($token->isCancelled());
+    var_dump($context->cancelled);
     
     var_dump(Task::await($defer->awaitable()));
-    var_dump($token->isCancelled());
+    var_dump($context->cancelled);
     
     try {
-        $token->throwIfCancelled();
+        $context->throwIfCancelled();
     } catch (\Throwable $e) {
         var_dump($e->getMessage());
     }
-}, $handler->context()->token());
+}, $context);
 
 var_dump('START TIMER');
 
@@ -37,7 +38,7 @@ $timer = new Timer(100);
 $timer->awaitTimeout();
 
 var_dump('=> CANCEL!');
-$handler->cancel();
+$cancel();
 
 $timer->awaitTimeout();
 

@@ -9,11 +9,16 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$h1 = new CancellationHandler();
-$h2 = new CancellationHandler($h1->context());
-$h3 = new CancellationHandler($h1->context());
+$h1 = null;
+$c1 = Context::current()->withCancel($h1);
 
-Task::asyncWithContext($h2->context(), function () {
+$h2 = null;
+$c2 = $c1->withCancel($h2);
+
+$h3 = null;
+$c3 = $c1->withCancel($h3);
+
+Task::asyncWithContext($c2, function () {
     $defer = new Deferred(function (Deferred $defer, \Throwable $e) {
         var_dump('CANCEL OP');
         
@@ -29,16 +34,18 @@ Task::asyncWithContext($h2->context(), function () {
     }
 });
 
-Task::asyncWithContext($h3->context(), function (CancellationToken $token) {
+Task::asyncWithContext($c3, function () {
     var_dump('START UNRELATED');
     
     (new Timer(200))->awaitTimeout();
     
-    $token->throwIfCancelled();
+    $context = Context::current();
     
-    var_dump($token->isCancelled());
+    $context->throwIfCancelled();
+    
+    var_dump($context->cancelled);
     var_dump('DONE UNRELATED');
-}, $h3->context()->token());
+});
 
 var_dump('START TIMER');
 
@@ -46,7 +53,7 @@ $timer = new Timer(50);
 $timer->awaitTimeout();
 
 var_dump('=> CANCEL!');
-$h2->cancel();
+$h2();
 
 $timer->awaitTimeout();
 

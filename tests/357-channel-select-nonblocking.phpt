@@ -9,8 +9,10 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
+$channel = new Channel(4);
+
 $group = new ChannelGroup([
-    $channel = new Channel(4)
+    $channel->getIterator()
 ], 0);
 
 var_dump($group->select());

@@ -1,5 +1,7 @@
 <?php
 
+// Pass any truthy arg via cli to enable blocking select behavior.
+
 namespace Concurrent;
 
 $producer = function (int $delay, Channel $channel) {
