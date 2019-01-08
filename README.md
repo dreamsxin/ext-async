@@ -183,7 +183,7 @@ The constructor accepts a `$channels` array that must contain eighter `Channel` 
 ```php
 namespace Concurrent;
 
-final class Channelgroup implements \Countable
+final class ChannelGroup implements \Countable
 {
     public function __construct(array $channels, ?int $timeout = null, bool $shuffle = false) { }
     
@@ -237,7 +237,7 @@ final class ContextVar
 
 ### CancellationHandler
 
-You can use a `CancellationHandler` to inherit a cancellable `Context` from any context. The cancellation handler uses the context passed to the constructor (or the current context when no context is passed) and provides a derived context with cancellation handling via `context()`. A call to `cancel()` will cancel the provided context, the optional error argument will registered as previous error with the thrown `CancellationException`.
+You have to call `Context::withCancel(& $cancel)` to create a new `Context` (returned value) and a `CancellationHandler` placed in `$cancel` (which has to be passed by reference). Invoking the handler will cancel the associated context, the optional error argument will registered as previous error with the thrown `CancellationException`.
 
 ```php
 namespace Concurrent;
