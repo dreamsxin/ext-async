@@ -228,6 +228,10 @@ typedef struct {
 	zend_execute_data *exec;
 	zend_vm_stack stack;
 	size_t stack_page_size;
+	zend_class_entry *fake_scope;
+	zend_class_entry *exception_class;
+	zend_error_handling_t error_handling;
+	JMP_BUF *bailout;
 } async_vm_state;
 
 #define ASYNC_DEFERRED_STATUS_PENDING 0

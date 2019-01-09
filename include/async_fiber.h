@@ -43,6 +43,9 @@ zend_bool async_fiber_yield(async_fiber_context current);
 	(state)->stack->end = EG(vm_stack_end); \
 	(state)->stack_page_size = EG(vm_stack_page_size); \
 	(state)->exec = EG(current_execute_data); \
+	(state)->fake_scope = EG(fake_scope); \
+	(state)->exception_class = EG(exception_class); \
+	(state)->error_handling = EG(error_handling); \
 } while (0)
 
 #define ASYNC_FIBER_RESTORE_VM_STATE(state) do { \
@@ -51,6 +54,9 @@ zend_bool async_fiber_yield(async_fiber_context current);
 	EG(vm_stack_end) = (state)->stack->end; \
 	EG(vm_stack_page_size) = (state)->stack_page_size; \
 	EG(current_execute_data) = (state)->exec; \
+	EG(fake_scope) = (state)->fake_scope; \
+	EG(exception_class) = (state)->exception_class; \
+	EG(error_handling) = (state)->error_handling; \
 } while (0)
 
 #endif

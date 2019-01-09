@@ -1038,6 +1038,7 @@ static void server_disposed(uv_handle_t *handle)
 static void shutdown_server(void *obj, zval *error)
 {
 	async_tcp_server *server;
+	async_uv_op *op;
 	
 	server = (async_tcp_server *) obj;
 	
@@ -1047,6 +1048,18 @@ static void shutdown_server(void *obj, zval *error)
 	
 	if (error != NULL && Z_TYPE_P(&server->error) == IS_UNDEF) {
 		ZVAL_COPY(&server->error, error);
+	}
+	
+	while (server->accepts.first != NULL) {
+		ASYNC_DEQUEUE_CUSTOM_OP(&server->accepts, op, async_uv_op);
+		
+		if (Z_TYPE_P(&server->error) != IS_UNDEF) {
+			ASYNC_FAIL_OP(op, &server->error);
+		} else {
+			op->code = UV_ECANCELED;
+		
+			ASYNC_FINISH_OP(op);
+		}
 	}
 	
 	if (!uv_is_closing((uv_handle_t *) &server->handle)) {
@@ -1350,6 +1363,8 @@ ZEND_METHOD(TcpServer, accept)
 		code = op->code;
 		
 		ASYNC_FREE_OP(op);
+		
+		ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to await socket connection: %s", uv_strerror(code));
 	} else {
 		server->pending--;
 	}
