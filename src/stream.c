@@ -290,6 +290,10 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 		return;
 	}
 	
+	if (nread == UV_ECONNRESET) {
+		nread = UV_EOF;
+	}
+	
 	if (nread < 0 && nread != UV_EOF) {
 		uv_read_stop(handle);
 		
