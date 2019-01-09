@@ -310,7 +310,7 @@ ZEND_METHOD(Deferred, __construct)
 		context = defer->state->context;
 
 		if (context->cancel != NULL) {
-			if (Z_TYPE_P(&context->cancel->error) != IS_UNDEF) {
+			if (context->cancel->flags & ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED) {
 				cancel_defer(defer, &context->cancel->error);
 			} else {
 				defer->cancel.object = defer;

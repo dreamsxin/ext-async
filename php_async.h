@@ -197,6 +197,8 @@ typedef struct _async_channel_group                 async_channel_group;
 typedef struct _async_channel_iterator              async_channel_iterator;
 typedef struct _async_channel_state                 async_channel_state;
 typedef struct _async_context                       async_context;
+typedef struct _async_context_cancellation          async_context_cancellation;
+typedef struct _async_context_timeout               async_context_timeout;
 typedef struct _async_context_var                   async_context_var;
 typedef struct _async_deferred                      async_deferred;
 typedef struct _async_deferred_awaitable            async_deferred_awaitable;
@@ -342,24 +344,9 @@ typedef struct {
 struct _async_cancellation_handler {
 	/* PHP object handle. */
 	zend_object std;
-
-	/* Cancellable context instance. */
-	async_context *context;
-
-	/* Task scheduler instance (only != NULL if timeout is active). */
-	async_task_scheduler *scheduler;
-
-	/* Timeout instance (watcher is never referenced within libuv). */
-	uv_timer_t timer;
-
-	/* Error that caused cancellation, UNDEF by default. */
-	zval error;
-
-	/* Chain handler that connects the cancel handler to the parent handler. */
-	async_cancel_cb chain;
-
-	/* Linked list of cancellation callbacks. */
-	async_cancel_queue callbacks;
+	
+	/* Refers to a contextual cancellation instance. */
+	async_context_cancellation *cancel;
 };
 
 #define ASYNC_CHANNEL_FLAG_CLOSED 1
@@ -493,7 +480,37 @@ struct _async_context {
 	zval value;
 
 	/* Refers to the contextual cancellation handler. */
-	async_cancellation_handler *cancel;
+	async_context_cancellation *cancel;
+};
+
+#define ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED 1
+#define ASYNC_CONTEXT_CANCELLATION_FLAG_TIMEOUT 2
+
+struct _async_context_cancellation {
+	/* Internal refcount shared by context and cancellation components. */
+	uint32_t refcount;
+	
+	/* Cancellation flags. */
+	uint8_t flags;
+
+	/* Error that caused cancellation, UNDEF by default. */
+	zval error;
+
+	/* Chain handler that connects the cancel handler to the parent handler. */
+	async_cancel_cb chain;
+
+	/* Linked list of cancellation callbacks. */
+	async_cancel_queue callbacks;
+};
+
+struct _async_context_timeout {
+	async_context_cancellation base;
+
+	/* Task scheduler instance (only != NULL if timeout is active). */
+	async_task_scheduler *scheduler;
+
+	/* Timeout instance (watcher is never referenced within libuv). */
+	uv_timer_t timer;
 };
 
 struct _async_context_var {

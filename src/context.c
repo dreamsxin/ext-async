@@ -29,7 +29,7 @@ static zend_object_handlers async_context_var_handlers;
 static zend_object_handlers async_cancellation_handler_handlers;
 
 static async_context *async_context_object_create(async_context_var *var, zval *value);
-static async_cancellation_handler *async_cancellation_handler_object_create();
+static async_cancellation_handler *async_cancellation_handler_object_create(async_context_cancellation *cancel);
 
 
 async_context *async_context_get()
@@ -77,82 +77,136 @@ async_context *async_context_create_background()
 	return context;
 }
 
-static void chain_handler(void *obj, zval *error)
+static inline async_context_cancellation *init_cancellation()
 {
-	async_cancellation_handler *handler;
-	async_cancel_cb *cancel;
+	async_context_cancellation *cancel;
+	
+	cancel = emalloc(sizeof(async_context_cancellation));
+	ZEND_SECURE_ZERO(cancel, sizeof(async_context_cancellation));
+	
+	ZVAL_UNDEF(&cancel->error);
+	
+	return cancel;
+}
 
-	handler = (async_cancellation_handler *) obj;
+static inline async_context_timeout *init_timeout_cancellation()
+{
+	async_context_timeout *cancel;
+	
+	cancel = emalloc(sizeof(async_context_timeout));
+	ZEND_SECURE_ZERO(cancel, sizeof(async_context_timeout));
+	
+	cancel->base.flags = ASYNC_CONTEXT_CANCELLATION_FLAG_TIMEOUT;	
+	cancel->scheduler = async_task_scheduler_get();
+	
+	ZVAL_UNDEF(&cancel->base.error);
+	
+	ASYNC_ADDREF(&cancel->scheduler->std);
+	
+	return cancel;
+}
 
-	ZVAL_COPY(&handler->error, error);
+static void chain_cancellation(void *obj, zval *error)
+{
+	async_context_cancellation *cancel;
+	async_cancel_cb *callback;
 
-	while (handler->callbacks.first != NULL) {
-		ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);
+	cancel = (async_context_cancellation *) obj;
+	cancel->flags |= ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED;
+	
+	ZVAL_COPY(&cancel->error, error);
+	
+	while (cancel->callbacks.first != NULL) {
+		ASYNC_Q_DEQUEUE(&cancel->callbacks, callback);
 
-		cancel->func(cancel->object, &handler->error);
+		callback->func(callback->object, error);
 	}
 }
 
-static void init_cancellation(async_cancellation_handler *handler, async_context *prev)
+static inline async_context *create_cancellable_context(async_context_cancellation *cancel, async_context *parent)
 {
 	async_context *context;
-
+	
 	context = async_context_object_create(NULL, NULL);
-	context->parent = prev;
-	context->background = prev->background;
-	context->cancel = handler;
-
-	handler->context = context;
-
-	ASYNC_ADDREF(&prev->std);
-	ASYNC_ADDREF(&handler->std);
-
-	// Connect cancellation to parent cancellation handler.
-	if (prev->cancel != NULL) {
-		if (Z_TYPE_P(&prev->cancel->error) != IS_UNDEF) {
-			ZVAL_COPY(&handler->error, &prev->cancel->error);
-
-			return;
+	context->parent = parent;
+	context->background = parent->background;
+	context->cancel = cancel;
+	
+	cancel->refcount++;
+	
+	ASYNC_ADDREF(&parent->std);
+	
+	// Connect cancellation to parent cancellation.
+	if (parent->cancel != NULL) {
+		if (parent->cancel->flags & ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED) {
+			cancel->flags |= ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED;
+			
+			ZVAL_COPY(&cancel->error, &parent->cancel->error);
+		} else {
+			cancel->chain.object = cancel;
+			cancel->chain.func = chain_cancellation;
+	
+			ASYNC_Q_ENQUEUE(&parent->cancel->callbacks, &cancel->chain);
 		}
-
-		handler->chain.object = handler;
-		handler->chain.func = chain_handler;
-
-		ASYNC_Q_ENQUEUE(&prev->cancel->callbacks, &handler->chain);
 	}
+	
+	return context;
 }
 
 static void close_timeout(uv_handle_t *handle)
 {
-	async_cancellation_handler *handler;
+	async_context_timeout *cancel;
 
-	handler = (async_cancellation_handler *) handle->data;
+	cancel = (async_context_timeout *) handle->data;
 
-	ZEND_ASSERT(handler != NULL);
+	ZEND_ASSERT(cancel != NULL);
+	
+	ASYNC_DELREF(&cancel->scheduler->std);
 
-	ASYNC_DELREF(&handler->std);
+	efree(cancel);
+}
+
+static inline void release_cancellation(async_context_cancellation *cancel)
+{
+	if (--cancel->refcount != 0) {
+		return;
+	}
+	
+	if (cancel->flags & ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED) {
+		zval_ptr_dtor(&cancel->error);
+	}
+	
+	if (cancel->flags & ASYNC_CONTEXT_CANCELLATION_FLAG_TIMEOUT) {
+		uv_close((uv_handle_t *) &((async_context_timeout *) cancel)->timer, close_timeout);
+	} else {
+		efree(cancel);
+	}
 }
 
 static void timed_out(uv_timer_t *timer)
 {
-	async_cancellation_handler *handler;
-	async_cancel_cb *cancel;
+	async_context_cancellation *cancel;
+	async_cancel_cb *callback;
 
-	handler = (async_cancellation_handler *) timer->data;
+	cancel = (async_context_cancellation *) timer->data;
 
-	ZEND_ASSERT(handler != NULL);
+	ZEND_ASSERT(cancel != NULL);
 
-	if (Z_TYPE_P(&handler->error) != IS_UNDEF) {
+	if (cancel->flags & ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED) {
 		return;
 	}
+	
+	cancel->flags |= ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED;
+	
+	ASYNC_PREPARE_EXCEPTION(&cancel->error, async_cancellation_exception_ce, "Context has timed out");
+	
+	while (cancel->callbacks.first != NULL) {
+		ASYNC_Q_DEQUEUE(&cancel->callbacks, callback);
 
-	ASYNC_PREPARE_EXCEPTION(&handler->error, async_cancellation_exception_ce, "Context has timed out");
-
-	while (handler->callbacks.first != NULL) {
-		ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);
-
-		cancel->func(cancel->object, &handler->error);
+		callback->func(callback->object, &cancel->error);
 	}
+	
+	release_cancellation(cancel);
 }
 
 
@@ -193,7 +247,7 @@ static void async_context_object_destroy(zend_object *object)
 	zval_ptr_dtor(&context->value);
 
 	if (context->cancel != NULL) {
-		ASYNC_DELREF(&context->cancel->std);
+		release_cancellation(context->cancel);
 	}
 
 	if (context->parent != NULL) {
@@ -216,7 +270,7 @@ static zval *read_context_prop(zval *object, zval *member, int type, void **cach
 	if (strcmp(key, "background") == 0) {
 		ZVAL_BOOL(rv, context->background);
 	} else if (strcmp(key, "cancelled") == 0) {
-		ZVAL_BOOL(rv, context->cancel != NULL && Z_TYPE_P(&context->cancel->error) != IS_UNDEF);
+		ZVAL_BOOL(rv, context->cancel != NULL && context->cancel->flags & ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED);
 	} else {
 		rv = &EG(uninitialized_zval);
 	}
@@ -274,13 +328,14 @@ ZEND_METHOD(Context, with)
 
 	context = async_context_object_create(var, value);
 	context->parent = current;
-
-	if (current != NULL) {
-		context->background = current->background;
-		context->cancel = current->cancel;
-
-		ASYNC_ADDREF(&current->std);
+	context->background = current->background;
+	context->cancel = current->cancel;
+	
+	if (context->cancel != NULL) {
+		context->cancel->refcount++;
 	}
+
+	ASYNC_ADDREF(&current->std);
 
 	ZVAL_OBJ(&obj, &context->std);
 
@@ -289,8 +344,9 @@ ZEND_METHOD(Context, with)
 
 ZEND_METHOD(Context, withTimeout)
 {
+	async_context *parent;
 	async_context *context;
-	async_cancellation_handler *handler;
+	async_context_timeout *cancel;
 
 	zend_long timeout;
 
@@ -300,29 +356,28 @@ ZEND_METHOD(Context, withTimeout)
 		Z_PARAM_LONG(timeout)
 	ZEND_PARSE_PARAMETERS_END();
 
-	context = (async_context *) Z_OBJ_P(getThis());
-	handler = async_cancellation_handler_object_create();
-
-	init_cancellation(handler, context);
-
-	ASYNC_DELREF(&handler->std);
+	parent = (async_context *) Z_OBJ_P(getThis());
+	cancel = init_timeout_cancellation();
 	
-	uv_timer_init(&handler->scheduler->loop, &handler->timer);
+	context = create_cancellable_context((async_context_cancellation *) cancel, parent);
+	
+	uv_timer_init(&cancel->scheduler->loop, &cancel->timer);
 
-	handler->timer.data = handler;
+	cancel->timer.data = cancel;
 
-	uv_timer_start(&handler->timer, timed_out, (uint64_t) timeout, 0);
-	uv_unref((uv_handle_t *) &handler->timer);
+	uv_timer_start(&cancel->timer, timed_out, (uint64_t) timeout, 0);
+	uv_unref((uv_handle_t *) &cancel->timer);
 
-	ZVAL_OBJ(&obj, &handler->context->std);
+	ZVAL_OBJ(&obj, &context->std);
 
-	RETURN_ZVAL(&obj, 1, 0);
+	RETURN_ZVAL(&obj, 1, 1);
 }
 
 ZEND_METHOD(Context, withCancel)
 {
+	async_context *parent;
 	async_context *context;
-	async_cancellation_handler *handler;
+	async_context_cancellation *cancel;
 
 	zval *val;
 	zval obj;
@@ -333,15 +388,15 @@ ZEND_METHOD(Context, withCancel)
 	
 	zval_ptr_dtor(val);
 
-	context = (async_context *) Z_OBJ_P(getThis());
-	handler = async_cancellation_handler_object_create();
+	parent = (async_context *) Z_OBJ_P(getThis());
+	cancel = init_cancellation();
 
-	init_cancellation(handler, context);
+	context = create_cancellable_context(cancel, parent);
 	
-	ZVAL_OBJ(val, &handler->std);
-	ZVAL_OBJ(&obj, &handler->context->std);
+	ZVAL_OBJ(val, &async_cancellation_handler_object_create(cancel)->std);
+	ZVAL_OBJ(&obj, &context->std);
 
-	RETURN_ZVAL(&obj, 1, 0);
+	RETURN_ZVAL(&obj, 1, 1);
 }
 
 ZEND_METHOD(Context, shield)
@@ -374,7 +429,7 @@ ZEND_METHOD(Context, throwIfCancelled)
 
 	context = (async_context *) Z_OBJ_P(getThis());
 
-	if (context->cancel != NULL && Z_TYPE_P(&context->cancel->error) != IS_UNDEF) {
+	if (context->cancel != NULL && context->cancel->flags & ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED) {
 		Z_ADDREF_P(&context->cancel->error);
 
 		execute_data->opline--;
@@ -564,7 +619,7 @@ static const zend_function_entry async_context_var_functions[] = {
 };
 
 
-static async_cancellation_handler *async_cancellation_handler_object_create()
+static async_cancellation_handler *async_cancellation_handler_object_create(async_context_cancellation *cancel)
 {
 	async_cancellation_handler *handler;
 
@@ -573,57 +628,21 @@ static async_cancellation_handler *async_cancellation_handler_object_create()
 
 	zend_object_std_init(&handler->std, async_cancellation_handler_ce);
 	handler->std.handlers = &async_cancellation_handler_handlers;
-
-	ZVAL_UNDEF(&handler->error);
 	
-	handler->scheduler = async_task_scheduler_get();
+	cancel->refcount++;
 	
-	ASYNC_ADDREF(&handler->scheduler->std);
+	handler->cancel = cancel;
 
 	return handler;
-}
-
-static void async_cancellation_handler_object_dtor(zend_object *object)
-{
-	async_cancellation_handler *handler;
-
-	handler = (async_cancellation_handler *) object;
-
-	if (handler->timer.data != NULL) {
-		uv_timer_stop(&handler->timer);
-
-		if (!uv_is_closing((uv_handle_t *) &handler->timer)) {
-			ASYNC_ADDREF(&handler->std);
-
-			uv_close((uv_handle_t *) &handler->timer, close_timeout);
-		}
-	}
 }
 
 static void async_cancellation_handler_object_destroy(zend_object *object)
 {
 	async_cancellation_handler *handler;
-	async_context *parent;
-
+	
 	handler = (async_cancellation_handler *) object;
 
-	if (handler->context != NULL) {
-		if (handler->context->parent != NULL) {
-			parent = handler->context->parent;
-
-			if (parent->cancel != NULL) {
-				ASYNC_Q_DETACH(&parent->cancel->callbacks, &handler->chain);
-			}
-
-			ASYNC_DELREF(&parent->std);
-		}
-		
-		ASYNC_DELREF(&handler->context->std);
-	}
-
-	zval_ptr_dtor(&handler->error);
-	
-	ASYNC_DELREF(&handler->scheduler->std);
+	release_cancellation(handler->cancel);
 
 	zend_object_std_dtor(&handler->std);
 }
@@ -631,7 +650,8 @@ static void async_cancellation_handler_object_destroy(zend_object *object)
 ZEND_METHOD(CancellationHandler, __invoke)
 {
 	async_cancellation_handler *handler;
-	async_cancel_cb *cancel;
+	async_context_cancellation *cancel;
+	async_cancel_cb *callback;
 
 	zval *err;
 
@@ -643,26 +663,25 @@ ZEND_METHOD(CancellationHandler, __invoke)
 	ZEND_PARSE_PARAMETERS_END();
 
 	handler = (async_cancellation_handler *) Z_OBJ_P(getThis());
+	cancel = handler->cancel;
 
-	if (Z_TYPE_P(&handler->error) != IS_UNDEF) {
+	if (cancel->flags & ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED) {
 		return;
 	}
+	
+	cancel->flags |= ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED;
 
-	if (handler->scheduler != NULL) {
-		uv_timer_stop(&handler->timer);
-	}
-
-	ASYNC_PREPARE_EXCEPTION(&handler->error, async_cancellation_exception_ce, "Context has been cancelled");
+	ASYNC_PREPARE_EXCEPTION(&cancel->error, async_cancellation_exception_ce, "Context has been cancelled");
 
 	if (err != NULL && Z_TYPE_P(err) != IS_NULL) {
-		zend_exception_set_previous(Z_OBJ_P(&handler->error), Z_OBJ_P(err));
+		zend_exception_set_previous(Z_OBJ_P(&cancel->error), Z_OBJ_P(err));
 		GC_ADDREF(Z_OBJ_P(err));
 	}
 
-	while (handler->callbacks.first != NULL) {
-		ASYNC_Q_DEQUEUE(&handler->callbacks, cancel);
+	while (cancel->callbacks.first != NULL) {
+		ASYNC_Q_DEQUEUE(&cancel->callbacks, callback);
 
-		cancel->func(cancel->object, &handler->error);
+		callback->func(callback->object, &cancel->error);
 	}
 }
 
@@ -719,7 +738,6 @@ void async_context_ce_register()
 	async_cancellation_handler_ce->unserialize = zend_class_unserialize_deny;
 
 	memcpy(&async_cancellation_handler_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	async_cancellation_handler_handlers.dtor_obj = async_cancellation_handler_object_dtor;
 	async_cancellation_handler_handlers.free_obj = async_cancellation_handler_object_destroy;
 	async_cancellation_handler_handlers.clone_obj = NULL;
 	

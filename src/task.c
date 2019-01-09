@@ -351,7 +351,7 @@ int async_await_op(async_op *op)
 		context = ASYNC_G(current_context);
 		
 		if (context->cancel != NULL) {
-			if (Z_TYPE_P(&context->cancel->error) != IS_UNDEF) {
+			if (context->cancel->flags & ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED) {
 				op->status = ASYNC_STATUS_FAILED;
 				
 				ZVAL_COPY(&op->result, &context->cancel->error);
@@ -380,14 +380,13 @@ int async_await_op(async_op *op)
 		
 		if (context->cancel != NULL) {
 			ASYNC_DELREF(&context->std);
-		}
-
-		if (op->cancel.object != NULL) {
-			ASYNC_Q_DETACH(&context->cancel->callbacks, &op->cancel);
-			ASYNC_DELREF(&context->std);
 			
-			op->cancel.object = NULL;
-			op->cancel.func = NULL;
+			if (op->cancel.object != NULL) {
+				ASYNC_Q_DETACH(&context->cancel->callbacks, &op->cancel);
+				
+				op->cancel.object = NULL;
+				op->cancel.func = NULL;
+			}
 		}
 	}
 	
