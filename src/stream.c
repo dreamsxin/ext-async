@@ -21,12 +21,12 @@
 #include "async_stream.h"
 #include "zend_inheritance.h"
 
-zend_class_entry *async_duplex_stream_ce;
-zend_class_entry *async_pending_read_exception_ce;
-zend_class_entry *async_readable_stream_ce;
-zend_class_entry *async_stream_closed_exception_ce;
-zend_class_entry *async_stream_exception_ce;
-zend_class_entry *async_writable_stream_ce;
+ASYNC_API zend_class_entry *async_duplex_stream_ce;
+ASYNC_API zend_class_entry *async_pending_read_exception_ce;
+ASYNC_API zend_class_entry *async_readable_stream_ce;
+ASYNC_API zend_class_entry *async_stream_closed_exception_ce;
+ASYNC_API zend_class_entry *async_stream_exception_ce;
+ASYNC_API zend_class_entry *async_writable_stream_ce;
 
 #define ASYNC_STREAM_SHOULD_READ(stream) (((stream)->buffer.size - (stream)->buffer.len) >= 4096)
 

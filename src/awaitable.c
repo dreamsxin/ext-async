@@ -18,7 +18,7 @@
 
 #include "php_async.h"
 
-zend_class_entry *async_awaitable_ce;
+ASYNC_API zend_class_entry *async_awaitable_ce;
 
 
 static int async_awaitable_implement_interface(zend_class_entry *entry, zend_class_entry *implementor)

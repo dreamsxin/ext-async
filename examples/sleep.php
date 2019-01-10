@@ -2,7 +2,7 @@
 
 namespace Concurrent;
 
-Task::background(function () {
+Task::asyncWithContext(Context::background(), function () {
     for ($i = 0; $i < 20; $i++) {
         sleep(1);
         var_dump('B');

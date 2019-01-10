@@ -20,7 +20,7 @@
 
 #include "async_task.h"
 
-zend_class_entry *async_timer_ce;
+ASYNC_API zend_class_entry *async_timer_ce;
 
 static zend_object_handlers async_timer_handlers;
 

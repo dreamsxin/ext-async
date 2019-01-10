@@ -30,10 +30,10 @@
 #define ASYNC_SOCKET_TCP_KEEPALIVE 101
 #define ASYNC_SOCKET_TCP_SIMULTANEOUS_ACCEPTS 150
 
-zend_class_entry *async_tcp_socket_ce;
-zend_class_entry *async_tcp_socket_reader_ce;
-zend_class_entry *async_tcp_socket_writer_ce;
-zend_class_entry *async_tcp_server_ce;
+ASYNC_API zend_class_entry *async_tcp_socket_ce;
+ASYNC_API zend_class_entry *async_tcp_socket_reader_ce;
+ASYNC_API zend_class_entry *async_tcp_socket_writer_ce;
+ASYNC_API zend_class_entry *async_tcp_server_ce;
 
 static zend_object_handlers async_tcp_socket_handlers;
 static zend_object_handlers async_tcp_socket_reader_handlers;

@@ -21,9 +21,11 @@
 #include "async_fiber.h"
 #include "async_task.h"
 
-zend_class_entry *async_task_ce;
+ASYNC_API zend_class_entry *async_task_ce;
 
 static zend_object_handlers async_task_handlers;
+
+static void await_val(async_fiber *fiber, zval *val, zval *return_value, zend_execute_data *execute_data);
 
 
 #define ASYNC_OP_CHECK_ERROR(op, expr, message, ...) do { \
@@ -100,45 +102,44 @@ static inline void trigger_ops(async_task *task)
 static void async_task_fiber_func(async_fiber *fiber)
 {
 	async_task *task;
-
-	zval retval;
+	
 	zval tmp;
 
 	ZEND_ASSERT(fiber->type == ASYNC_FIBER_TYPE_TASK);
-
+	
 	task = (async_task *) fiber;
 
-	fiber->fci.retval = &retval;
+	fiber->fci.retval = &task->result;
 
 	zend_call_function(&fiber->fci, &fiber->fcc);
-	zval_ptr_dtor(&fiber->fci.function_name);
-
-	if (EXPECTED(EG(exception) == NULL) && Z_TYPE_P(&retval) == IS_OBJECT) {
-		if (instanceof_function(Z_OBJCE_P(&retval), async_awaitable_ce) != 0) {
-			tmp = retval;
+	zend_fcall_info_args_clear(&fiber->fci, 1);
+	
+	// Have the task await a returned awaitable.
+	if (EXPECTED(EG(exception) == NULL) && Z_TYPE_P(&task->result) == IS_OBJECT) {
+		if (instanceof_function(Z_OBJCE_P(&task->result), async_awaitable_ce) != 0) {
+			ZVAL_COPY(&tmp, &task->result);
+			zval_ptr_dtor(&task->result);
 			
-			zend_call_method_with_1_params(NULL, async_task_ce, NULL, "await", &retval, &tmp);
+			await_val(fiber, &tmp, &task->result, fiber->state.exec);
 			
-			zval_ptr_dtor(&tmp);
+			if (EXPECTED(EG(exception) == NULL)) {
+				zval_ptr_dtor(&tmp);
+			}
 		}
 	}
-
-	if (EG(exception)) {
+	
+	if (UNEXPECTED(EG(exception))) {
 		fiber->status = ASYNC_FIBER_STATUS_FAILED;
+		
+		zval_ptr_dtor(&task->result);
 
 		ZVAL_OBJ(&task->result, EG(exception));
 		EG(exception) = NULL;
 	} else {
 		fiber->status = ASYNC_FIBER_STATUS_FINISHED;
-
-		ZVAL_COPY(&task->result, &retval);
 	}
 	
 	trigger_ops(task);
-
-	zval_ptr_dtor(&retval);
-
-	zend_clear_exception();
 }
 
 void async_task_start(async_task *task)
@@ -158,8 +159,6 @@ void async_task_start(async_task *task)
 	task->fiber.func = async_task_fiber_func;
 
 	async_fiber_context_start(&task->fiber, task->context, 1);
-
-	zend_fcall_info_args_clear(&task->fiber.fci, 1);
 }
 
 void async_task_continue(async_task *task)
@@ -189,8 +188,6 @@ static inline void async_task_execute_inline(async_task *task, async_task *inner
 	inner->fiber.fci.retval = &inner->result;
 
 	zend_call_function(&inner->fiber.fci, &inner->fiber.fcc);
-
-	zval_ptr_dtor(&inner->fiber.fci.function_name);
 	zend_fcall_info_args_clear(&inner->fiber.fci, 1);
 
 	ASYNC_G(current_context) = context;
@@ -307,7 +304,7 @@ static void cancel_op(void *obj, zval *error)
 }
 
 /* Suspend the current execution until the async operation has been resolved or cancelled. */
-int async_await_op(async_op *op)
+ASYNC_API int async_await_op(async_op *op)
 {
 	async_fiber *fiber;
 	async_task *task;
@@ -403,6 +400,151 @@ int async_await_op(async_op *op)
 	return (op->status == ASYNC_STATUS_RESOLVED) ? SUCCESS : FAILURE;
 }
 
+static void await_val(async_fiber *fiber, zval *val, zval *return_value, zend_execute_data *execute_data)
+{
+	zend_class_entry *ce;
+	async_task *task;
+	async_task *inner;
+	async_task_scheduler *scheduler;
+	async_deferred_state *state;
+	async_context *context;
+
+	zend_bool busy;
+	zval error;
+	
+	ce = (Z_TYPE_P(val) == IS_OBJECT) ? Z_OBJCE_P(val) : NULL;
+	busy = 0;
+
+	// Check for root level await.
+	if (fiber == NULL) {
+		scheduler = async_task_scheduler_get();
+		context = async_context_get();
+
+		ASYNC_CHECK_ERROR(scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED, "Cannot await after the task scheduler has been disposed");
+		ASYNC_CHECK_ERROR(scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_RUNNING, "Cannot await in the fiber that is running the task scheduler loop");
+		ASYNC_CHECK_ERROR(scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT, "Cannot await within the current execution");
+
+		if (ce == async_deferred_awaitable_ce) {
+			state = ((async_deferred_awaitable *) Z_OBJ_P(val))->state;
+
+			ASYNC_TASK_DELEGATE_RESULT(state->status, &state->result);
+			
+			scheduler->op.status = ASYNC_STATUS_RUNNING;
+			scheduler->op.flags = 0;
+			scheduler->op.callback = continue_op_root;
+			scheduler->op.arg = scheduler;
+			
+			ASYNC_ENQUEUE_OP(&state->operations, &scheduler->op);
+			
+			if (!context->background && state->context->background) {
+				ASYNC_BUSY_ENTER(scheduler);
+				busy = 1;
+			}
+		} else {
+			inner = (async_task *) Z_OBJ_P(val);
+
+			ASYNC_CHECK_ERROR(inner->scheduler != scheduler, "Cannot await a task that runs on a different task scheduler");
+
+			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
+			
+			scheduler->op.status = ASYNC_STATUS_RUNNING;
+			scheduler->op.flags = 0;
+			scheduler->op.callback = continue_op_root;
+			scheduler->op.arg = scheduler;
+			
+			ASYNC_ENQUEUE_OP(&inner->operations, &scheduler->op);
+			
+			if (!context->background && inner->context->background) {
+				ASYNC_BUSY_ENTER(scheduler);
+				busy = 1;
+			}
+		}
+		
+		async_task_scheduler_run_loop(scheduler);
+		
+		if (busy) {
+			ASYNC_BUSY_EXIT(scheduler);
+		}
+		
+		ASYNC_TASK_DELEGATE_OP_RESULT(&scheduler->op);
+	}
+
+	ASYNC_CHECK_ERROR(fiber->type != ASYNC_FIBER_TYPE_TASK, "Await must be called from within a running task");
+	ASYNC_CHECK_ERROR(fiber->status != ASYNC_FIBER_STATUS_RUNNING, "Cannot await in a task that is not running");
+	ASYNC_CHECK_ERROR(fiber->disposed, "Task has been destroyed");
+
+	task = (async_task *) fiber;
+
+	ASYNC_CHECK_ERROR(task->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED, "Cannot await after the task scheduler has been disposed");
+	ASYNC_CHECK_ERROR(task->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT, "Cannot await within the current execution");
+
+	if (ce == async_task_ce) {
+		inner = (async_task *) Z_OBJ_P(val);
+
+		ASYNC_CHECK_ERROR(inner->scheduler != task->scheduler, "Cannot await a task that runs on a different task scheduler");
+
+		// Perform task-inlining optimization where applicable.
+		if (inner->fiber.status == ASYNC_FIBER_STATUS_INIT && inner->fiber.state.stack_page_size <= task->fiber.state.stack_page_size) {
+			async_task_execute_inline(task, inner);
+		}
+
+		ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
+		
+		task->op.status = ASYNC_STATUS_RUNNING;
+		task->op.flags = 0;
+		task->op.callback = continue_op_task;
+		task->op.arg = task;
+		
+		ASYNC_ENQUEUE_OP(&inner->operations, &task->op);
+		
+		if (!task->context->background && inner->context->background) {
+			ASYNC_BUSY_ENTER(task->scheduler);
+			busy = 1;
+		}
+	} else {
+		state = ((async_deferred_awaitable *) Z_OBJ_P(val))->state;
+		
+		ASYNC_TASK_DELEGATE_RESULT(state->status, &state->result);
+							
+		task->op.status = ASYNC_STATUS_RUNNING;
+		task->op.flags = 0;
+		task->op.callback = continue_op_task;
+		task->op.arg = task;
+
+		ASYNC_ENQUEUE_OP(&state->operations, &task->op);
+		
+		if (!task->context->background && state->context->background) {
+			ASYNC_BUSY_ENTER(task->scheduler);
+			busy = 1;
+		}
+	}
+
+	task->fiber.value = USED_RET() ? return_value : NULL;
+	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
+	
+	async_fiber_context_yield();
+	
+	if (busy) {
+		ASYNC_BUSY_EXIT(task->scheduler);
+	}
+	
+	// Re-throw error provided by task scheduler.
+	if (Z_TYPE_P(&task->error) != IS_UNDEF) {
+		zval_ptr_dtor(&task->op.result);
+	
+		error = task->error;
+		ZVAL_UNDEF(&task->error);
+
+		execute_data->opline--;
+		zend_throw_exception_internal(&error);
+		execute_data->opline++;
+
+		return;
+	}
+	
+	ASYNC_TASK_DELEGATE_OP_RESULT(&task->op);
+}
+
 async_task *async_task_object_create(zend_execute_data *call, async_task_scheduler *scheduler, async_context *context)
 {
 	async_task *task;
@@ -451,10 +593,7 @@ void async_task_dispose(async_task *task)
 		async_task_continue(task);
 	}
 
-	if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {
-		zend_fcall_info_args_clear(&task->fiber.fci, 1);
-		zval_ptr_dtor(&task->fiber.fci.function_name);
-		
+	if (task->fiber.status == ASYNC_FIBER_STATUS_INIT) {		
 		trigger_ops(task);
 	}
 }
@@ -470,12 +609,14 @@ static void async_task_object_destroy(zend_object *object)
 	if (task->fiber.file != NULL) {
 		zend_string_release(task->fiber.file);
 	}
+	
+	zval_ptr_dtor(&task->fiber.fci.function_name);
 
 	zval_ptr_dtor(&task->result);
 	zval_ptr_dtor(&task->error);
 
 	ASYNC_DELREF(&task->context->std);
-
+	
 	zend_object_std_dtor(&task->fiber.std);
 }
 
@@ -594,202 +735,16 @@ ZEND_METHOD(Task, asyncWithContext)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(Task, background)
-{
-	async_task *task;
-
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
-	uint32_t count;
-	uint32_t i;
-
-	zval *params;
-	zval obj;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
-		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_VARIADIC('+', params, count)
-	ZEND_PARSE_PARAMETERS_END();
-
-	for (i = 1; i <= count; i++) {
-		ASYNC_CHECK_ERROR(ARG_SHOULD_BE_SENT_BY_REF(fcc.function_handler, i), "Cannot pass async call argument %d by reference", (int) i);
-	}
-
-	fci.no_separation = 1;
-
-	if (count == 0) {
-		fci.param_count = 0;
-	} else {
-		zend_fcall_info_argp(&fci, count, params);
-	}
-
-	Z_TRY_ADDREF_P(&fci.function_name);
-
-	task = async_task_object_create(EX(prev_execute_data), async_task_scheduler_get(), async_context_create_background());
-	task->fiber.fci = fci;
-	task->fiber.fcc = fcc;
-	
-	ASYNC_DELREF(&task->context->std);
-
-	async_task_scheduler_enqueue(task);
-
-	ZVAL_OBJ(&obj, &task->fiber.std);
-
-	RETURN_ZVAL(&obj, 1, 1);
-}
 
 ZEND_METHOD(Task, await)
 {
-	zend_class_entry *ce;
-	async_fiber *fiber;
-	async_task *task;
-	async_task *inner;
-	async_task_scheduler *scheduler;
-	async_deferred_state *state;
-	async_context *context;
-
-	zend_bool busy;
 	zval *val;
-	zval error;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_ZVAL(val)
 	ZEND_PARSE_PARAMETERS_END();
 
-	fiber = ASYNC_G(current_fiber);
-	
-	ce = (Z_TYPE_P(val) == IS_OBJECT) ? Z_OBJCE_P(val) : NULL;
-	busy = 0;
-
-	// Check for root level await.
-	if (fiber == NULL) {
-		scheduler = async_task_scheduler_get();
-		context = async_context_get();
-
-		ASYNC_CHECK_ERROR(scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED, "Cannot await after the task scheduler has been disposed");
-		ASYNC_CHECK_ERROR(scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_RUNNING, "Cannot await in the fiber that is running the task scheduler loop");
-		ASYNC_CHECK_ERROR(scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT, "Cannot await within the current execution");
-
-		if (ce == async_deferred_awaitable_ce) {
-			state = ((async_deferred_awaitable *) Z_OBJ_P(val))->state;
-
-			ASYNC_TASK_DELEGATE_RESULT(state->status, &state->result);
-			
-			scheduler->op.status = ASYNC_STATUS_RUNNING;
-			scheduler->op.flags = 0;
-			scheduler->op.callback = continue_op_root;
-			scheduler->op.arg = scheduler;
-			
-			ASYNC_ENQUEUE_OP(&state->operations, &scheduler->op);
-			
-			if (!context->background && state->context->background) {
-				ASYNC_BUSY_ENTER(scheduler);
-				busy = 1;
-			}
-		} else {
-			inner = (async_task *) Z_OBJ_P(val);
-
-			ASYNC_CHECK_ERROR(inner->scheduler != scheduler, "Cannot await a task that runs on a different task scheduler");
-
-			ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
-			
-			scheduler->op.status = ASYNC_STATUS_RUNNING;
-			scheduler->op.flags = 0;
-			scheduler->op.callback = continue_op_root;
-			scheduler->op.arg = scheduler;
-			
-			ASYNC_ENQUEUE_OP(&inner->operations, &scheduler->op);
-			
-			if (!context->background && inner->context->background) {
-				ASYNC_BUSY_ENTER(scheduler);
-				busy = 1;
-			}
-		}
-		
-		async_task_scheduler_run_loop(scheduler);
-		
-		if (busy) {
-			ASYNC_BUSY_EXIT(scheduler);
-		}
-		
-		ASYNC_TASK_DELEGATE_OP_RESULT(&scheduler->op);
-	}
-
-	ASYNC_CHECK_ERROR(fiber->type != ASYNC_FIBER_TYPE_TASK, "Await must be called from within a running task");
-	ASYNC_CHECK_ERROR(fiber->status != ASYNC_FIBER_STATUS_RUNNING, "Cannot await in a task that is not running");
-	ASYNC_CHECK_ERROR(fiber->disposed, "Task has been destroyed");
-
-	task = (async_task *) fiber;
-
-	ASYNC_CHECK_ERROR(task->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED, "Cannot await after the task scheduler has been disposed");
-	ASYNC_CHECK_ERROR(task->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_NOWAIT, "Cannot await within the current execution");
-
-	if (ce == async_task_ce) {
-		inner = (async_task *) Z_OBJ_P(val);
-
-		ASYNC_CHECK_ERROR(inner->scheduler != task->scheduler, "Cannot await a task that runs on a different task scheduler");
-
-		// Perform task-inlining optimization where applicable.
-		if (inner->fiber.status == ASYNC_FIBER_STATUS_INIT && inner->fiber.state.stack_page_size <= task->fiber.state.stack_page_size) {
-			async_task_execute_inline(task, inner);
-		}
-
-		ASYNC_TASK_DELEGATE_RESULT(inner->fiber.status, &inner->result);
-		
-		task->op.status = ASYNC_STATUS_RUNNING;
-		task->op.flags = 0;
-		task->op.callback = continue_op_task;
-		task->op.arg = task;
-		
-		ASYNC_ENQUEUE_OP(&inner->operations, &task->op);
-		
-		if (!task->context->background && inner->context->background) {
-			ASYNC_BUSY_ENTER(task->scheduler);
-			busy = 1;
-		}
-	} else {
-		state = ((async_deferred_awaitable *) Z_OBJ_P(val))->state;
-
-		ASYNC_TASK_DELEGATE_RESULT(state->status, &state->result);
-					
-		task->op.status = ASYNC_STATUS_RUNNING;
-		task->op.flags = 0;
-		task->op.callback = continue_op_task;
-		task->op.arg = task;
-
-		ASYNC_ENQUEUE_OP(&state->operations, &task->op);
-		
-		if (!task->context->background && state->context->background) {
-			ASYNC_BUSY_ENTER(task->scheduler);
-			busy = 1;
-		}
-	}
-
-	task->fiber.value = USED_RET() ? return_value : NULL;
-	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
-	
-	async_fiber_context_yield();
-	
-	if (busy) {
-		ASYNC_BUSY_EXIT(task->scheduler);
-	}
-	
-	// Re-throw error provided by task scheduler.
-	if (Z_TYPE_P(&task->error) != IS_UNDEF) {
-		zval_ptr_dtor(&task->op.result);
-	
-		error = task->error;
-		ZVAL_UNDEF(&task->error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&error);
-		execute_data->opline++;
-
-		return;
-	}
-	
-	ASYNC_TASK_DELEGATE_OP_RESULT(&task->op);
+	await_val(ASYNC_G(current_fiber), val, return_value, execute_data);
 }
 
 ZEND_METHOD(Task, __wakeup)
@@ -819,11 +774,6 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_async_with_context, 0, 2, Co
 	ZEND_ARG_VARIADIC_INFO(0, arguments)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_task_background, 0, 1, Concurrent\\Task, 0)
-	ZEND_ARG_CALLABLE_INFO(0, callback, 0)
-	ZEND_ARG_VARIADIC_INFO(0, arguments)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_INFO_EX(arginfo_task_await, 0, 0, 1)
 	ZEND_ARG_OBJ_INFO(0, awaitable, Concurrent\\Awaitable, 0)
 ZEND_END_ARG_INFO()
@@ -837,7 +787,6 @@ static const zend_function_entry task_functions[] = {
 	ZEND_ME(Task, isRunning, arginfo_task_is_running, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, async, arginfo_task_async, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, asyncWithContext, arginfo_task_async_with_context, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Task, background, arginfo_task_background, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, await, arginfo_task_await, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Task, __wakeup, arginfo_task_wakeup, ZEND_ACC_PUBLIC)
 	ZEND_FE_END

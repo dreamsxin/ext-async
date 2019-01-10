@@ -19,8 +19,8 @@
 #include "php_async.h"
 #include "async_ssl.h"
 
-zend_class_entry *async_tls_client_encryption_ce;
-zend_class_entry *async_tls_server_encryption_ce;
+ASYNC_API zend_class_entry *async_tls_client_encryption_ce;
+ASYNC_API zend_class_entry *async_tls_server_encryption_ce;
 
 static zend_object_handlers async_tls_client_encryption_handlers;
 static zend_object_handlers async_tls_server_encryption_handlers;

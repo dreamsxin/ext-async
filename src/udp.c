@@ -24,8 +24,8 @@
 #define ASYNC_SOCKET_UDP_MULTICAST_LOOP 250
 #define ASYNC_SOCKET_UDP_MULTICAST_TTL 251
 
-zend_class_entry *async_udp_socket_ce;
-zend_class_entry *async_udp_datagram_ce;
+ASYNC_API zend_class_entry *async_udp_socket_ce;
+ASYNC_API zend_class_entry *async_udp_datagram_ce;
 
 static zend_object_handlers async_udp_socket_handlers;
 static zend_object_handlers async_udp_datagram_handlers;

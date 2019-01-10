@@ -20,10 +20,10 @@
 
 #include "zend_inheritance.h"
 
-zend_class_entry *async_server_ce;
-zend_class_entry *async_socket_ce;
-zend_class_entry *async_socket_exception_ce;
-zend_class_entry *async_socket_stream_ce;
+ASYNC_API zend_class_entry *async_server_ce;
+ASYNC_API zend_class_entry *async_socket_ce;
+ASYNC_API zend_class_entry *async_socket_exception_ce;
+ASYNC_API zend_class_entry *async_socket_stream_ce;
 
 
 ZEND_METHOD(Socket, close) { }

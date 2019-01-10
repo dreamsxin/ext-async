@@ -20,7 +20,7 @@
 
 #include "async_fiber.h"
 
-zend_class_entry *async_fiber_ce;
+ASYNC_API zend_class_entry *async_fiber_ce;
 
 static zend_object_handlers async_fiber_handlers;
 

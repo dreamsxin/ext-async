@@ -105,7 +105,7 @@ static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, int proto)
 	return 0;
 }
 
-int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, int proto)
+ASYNC_API int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, int proto)
 {
 	uv_getaddrinfo_t req;
 	struct addrinfo *info;
@@ -136,7 +136,7 @@ int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, int proto)
 	return UV_EAI_NODATA;
 }
 
-int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, int proto)
+ASYNC_API int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, int proto)
 {
 	uv_getaddrinfo_t req;
 	struct addrinfo *info;

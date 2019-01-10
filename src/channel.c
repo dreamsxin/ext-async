@@ -21,10 +21,10 @@
 
 #include "ext/standard/php_mt_rand.h"
 
-zend_class_entry *async_channel_ce;
-zend_class_entry *async_channel_closed_exception_ce;
-zend_class_entry *async_channel_group_ce;
-zend_class_entry *async_channel_iterator_ce;
+ASYNC_API zend_class_entry *async_channel_ce;
+ASYNC_API zend_class_entry *async_channel_closed_exception_ce;
+ASYNC_API zend_class_entry *async_channel_group_ce;
+ASYNC_API zend_class_entry *async_channel_iterator_ce;
 
 static zend_object_handlers async_channel_handlers;
 static zend_object_handlers async_channel_group_handlers;

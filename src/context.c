@@ -19,10 +19,10 @@
 #include "php_async.h"
 #include "zend_inheritance.h"
 
-zend_class_entry *async_context_ce;
-zend_class_entry *async_context_var_ce;
-zend_class_entry *async_cancellation_handler_ce;
-zend_class_entry *async_cancellation_exception_ce;
+ASYNC_API zend_class_entry *async_context_ce;
+ASYNC_API zend_class_entry *async_context_var_ce;
+ASYNC_API zend_class_entry *async_cancellation_handler_ce;
+ASYNC_API zend_class_entry *async_cancellation_exception_ce;
 
 static zend_object_handlers async_context_handlers;
 static zend_object_handlers async_context_var_handlers;
@@ -32,7 +32,7 @@ static async_context *async_context_object_create(async_context_var *var, zval *
 static async_cancellation_handler *async_cancellation_handler_object_create(async_context_cancellation *cancel);
 
 
-async_context *async_context_get()
+ASYNC_API async_context *async_context_get()
 {
 	async_context *context;
 
@@ -42,37 +42,29 @@ async_context *async_context_get()
 		return context;
 	}
 
-	context = ASYNC_G(context);
+	context = ASYNC_G(foreground);
 
-	if (context != NULL) {
-		return context;
+	if (context == NULL) {
+		context = async_context_object_create(NULL, NULL);
+	
+		ASYNC_G(foreground) = context;
 	}
-
-	context = async_context_object_create(NULL, NULL);
-
-	ASYNC_G(context) = context;
 
 	return context;
 }
 
-async_context *async_context_create_background()
+ASYNC_API async_context *async_context_get_background()
 {
-	async_context *root;
 	async_context *context;
 	
-	root = ASYNC_G(context);
+	context = ASYNC_G(background);
 	
-	if (root == NULL) {
-		root = async_context_object_create(NULL, NULL);
+	if (context == NULL) {
+		context = async_context_object_create(NULL, NULL);
+		context->background = 1;
 		
-		ASYNC_G(context) = root;
+		ASYNC_G(background) = context;
 	}
-	
-	context = async_context_object_create(NULL, NULL);
-	context->background = 1;
-	context->parent = root;
-	
-	ASYNC_ADDREF(&root->std);
 	
 	return context;
 }
@@ -267,9 +259,7 @@ static zval *read_context_prop(zval *object, zval *member, int type, void **cach
 	
 	key = Z_STRVAL_P(member);
 	
-	if (strcmp(key, "background") == 0) {
-		ZVAL_BOOL(rv, context->background);
-	} else if (strcmp(key, "cancelled") == 0) {
+	if (strcmp(key, "cancelled") == 0) {
 		ZVAL_BOOL(rv, context->cancel != NULL && context->cancel->flags & ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED);
 	} else {
 		rv = &EG(uninitialized_zval);
@@ -492,9 +482,15 @@ ZEND_METHOD(Context, current)
 	RETURN_ZVAL(&obj, 1, 0);
 }
 
-ZEND_METHOD(Context, isBackground)
+ZEND_METHOD(Context, background)
 {
-	RETURN_BOOL(async_context_get()->background);
+	zval obj;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	ZVAL_OBJ(&obj, &async_context_get_background()->std);
+
+	RETURN_ZVAL(&obj, 1, 0);
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_context_ctor, 0)
@@ -530,7 +526,7 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_current, 0, 0, Concurrent\\Context, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_context_is_background, 0, 0, _IS_BOOL, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_background, 0, 0, Concurrent\\Context, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_context_functions[] = {
@@ -542,7 +538,7 @@ static const zend_function_entry async_context_functions[] = {
 	ZEND_ME(Context, throwIfCancelled, arginfo_context_throw_if_cancelled, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, run, arginfo_context_run, ZEND_ACC_PUBLIC)
 	ZEND_ME(Context, current, arginfo_context_current, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Context, isBackground, arginfo_context_is_background, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Context, background, arginfo_context_background, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_FE_END
 };
 
@@ -751,7 +747,13 @@ void async_context_shutdown()
 {
 	async_context *context;
 
-	context = ASYNC_G(context);
+	context = ASYNC_G(foreground);
+
+	if (context != NULL) {
+		ASYNC_DELREF(&context->std);
+	}
+	
+	context = ASYNC_G(background);
 
 	if (context != NULL) {
 		ASYNC_DELREF(&context->std);

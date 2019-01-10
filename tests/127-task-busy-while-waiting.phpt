@@ -9,7 +9,7 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$t = Task::background(function () {
+$t = Task::asyncWithContext(Context::background(), function () {
 	(new Timer(200))->awaitTimeout();
 	
 	return 321;

@@ -19,8 +19,8 @@
 #include "php_async.h"
 #include "async_task.h"
 
-zend_class_entry *async_deferred_ce;
-zend_class_entry *async_deferred_awaitable_ce;
+ASYNC_API zend_class_entry *async_deferred_ce;
+ASYNC_API zend_class_entry *async_deferred_awaitable_ce;
 
 static zend_object_handlers async_deferred_handlers;
 static zend_object_handlers async_deferred_awaitable_handlers;

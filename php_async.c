@@ -26,8 +26,8 @@
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
-zend_bool async_cli;
-char async_ssl_config_file[MAXPATHLEN];
+ASYNC_API zend_bool async_cli;
+ASYNC_API char async_ssl_config_file[MAXPATHLEN];
 
 static void async_execute_ex(zend_execute_data *exec);
 static void (*orig_execute_ex)(zend_execute_data *exec);
@@ -113,7 +113,7 @@ char *async_status_label(zend_uchar status)
 	return "PENDING";
 }
 
-size_t async_ring_buffer_read_len(async_ring_buffer *buffer)
+ASYNC_API size_t async_ring_buffer_read_len(async_ring_buffer *buffer)
 {
 	if (buffer->len == 0) {
 		return 0;
@@ -126,7 +126,7 @@ size_t async_ring_buffer_read_len(async_ring_buffer *buffer)
 	return buffer->size - (buffer->rpos - buffer->base);
 }
 
-size_t async_ring_buffer_write_len(async_ring_buffer *buffer)
+ASYNC_API size_t async_ring_buffer_write_len(async_ring_buffer *buffer)
 {
 	if (buffer->len == buffer->size) {
 		return 0;
@@ -139,7 +139,7 @@ size_t async_ring_buffer_write_len(async_ring_buffer *buffer)
 	return buffer->rpos - buffer->wpos;
 }
 
-size_t async_ring_buffer_read(async_ring_buffer *buffer, char *base, size_t len)
+ASYNC_API size_t async_ring_buffer_read(async_ring_buffer *buffer, char *base, size_t len)
 {
 	size_t consumed;
 	size_t count;
@@ -172,7 +172,7 @@ size_t async_ring_buffer_read(async_ring_buffer *buffer, char *base, size_t len)
 	return consumed;
 }
 
-size_t async_ring_buffer_read_string(async_ring_buffer *buffer, zend_string **str, size_t len)
+ASYNC_API size_t async_ring_buffer_read_string(async_ring_buffer *buffer, zend_string **str, size_t len)
 {
 	zend_string *tmp;
 	char *buf;
@@ -197,7 +197,7 @@ size_t async_ring_buffer_read_string(async_ring_buffer *buffer, zend_string **st
 	return len;
 }
 
-void async_ring_buffer_write_move(async_ring_buffer *buffer, size_t offset)
+ASYNC_API void async_ring_buffer_write_move(async_ring_buffer *buffer, size_t offset)
 {
 	ZEND_ASSERT(offset > 0);
 	ZEND_ASSERT(offset <= buffer->size);
@@ -206,7 +206,7 @@ void async_ring_buffer_write_move(async_ring_buffer *buffer, size_t offset)
 	buffer->len += offset;
 }
 
-void async_ring_buffer_consume(async_ring_buffer *buffer, size_t len)
+ASYNC_API void async_ring_buffer_consume(async_ring_buffer *buffer, size_t len)
 {
 	ZEND_ASSERT(len > 0);
 	ZEND_ASSERT(len <= buffer->len);

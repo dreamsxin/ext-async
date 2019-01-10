@@ -21,7 +21,7 @@
 #include "async_fiber.h"
 #include "async_task.h"
 
-zend_class_entry *async_task_scheduler_ce;
+ASYNC_API zend_class_entry *async_task_scheduler_ce;
 
 static zend_object_handlers async_task_scheduler_handlers;
 
@@ -88,6 +88,8 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 	async_cancel_cb *cancel;
 	async_op *op;
 	
+	zval error;
+	
 	if (scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED) {
 		return;
 	}
@@ -98,10 +100,12 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 	async_task_scheduler_run_loop(scheduler);
 
 	scheduler->flags |= ASYNC_TASK_SCHEDULER_FLAG_DISPOSED;
+	
+	ASYNC_PREPARE_ERROR(&error, "Task scheduler has been disposed");
 
 	while (scheduler->operations.first != NULL) {
 		ASYNC_DEQUEUE_OP(&scheduler->operations, op);
-		ASYNC_FAIL_OP(op, &scheduler->error);
+		ASYNC_FAIL_OP(op, &error);
 	}
 	
 	async_task_scheduler_run_loop(scheduler);
@@ -110,11 +114,13 @@ static void async_task_scheduler_dispose(async_task_scheduler *scheduler)
 		do {
 			ASYNC_Q_DEQUEUE(&scheduler->shutdown, cancel);
 
-			cancel->func(cancel->object, &scheduler->error);
+			cancel->func(cancel->object, &error);
 		} while (scheduler->shutdown.first != NULL);
 
 		async_task_scheduler_run_loop(scheduler);
 	}
+	
+	zval_ptr_dtor(&error);
 	
 	ASYNC_G(current_scheduler) = prev;
 }
@@ -124,7 +130,7 @@ static void busy_timer(uv_timer_t *handle)
 	// Dummy timer being used to keep the loop busy...
 }
 
-async_task_scheduler *async_task_scheduler_get()
+ASYNC_API async_task_scheduler *async_task_scheduler_get()
 {
 	async_task_scheduler *scheduler;
 
@@ -251,8 +257,6 @@ static async_task_scheduler *async_task_scheduler_object_create()
 
 	scheduler->std.handlers = &async_task_scheduler_handlers;
 	
-	ASYNC_PREPARE_ERROR(&scheduler->error, "Task scheduler has been disposed");
-
 	uv_loop_init(&scheduler->loop);
 	uv_idle_init(&scheduler->loop, &scheduler->idle);
 	
@@ -305,8 +309,6 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 	
 	// Run loop again to cleanup idle watcher.
 	uv_run(&scheduler->loop, UV_RUN_DEFAULT);
-		
-	zval_ptr_dtor(&scheduler->error);
 
 	ZEND_ASSERT(!uv_loop_alive(&scheduler->loop));
 	ZEND_ASSERT(debug_handles(&scheduler->loop) == 0);

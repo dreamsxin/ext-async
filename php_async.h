@@ -658,9 +658,6 @@ struct _async_task_scheduler {
 	/* Flags being used to control scheduler state. */
 	uint16_t flags;
 
-	/* Error object to be used for disposal. */
-	zval error;
-
 	/* Tasks ready to be started or resumed. */
 	async_task_queue ready;
 	
@@ -691,11 +688,10 @@ struct _async_task_scheduler {
 char *async_status_label(zend_uchar status);
 
 ASYNC_API async_context *async_context_get();
-ASYNC_API async_context *async_context_create_background();
+ASYNC_API async_context *async_context_get_background();
 ASYNC_API async_task_scheduler *async_task_scheduler_get();
 
 ASYNC_API int async_await_op(async_op *op);
-ASYNC_API void async_dispose_ops(async_op_queue *q);
 
 ASYNC_API size_t async_ring_buffer_read_len(async_ring_buffer *buffer);
 ASYNC_API size_t async_ring_buffer_write_len(async_ring_buffer *buffer);
@@ -712,13 +708,17 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 	/* Root fiber context (main thread). */
 	async_fiber_context root;
 
+	/* Active fiber context (does not have to be a task). */
 	async_fiber_context active_context;
 
 	/* Active fiber, NULL when in main thread. */
 	async_fiber *current_fiber;
 
-	/* Root context. */
-	async_context *context;
+	/* Root context for all foreground contexts. */
+	async_context *foreground;
+	
+	/* Root context for all background contexts. */
+	async_context *background;
 
 	/* Active task context. */
 	async_context *current_context;

@@ -20,10 +20,10 @@
 #include "async_stream.h"
 #include "zend_inheritance.h"
 
-zend_class_entry *async_process_builder_ce;
-zend_class_entry *async_process_ce;
-zend_class_entry *async_readable_pipe_ce;
-zend_class_entry *async_writable_pipe_ce;
+ASYNC_API zend_class_entry *async_process_builder_ce;
+ASYNC_API zend_class_entry *async_process_ce;
+ASYNC_API zend_class_entry *async_readable_pipe_ce;
+ASYNC_API zend_class_entry *async_writable_pipe_ce;
 
 static zend_object_handlers async_process_builder_handlers;
 static zend_object_handlers async_process_handlers;

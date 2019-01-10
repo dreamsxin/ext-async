@@ -123,8 +123,6 @@ final class Task implements Awaitable
     /* Should be replaced with extended async keyword expression if merged into PHP core. */
     public static function asyncWithContext(Context $context, callable $callback, ...$args): Task { }
     
-    public static function background(callable $callback, ...$args): Task { }
-    
     /* Should be replaced with await keyword if merged into PHP core. */
     public static function await(Awaitable $awaitable): mixed { }
 }
@@ -200,8 +198,6 @@ namespace Concurrent;
 
 final class Context
 {
-    public readonly bool $background;
-    
     public readonly bool $cancelled;
 
     public function with(ContextVar $var, $value): Context { }
@@ -218,7 +214,7 @@ final class Context
     
     public static function current(): Context { }
     
-    public static function isBackground(): bool { }
+    public static function background(): Context { }
 }
 ```
 

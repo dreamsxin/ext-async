@@ -9,11 +9,15 @@ class Pool
     private $concurrency;
 
     private $count = 0;
+    
+    private $context;
 
     public function __construct(int $concurrency = 1, int $capacity = 0)
     {
         $this->concurrency = max(1, $concurrency);
         $this->channel = new Channel($capacity);
+
+        $this->context = Context::background();
     }
 
     public function close(?\Throwable $e = null): void
@@ -27,7 +31,7 @@ class Pool
         if ($this->count < $this->concurrency) {
             $this->count++;
 
-            Task::background(static function (iterable $it) {
+            Task::asyncWithContext($this->context, static function (iterable $it) {
                 foreach ($it as list ($defer, $context, $work, $args)) {
                     try {
                         $defer->resolve($context->run($work, ...$args));

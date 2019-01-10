@@ -31,7 +31,7 @@ Task::async(function () use ($w2) {
 
 $ctx = Context::current();
 
-Task::background(function () use ($a, $w1, $ctx) {
+Task::asyncWithContext(Context::background(), function () use ($a, $w1, $ctx) {
     $ctx->run(function () {
         (new Timer(10))->awaitTimeout();
     });
