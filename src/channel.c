@@ -823,9 +823,6 @@ static void fetch_next_entry(async_channel_iterator *it)
 	// Queue up receiver and mark the iterator as fetching next value.
 	it->flags |= ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING;
 	
-	it->op.status = ASYNC_STATUS_PENDING;
-	it->op.flags = 0;
-	
 	ASYNC_ENQUEUE_OP(&state->receivers, &it->op);
 	
 	context = async_context_get();
@@ -846,7 +843,7 @@ static void fetch_next_entry(async_channel_iterator *it)
 		ASYNC_BUSY_EXIT(state->scheduler);
 	}
 	
-	zval_ptr_dtor(&it->op.result);
+	ASYNC_RESET_OP(&it->op);
 	
 	it->flags &= ~ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING;
 }

@@ -124,11 +124,9 @@ static void release_state(async_deferred_state *state)
 
 
 #define ASYNC_DEFERRED_CLEANUP_CANCEL(defer) do { \
-	if (Z_TYPE_P(&defer->fci.function_name) != IS_UNDEF) { \
-		if (defer->cancel.object != NULL) { \
-			ASYNC_Q_DETACH(&defer->state->context->cancel->callbacks, &defer->cancel); \
-			defer->cancel.object = NULL; \
-		} \
+	if (defer->cancel.object != NULL && Z_TYPE_P(&defer->fci.function_name) != IS_UNDEF) { \
+		ASYNC_Q_DETACH(&defer->state->context->cancel->callbacks, &defer->cancel); \
+		defer->cancel.object = NULL; \
 	} \
 } while (0);
 
@@ -184,7 +182,7 @@ static void cancel_defer(void *obj, zval* error)
 	zval_ptr_dtor(&args[1]);
 	zval_ptr_dtor(&retval);
 
-	zval_ptr_dtor(&defer->fci.function_name);
+	ASYNC_DELREF_CB(defer->fci);
 
 	ASYNC_CHECK_FATAL(UNEXPECTED(EG(exception)), "Must not throw an error from cancellation handler");
 }
@@ -315,8 +313,8 @@ ZEND_METHOD(Deferred, __construct)
 			} else {
 				defer->cancel.object = defer;
 				defer->cancel.func = cancel_defer;
-
-				Z_TRY_ADDREF_P(&defer->fci.function_name);
+				
+				ASYNC_ADDREF_CB(defer->fci);
 
 				ASYNC_Q_ENQUEUE(&context->cancel->callbacks, &defer->cancel);
 			}
@@ -566,17 +564,17 @@ static void combine_cb(async_op *op)
 			state->status = ASYNC_DEFERRED_STATUS_FAILED;
 
 			ZVAL_OBJ(&state->result, EG(exception));
-			EG(exception) = NULL;
+			Z_ADDREF(state->result);
+
+			zend_clear_exception();
 
 			trigger_ops(state);
 		} else {
-			EG(exception) = NULL;
+			zend_clear_exception();
 		}
 	}
 
 	if (0 == --combined->counter) {
-		zval_ptr_dtor(&combined->fci.function_name);
-
 		if (state->status == ASYNC_DEFERRED_STATUS_PENDING) {
 			state->status = ASYNC_DEFERRED_STATUS_FAILED;
 
@@ -585,6 +583,7 @@ static void combine_cb(async_op *op)
 			trigger_ops(state);
 		}
 
+		ASYNC_DELREF_CB(combined->fci);
 		ASYNC_DELREF(&combined->defer->std);
 
 		efree(combined);
@@ -646,7 +645,7 @@ ZEND_METHOD(Deferred, combine)
 	combined->fci = fci;
 	combined->fcc = fcc;
 
-	Z_TRY_ADDREF_P(&combined->fci.function_name);
+	ASYNC_ADDREF_CB(combined->fci);
 
 	ZEND_HASH_FOREACH_KEY_VAL_IND(Z_ARRVAL_P(args), i, k, entry) {
 		ce = Z_OBJCE_P(entry);
@@ -716,8 +715,6 @@ static void transform_cb(async_op *op)
 
 	async_task_scheduler_call_nowait(async_task_scheduler_get(), &trans->fci, &trans->fcc);
 
-	zval_ptr_dtor(&trans->fci.function_name);
-
 	zval_ptr_dtor(&args[0]);
 	zval_ptr_dtor(&args[1]);
 
@@ -725,7 +722,9 @@ static void transform_cb(async_op *op)
 		trans->state->status = ASYNC_DEFERRED_STATUS_FAILED;
 
 		ZVAL_OBJ(&trans->state->result, EG(exception));
-		EG(exception) = NULL;
+		Z_ADDREF(trans->state->result);
+
+		zend_clear_exception();
 	} else {
 		trans->state->status = ASYNC_DEFERRED_STATUS_RESOLVED;
 
@@ -734,13 +733,15 @@ static void transform_cb(async_op *op)
 	
 	trigger_ops(trans->state);
 
-	ASYNC_FREE_OP(op);
-
 	zval_ptr_dtor(&retval);
 
 	release_state(trans->state);
+	
+	ASYNC_DELREF_CB(trans->fci);
 
 	EG(exception) = error;
+	
+	ASYNC_FREE_OP(op);
 }
 
 ZEND_METHOD(Deferred, transform)
@@ -773,7 +774,7 @@ ZEND_METHOD(Deferred, transform)
 	op->fci = fci;
 	op->fcc = fcc;
 
-	Z_TRY_ADDREF_P(&op->fci.function_name);
+	ASYNC_ADDREF_CB(op->fci);
 
 	ce = Z_OBJCE_P(val);
 

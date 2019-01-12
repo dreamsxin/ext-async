@@ -400,11 +400,11 @@ static void exec_scope(zend_fcall_info fci, zend_fcall_info_cache fcc, async_sch
 
 	fci.param_count = 0;
 
-	Z_TRY_ADDREF_P(&fci.function_name);
-
 	task = async_task_object_create(EX(prev_execute_data), scheduler, op->context);
 	task->fiber.fci = fci;
 	task->fiber.fcc = fcc;
+	
+	ASYNC_ADDREF_CB(task->fiber.fci);
 	
 	ASYNC_ENQUEUE_OP(&task->operations, op);
 

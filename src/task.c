@@ -134,7 +134,9 @@ static void async_task_fiber_func(async_fiber *fiber)
 		zval_ptr_dtor(&task->result);
 
 		ZVAL_OBJ(&task->result, EG(exception));
-		EG(exception) = NULL;
+		Z_ADDREF(task->result);
+		
+		zend_clear_exception();
 	} else {
 		fiber->status = ASYNC_FIBER_STATUS_FINISHED;
 	}
@@ -196,7 +198,9 @@ static inline void async_task_execute_inline(async_task *task, async_task *inner
 		inner->fiber.status = ASYNC_FIBER_STATUS_FAILED;
 
 		ZVAL_OBJ(&inner->result, EG(exception));
-		EG(exception) = NULL;
+		Z_ADDREF(inner->result);
+		
+		zend_clear_exception();
 	} else {
 		inner->fiber.status = ASYNC_FIBER_STATUS_FINISHED;
 	}
@@ -610,11 +614,10 @@ static void async_task_object_destroy(zend_object *object)
 		zend_string_release(task->fiber.file);
 	}
 	
-	zval_ptr_dtor(&task->fiber.fci.function_name);
-
 	zval_ptr_dtor(&task->result);
 	zval_ptr_dtor(&task->error);
 
+	ASYNC_DELREF_CB(task->fiber.fci);
 	ASYNC_DELREF(&task->context->std);
 	
 	zend_object_std_dtor(&task->fiber.std);
@@ -677,11 +680,11 @@ ZEND_METHOD(Task, async)
 		zend_fcall_info_argp(&fci, count, params);
 	}
 
-	Z_TRY_ADDREF_P(&fci.function_name);
-
 	task = async_task_object_create(EX(prev_execute_data), async_task_scheduler_get(), async_context_get());
 	task->fiber.fci = fci;
 	task->fiber.fcc = fcc;
+	
+	ASYNC_ADDREF_CB(task->fiber.fci);
 
 	async_task_scheduler_enqueue(task);
 
@@ -722,11 +725,11 @@ ZEND_METHOD(Task, asyncWithContext)
 		zend_fcall_info_argp(&fci, count, params);
 	}
 
-	Z_TRY_ADDREF_P(&fci.function_name);
-
 	task = async_task_object_create(EX(prev_execute_data), async_task_scheduler_get(), (async_context *) Z_OBJ_P(ctx));
 	task->fiber.fci = fci;
 	task->fiber.fcc = fcc;
+	
+	ASYNC_ADDREF_CB(task->fiber.fci);
 
 	async_task_scheduler_enqueue(task);
 

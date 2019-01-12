@@ -132,7 +132,6 @@ static void shutdown_cb(uv_shutdown_t *req, int status)
 
 void async_stream_shutdown(async_stream *stream, int how)
 {
-	async_stream_read_op *read;
 	async_op *op;
 	
 	uv_shutdown_t req;
@@ -151,11 +150,10 @@ void async_stream_shutdown(async_stream *stream, int how)
 			stream->flags &= ~ASYNC_STREAM_READING;
 		}
 		
-		if (stream->read != NULL) {
-			read = stream->read;
-			read->code = UV_ECANCELED;
+		if (stream->read.base.status == ASYNC_STATUS_RUNNING) {
+			stream->read.code = UV_ECANCELED;
 			
-			ASYNC_FINISH_OP(read);
+			ASYNC_FINISH_OP(&stream->read);
 		}
 	}
 	
@@ -279,7 +277,6 @@ static inline int process_input_bytes(async_stream *stream, int count)
 static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 {
 	async_stream *stream;
-	async_stream_read_op *read;
 	
 	size_t len;
 	size_t blen;
@@ -299,13 +296,10 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 		
 		stream->flags &= ~ASYNC_STREAM_READING;
 		
-		while (stream->read != NULL) {
-			read = stream->read;
-			stream->read = NULL;
+		while (stream->read.base.status == ASYNC_STATUS_RUNNING) {
+			stream->read.code = (int) nread;
 			
-			read->code = (int) nread;
-			
-			ASYNC_FINISH_OP(read);
+			ASYNC_FINISH_OP(&stream->read);
 		}
 		
 		return;
@@ -326,14 +320,11 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 			
 			stream->flags &= ~ASYNC_STREAM_READING;
 			
-			while (stream->read != NULL) {
-				read = stream->read;
-				stream->read = NULL;
+			while (stream->read.base.status == ASYNC_STATUS_RUNNING) {
+				stream->read.code = FAILURE;
+				stream->read.error = ERR_reason_error_string(code);
 				
-				read->code = FAILURE;
-				read->error = ERR_reason_error_string(code);
-				
-				ASYNC_FINISH_OP(read);
+				ASYNC_FINISH_OP(&stream->read);
 			}
 			
 			return;
@@ -343,25 +334,22 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 #endif
 	}
 
-	while (stream->read != NULL && (blen = ASYNC_STREAM_BUFFER_LEN(stream)) > 0) {
-		read = stream->read;
-		stream->read = NULL;
-		
-		if (read->code == 1) {
-			read->len = async_ring_buffer_read_string(&stream->buffer, &read->data.str, MIN(read->len, blen));
+	while (stream->read.base.status == ASYNC_STATUS_RUNNING && (blen = ASYNC_STREAM_BUFFER_LEN(stream)) > 0) {
+		if (stream->read.code == 1) {
+			stream->read.len = async_ring_buffer_read_string(&stream->buffer, &stream->read.data.str, MIN(stream->read.len, blen));
 			
-			ASYNC_STREAM_BUFFER_CONSUME(stream, read->len);
+			ASYNC_STREAM_BUFFER_CONSUME(stream, stream->read.len);
 		} else {
-			len = async_ring_buffer_read(&stream->buffer, read->data.buf.base, MIN(read->len, blen));
+			len = async_ring_buffer_read(&stream->buffer, stream->read.data.buf.base, MIN(stream->read.len, blen));
 			
-			read->data.buf.base += len;
-			read->data.buf.len += len;
-			read->len -= len;
+			stream->read.data.buf.base += len;
+			stream->read.data.buf.len += len;
+			stream->read.len -= len;
 			
 			ASYNC_STREAM_BUFFER_CONSUME(stream, len);
 		}
 
-		ASYNC_FINISH_OP(read);
+		ASYNC_FINISH_OP(&stream->read);
 	}
 	
 	if (nread == UV_EOF) {
@@ -369,13 +357,10 @@ static void read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 		
 		stream->flags &= ~ASYNC_STREAM_READING;
 
-		while (stream->read != NULL) {
-			read = stream->read;
-			stream->read = NULL;
+		while (stream->read.base.status == ASYNC_STATUS_RUNNING) {
+			stream->read.code = UV_EOF;
 			
-			read->code = UV_EOF;
-			
-			ASYNC_FINISH_OP(read);
+			ASYNC_FINISH_OP(&stream->read);
 		}
 	
 		return;
@@ -402,8 +387,6 @@ static void read_alloc_cb(uv_handle_t *handle, size_t suggested, uv_buf_t *buf)
 
 int async_stream_read(async_stream *stream, char *buf, size_t len)
 {
-	async_stream_read_op *op;
-
 	size_t blen;
 	int code;
 	
@@ -418,7 +401,7 @@ int async_stream_read(async_stream *stream, char *buf, size_t len)
 		return FAILURE;
 	}
 	
-	if (stream->read != NULL) {
+	if (stream->read.base.status == ASYNC_STATUS_RUNNING) {
 		return UV_EALREADY;
 	}
 	
@@ -452,30 +435,28 @@ int async_stream_read(async_stream *stream, char *buf, size_t len)
 		stream->flags |= ASYNC_STREAM_READING;
 	}
 	
-	ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_stream_read_op));
-	stream->read = op;
+	stream->read.code = 0;
+	stream->read.data.buf.base = buf;
+	stream->read.data.buf.len = 0;
+	stream->read.len = len;
 	
-	op->data.buf.base = buf;
-	op->data.buf.len = 0;
-	op->len = len;
-	
-	code = await_op(stream, (async_op *) op);
+	code = await_op(stream, (async_op *) &stream->read);
 	
 	if (code == FAILURE) {
-		ASYNC_FORWARD_OP_ERROR(op);
-		ASYNC_FREE_OP(op);
+		ASYNC_FORWARD_OP_ERROR(&stream->read);
+		ASYNC_RESET_OP(&stream->read);
 		
 		return FAILURE;
 	}
 	
-	len = op->data.buf.len;
-	code = op->code;
+	len = stream->read.data.buf.len;
+	code = stream->read.code;
 	
 #ifdef HAVE_ASYNC_SSL
-	error = op->error;
+	error = stream->read.error;
 #endif
-	
-	ASYNC_FREE_OP(op);
+
+	ASYNC_RESET_OP(&stream->read);
 	
 	if (code == UV_EOF) {
 		return 0;
@@ -498,8 +479,6 @@ int async_stream_read(async_stream *stream, char *buf, size_t len)
 
 int async_stream_read_string(async_stream *stream, zend_string **str, size_t len)
 {
-	async_stream_read_op *op;
-	
 	zend_string *tmp;
 	size_t blen;
 	int code;
@@ -517,7 +496,7 @@ int async_stream_read_string(async_stream *stream, zend_string **str, size_t len
 		return FAILURE;
 	}
 	
-	if (stream->read != NULL) {
+	if (stream->read.base.status == ASYNC_STATUS_RUNNING) {
 		return UV_EALREADY;
 	}
 
@@ -551,29 +530,26 @@ int async_stream_read_string(async_stream *stream, zend_string **str, size_t len
 		stream->flags |= ASYNC_STREAM_READING;
 	}
 	
-	ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_stream_read_op));
-	stream->read = op;
-	
-	op->code = 1;
-	op->len = len;
+	stream->read.code = 1;
+	stream->read.len = len;
 
-	code = await_op(stream, (async_op *) op);
+	code = await_op(stream, (async_op *) &stream->read);
 
 	if (code == FAILURE) {
-		ASYNC_FORWARD_OP_ERROR(op);
-		ASYNC_FREE_OP(op);
+		ASYNC_FORWARD_OP_ERROR(&stream->read);
+		ASYNC_RESET_OP(&stream->read);
 		
 		return code;
 	}
 	
-	tmp = op->data.str;
-	code = op->code;
+	tmp = stream->read.data.str;
+	code = stream->read.code;
 	
 #ifdef HAVE_ASYNC_SSL
-	error = op->error;
+	error = stream->read.error;
 #endif
 
-	ASYNC_FREE_OP(op);
+	ASYNC_RESET_OP(&stream->read);
 	
 	if (code == UV_EOF) {
 		return 0;

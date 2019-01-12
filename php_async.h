@@ -815,6 +815,18 @@ ZEND_TSRMLS_CACHE_EXTERN()
 	op = (type *) tmp; \
 } while (0)
 
+#define ASYNC_RESET_OP(op) do { \
+	async_op *tmp; \
+	tmp = (async_op *) op; \
+	tmp->status = ASYNC_STATUS_PENDING; \
+	tmp->flags = 0; \
+	zval_ptr_dtor(&tmp->result); \
+	ZVAL_UNDEF(&tmp->result); \
+	if (tmp->q != NULL) { \
+		ASYNC_Q_DETACH(tmp->q, tmp); \
+	} \
+} while (0)
+
 #define ASYNC_FREE_OP(op) do { \
 	async_op *tmp; \
 	tmp = (async_op *) op; \
@@ -928,6 +940,20 @@ ZEND_TSRMLS_CACHE_EXTERN()
 #define ASYNC_DELREF(obj) do { \
 	/* php_printf("UNREF [%s]: %d -> %d / %s:%d\n", ZSTR_VAL((obj)->ce->name), (int) GC_REFCOUNT(obj), ((int) GC_REFCOUNT(obj)) - 1, __FILE__, __LINE__); */ \
 	OBJ_RELEASE(obj); \
+} while (0)
+
+#define ASYNC_ADDREF_CB(fci) do { \
+	Z_TRY_ADDREF((fci).function_name); \
+	if ((fci).object) { \
+		ASYNC_ADDREF((fci).object); \
+	} \
+} while (0)
+
+#define ASYNC_DELREF_CB(fci) do { \
+	zval_ptr_dtor(&(fci).function_name); \
+	if ((fci).object) { \
+		ASYNC_DELREF((fci).object); \
+	} \
 } while (0)
 
 #define ASYNC_DEBUG_LOG(message, ...) do { \

@@ -51,7 +51,7 @@ typedef struct {
 	zend_uchar ref_count;
 	async_ring_buffer buffer;
 	async_ssl_engine ssl;
-	async_stream_read_op *read;
+	async_stream_read_op read;
 	async_op_queue writes;
 	zval read_error;
 	zval write_error;

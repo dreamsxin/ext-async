@@ -30,6 +30,7 @@ echo "RESUME\n";
 $c = $f->resume($b - 1);
 echo "RESULT: $c\n=> ";
 $o = null;
+$f = null;
 echo "TERMINATED\n";
 
 ?>

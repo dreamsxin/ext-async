@@ -231,8 +231,6 @@ static int fiber_run_opcode_handler(zend_execute_data *exec)
 		}
 
 		fiber->value = NULL;
-
-		zval_ptr_dtor(&fiber->fci.function_name);
 	}
 
 	return ZEND_USER_OPCODE_RETURN;
@@ -265,15 +263,13 @@ static void async_fiber_object_destroy(zend_object *object)
 		async_fiber_context_switch(fiber->context, 1);
 	}
 
-	if (fiber->status == ASYNC_FIBER_STATUS_INIT && fiber->func == NULL) {
-		zval_ptr_dtor(&fiber->fci.function_name);
-	}
-
 	async_fiber_destroy(fiber->context);
 
 	if (fiber->file != NULL) {
 		zend_string_release(fiber->file);
 	}
+	
+	ASYNC_DELREF_CB(fiber->fci);
 
 	zend_object_std_dtor(&fiber->std);
 }
@@ -341,8 +337,7 @@ ZEND_METHOD(Fiber, __construct)
 	fiber->status = ASYNC_FIBER_STATUS_INIT;
 	fiber->state.stack_page_size = stack_size;
 
-	// Keep a reference to closures or callable objects as long as the fiber lives.
-	Z_TRY_ADDREF_P(&fiber->fci.function_name);
+	ASYNC_ADDREF_CB(fiber->fci);
 }
 
 ZEND_METHOD(Fiber, __debugInfo)
