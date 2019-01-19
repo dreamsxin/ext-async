@@ -65,6 +65,34 @@ You can leave out `=shared` to compile the extension into PHP (faster compilatio
 
 The async extension exposes a public API that can be used to create, run and interact with fiber-based async executions. You can obtain the API stub files for code completion in your IDE by installing `concurrent-php/async-api` via Composer.
 
+### Stream Wrappers
+
+The async extension provides `async-tcp`, `async-tls` and `async-udp` stream wrappers that can be used to create async PHP stream resources. Use `async-tcp://{server}:{port}/` with `stream_socket_client()` to establish a PHP stream that is backed by `ext-async` and does non-blocking IO (this is not related to `stream_set_blocking()`). You can also use INI settings `async.tcp` and `async.udp` to replace PHP's default stream implementations with their async counterpart which eliminates the need to prefix protocol names with `async-`.
+
+Async stream wrappers have (limited) support for TLS encryption using stream context options:
+
+| Option | Implementation Status |
+| --- | --- |
+| `crypto_method` | Ignored, ext async will always use TLS 1.2 and automatically detect server / client mode. |
+| `peer_name` | Supported, fallback to host name being used to establish the connection. |
+| `verify_peer` | Always enabled! |
+| `verify_peer_name` | Always enabled! |
+| `allow_self_signed` | Supported, defaults to `false`. |
+| `cafile` | Not supported |
+| `capath` | Not supported |
+| `local_cert` | Supported but requires a the private key to be in a file specified by `local_pk`. |
+| `local_pk` | Supported |
+| `passphrase` | Supported |
+| `CN_match` | Ignored (use `peer_name` instead). |
+| `verify_depth` | Supported |
+| `ciphers` | Not supported |
+| `capture_peer_cert` | Not supported |
+| `capture_peer_cert_chain` | Not supported |
+| `SNI_enabled` | Supported, defaults to `false`. |
+| `SNI_server_name` | Ignored (use `peer_name` instead). |
+| `disable_compression` | Ignored, compression is always disabled to protect against CRIME attacks. |
+| `peer_fingerprint` | Not supported |
+
 ### Awaitable
 
 This interface cannot be implemented directly by userland classes, implementations are provided by `Deferred::awaitable()` and `Task`. `Awaitable` is exposed as a union type to enable proper type hinting.

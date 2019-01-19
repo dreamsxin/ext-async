@@ -20,13 +20,15 @@
 #include "async_ssl.h"
 #include "async_xp.h"
 
+#include "ext/standard/url.h"
+
 static php_stream_transport_factory orig_tcp_factory;
 static php_stream_transport_factory orig_tls_factory;
 
 static php_stream_ops tcp_socket_ops;
 
 typedef struct {
-	ASYNC_XP_SOCKET_DATA_BASE;
+	ASYNC_XP_SOCKET_DATA_BASE
     uv_tcp_t handle;
     uint16_t pending;
     async_op_queue ops;
@@ -51,14 +53,6 @@ static int tcp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 	
 	flags = 0;
 	
-	if (PHP_STREAM_CONTEXT(stream)) {
-		tmp = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream), "socket", "ipv6_v6only");
-		
-		if (tmp != NULL && Z_TYPE_P(tmp) != IS_NULL && zend_is_true(tmp)) {
-			flags |= UV_TCP_IPV6ONLY;
-		}
-	}
-	
 	ip = NULL;
 	ip = async_xp_parse_ip(xparam->inputs.name, xparam->inputs.namelen, &port, xparam->want_errortext, &xparam->outputs.error_text);
 	code = async_dns_lookup_ipv4(ip, &dest, IPPROTO_TCP);
@@ -73,6 +67,18 @@ static int tcp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 	
 	dest.sin_port = htons(port);
 	
+	if (PHP_STREAM_CONTEXT(stream)) {
+#ifdef HAVE_IPV6
+		if (dest.sin_family == AF_INET6) {
+			tmp = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream), "socket", "ipv6_v6only");
+			
+			if (tmp != NULL && Z_TYPE_P(tmp) != IS_NULL && zend_is_true(tmp)) {
+				flags |= UV_TCP_IPV6ONLY;
+			}
+		}
+#endif
+	}
+	
 	code = uv_tcp_bind((uv_tcp_t *) &data->handle, (const struct sockaddr *) &dest, flags);
 	
 	return code;
@@ -85,21 +91,16 @@ static void tcp_socket_listen_cb(uv_stream_t *server, int status)
 	
 	tcp = (async_xp_socket_data_tcp *) server->data;
 	
-	if (status < 0) {
-		while (tcp->ops.first != NULL) {
-			ASYNC_DEQUEUE_CUSTOM_OP(&tcp->ops, op, async_uv_op);
-			
-			op->code = status;
-			
-			ASYNC_FINISH_OP(op);
-		}
-	} else {	
+	if (status == 0) {
 		tcp->pending++;
+	}
+	
+	while (tcp->ops.first != NULL) {
+		ASYNC_DEQUEUE_CUSTOM_OP(&tcp->ops, op, async_uv_op);
 		
-		if (tcp->ops.first != NULL) {
-			ASYNC_DEQUEUE_CUSTOM_OP(&tcp->ops, op, async_uv_op);
-			ASYNC_FINISH_OP(op);
-		}
+		op->code = status;
+		
+		ASYNC_FINISH_OP(op);
 	}
 }
 
@@ -111,50 +112,6 @@ static int tcp_socket_listen(php_stream *stream, async_xp_socket_data *data, php
 
 	return code;
 }
-
-#ifdef HAVE_ASYNC_SSL
-#ifdef ASYNC_TLS_SNI
-static zend_string *get_peer_name(php_stream *stream, php_stream_xport_param *xparam)
-{
-	zval *val;
-
-	if (!ASYNC_XP_SOCKET_SSL_OPT(stream, "SNI_enabled", val) || zend_is_true(val)) {
-		char tmp[256];
-		char *name;
-		int pos;
-
-		name = NULL;
-
-		ASYNC_XP_SOCKET_SSL_OPT_STRING(stream, "peer_name", name);
-
-		if (name == NULL) {
-			name = xparam->inputs.name + xparam->inputs.namelen - 1;
-
-			for (pos = xparam->inputs.namelen - 1; pos >= 0; pos--) {
-				if (*name == ':') {
-					break;
-				}
-
-				name--;
-			}
-
-			if (pos > 0) {
-				memcpy(tmp, xparam->inputs.name, pos);
-				tmp[pos] = '\0';
-			} else {
-				strcpy(tmp, xparam->inputs.name);
-			}
-
-			return zend_string_init(tmp, strlen(tmp), 0);
-		}
-		
-		return zend_string_init(name, strlen(name), 0);
-	}
-	
-	return NULL;
-}
-#endif
-#endif
 
 static void tcp_socket_connect_cb(uv_connect_t *req, int status)
 {
@@ -230,41 +187,8 @@ static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 	data->astream = async_stream_init((uv_stream_t *) &data->handle, 0);
 	
 	if (tcp->encrypt) {
-#ifdef HAVE_ASYNC_SSL
-		async_ssl_handshake_data handshake;
-		
-		data->astream->ssl.ctx = async_ssl_create_context();
-		data->astream->ssl.settings.verify_depth = ASYNC_SSL_DEFAULT_VERIFY_DEPTH;
-
-		zval *val;
-		
-		if (ASYNC_XP_SOCKET_SSL_OPT(stream, "verify_depth", val)) {
-			data->astream->ssl.settings.verify_depth = (int) Z_LVAL_P(val);
-		}
-
-		async_ssl_setup_verify_callback(data->astream->ssl.ctx, &data->astream->ssl.settings);
-		async_ssl_create_engine(&data->astream->ssl);
-
-		async_ssl_setup_encryption(data->astream->ssl.ssl, &data->astream->ssl.settings);
-
-		ZEND_SECURE_ZERO(&handshake, sizeof(async_ssl_handshake_data));
-
-#ifdef ASYNC_TLS_SNI
-		zend_string *str;
-		
-		str = get_peer_name(stream, xparam);
-		
-		if (str != NULL) {
-			data->astream->ssl.settings.peer_name = str;
-			
-			strcpy(message, ZSTR_VAL(str));
-			handshake.host = message;
-		}
-#endif
-
-		code = async_stream_ssl_handshake(data->astream, &handshake);
-
-#endif
+		php_stream_xport_crypto_setup(stream, 0, NULL);
+		php_stream_xport_crypto_enable(stream, 1);
 	}
 	
 	return SUCCESS;
@@ -376,12 +300,56 @@ static int tcp_socket_accept(php_stream *stream, async_xp_socket_data *data, php
 		GC_ADDREF(stream->ctx);
 	}
 	
+	client->flags |= ASYNC_XP_SOCKET_FLAG_ACCEPTED;
 	client->astream = async_stream_init((uv_stream_t *) &client->handle, 0);
 	
 	client->shutdown = tcp_socket_shutdown;
 	client->get_peer = tcp_socket_get_peer;
 
+	if (server->encrypt) {
+		php_stream_xport_crypto_setup(xparam->outputs.client, 0, NULL);
+		php_stream_xport_crypto_enable(xparam->outputs.client, 1);
+	}
+
 	return SUCCESS;
+}
+
+static zend_string *parse_host(const char *resource, size_t rlen)
+{
+	php_url *url;
+	zend_string *host;
+
+	const char *tmp;
+	size_t len;
+
+	if (!resource) {
+		return NULL;
+	}
+	
+	url = php_url_parse_ex(resource, rlen);
+	
+	if (!url) {
+		return NULL;
+	}
+	
+	host = NULL;
+
+	if (url->host) {
+		tmp = ZSTR_VAL(url->host);
+		len = ZSTR_LEN(url->host);
+		
+		while (len && tmp[len - 1] == '.') {
+			len--;
+		}
+		
+		if (len) {
+			host = zend_string_init(tmp, len, 0);
+		}
+	}
+
+	php_url_free(url);
+	
+	return host;
 }
 
 static php_stream *tcp_socket_factory(const char *proto, size_t plen, const char *res, size_t reslen,
@@ -410,7 +378,9 @@ static php_stream *tcp_socket_factory(const char *proto, size_t plen, const char
 	data->shutdown = tcp_socket_shutdown;
 	data->get_peer = tcp_socket_get_peer;
 	
-	if (strncmp(proto, "tcp", plen) != 0) {
+	data->peer = parse_host(res, reslen);
+	
+	if (strncmp(proto, "tcp", plen) != 0 && strncmp(proto, "async-tcp", plen) != 0) {
 		data->encrypt = 1;
 	}
 	
@@ -421,14 +391,24 @@ void async_tcp_socket_init()
 {
 	async_xp_socket_populate_ops(&tcp_socket_ops, "tcp_socket/async");
 
-	orig_tcp_factory = async_xp_socket_register("tcp", tcp_socket_factory);
-	orig_tls_factory = async_xp_socket_register("tls", tcp_socket_factory);
+	if (ASYNC_G(tcp_enabled)) {
+		orig_tcp_factory = async_xp_socket_register("tcp", tcp_socket_factory);
+		orig_tls_factory = async_xp_socket_register("tls", tcp_socket_factory);
+	}
+	
+	php_stream_xport_register("async-tcp", tcp_socket_factory);
+	php_stream_xport_register("async-tls", tcp_socket_factory);
 }
 
 void async_tcp_socket_shutdown()
 {
-	php_stream_xport_register("tls", orig_tls_factory);
-	php_stream_xport_register("tcp", orig_tcp_factory);
+	php_stream_xport_unregister("async-tls");
+	php_stream_xport_unregister("async-tcp");
+
+	if (ASYNC_G(tcp_enabled)) {
+		php_stream_xport_register("tls", orig_tls_factory);
+		php_stream_xport_register("tcp", orig_tcp_factory);
+	}
 }
 
 

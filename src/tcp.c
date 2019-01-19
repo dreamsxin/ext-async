@@ -73,6 +73,8 @@ typedef struct {
 #ifdef HAVE_ASYNC_SSL
 	/* TLS server encryption settings. */
 	async_tls_server_encryption *encryption;
+	
+	async_ssl_settings settings;
 
 	/* Server SSL context (shared between all socket connections). */
 	SSL_CTX *ctx;
@@ -742,67 +744,60 @@ ZEND_METHOD(TcpSocket, encrypt)
 #else
 
 	async_tcp_socket *socket;
-	async_ssl_handshake_data data;
-
-	char name[256];
+	async_ssl_handshake_data handshake;
+	
 	int code;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
-
+	
+	ZEND_SECURE_ZERO(&handshake, sizeof(async_ssl_handshake_data));
+	
 	if (socket->server == NULL) {
 		socket->stream->ssl.ctx = async_ssl_create_context();
 		
 		async_ssl_setup_verify_callback(socket->stream->ssl.ctx, &socket->encryption->settings);
+		
+		handshake.settings = &socket->encryption->settings;
+		handshake.host = socket->name;
 	} else {
 		ASYNC_CHECK_EXCEPTION(socket->server->encryption == NULL, async_socket_exception_ce, "No encryption settings have been passed to TcpServer::listen()");
 
 		socket->stream->ssl.ctx = socket->server->ctx;
+		
+		handshake.settings = &socket->server->settings;
 	}
 	
 	async_ssl_create_engine(&socket->stream->ssl);
-	async_ssl_setup_encryption(socket->stream->ssl.ssl, &socket->encryption->settings);
-	
-	ZEND_SECURE_ZERO(&data, sizeof(async_ssl_handshake_data));
-
-	if (socket->server == NULL) {
-		if (socket->encryption != NULL && socket->encryption->settings.peer_name != NULL) {
-			strcpy(name, ZSTR_VAL(socket->encryption->settings.peer_name));
-		} else {
-			strcpy(name, ZSTR_VAL(socket->name));
-		}
-		
-		data.host = name;
-		data.allow_self_signed = socket->encryption->settings.allow_self_signed;
-	}
+	async_ssl_setup_encryption(socket->stream->ssl.ssl, handshake.settings);
 	
 	uv_tcp_nodelay(&socket->handle, 1);
 	
-	code = async_stream_ssl_handshake(socket->stream, &data);
+	code = async_stream_ssl_handshake(socket->stream, &handshake);
 
 	uv_tcp_nodelay(&socket->handle, 0);
 	
 	if (code == FAILURE) {
-		if (data.error != NULL) {
-			zend_throw_exception_ex(async_socket_exception_ce, 0, "SSL handshake failed: %s", ZSTR_VAL(data.error));
-			zend_string_release(data.error);
+		if (handshake.error != NULL) {
+			zend_throw_exception_ex(async_socket_exception_ce, 0, "SSL handshake failed: %s", ZSTR_VAL(handshake.error));
+			zend_string_release(handshake.error);
 			return;
 		}
 	
-		if (data.uv_error < 0) {
-			zend_throw_exception_ex(async_socket_exception_ce, 0, "SSL handshake failed due to network error: %s", uv_strerror(data.uv_error));
+		if (handshake.uv_error < 0) {
+			zend_throw_exception_ex(async_socket_exception_ce, 0, "SSL handshake failed due to network error: %s", uv_strerror(handshake.uv_error));
 			return;
 		}
 		
-		if (data.ssl_error != SSL_ERROR_NONE) {
-			zend_throw_exception_ex(async_socket_exception_ce, 0, "SSL handshake failed [%d]: %s", data.ssl_error, ERR_reason_error_string(data.ssl_error));
+		if (handshake.ssl_error != SSL_ERROR_NONE) {
+			zend_throw_exception_ex(async_socket_exception_ce, 0, "SSL handshake failed [%d]: %s", handshake.ssl_error, ERR_reason_error_string(handshake.ssl_error));
 			return;
 		}
 	}
 	
-	if (data.error != NULL) {
-		zend_string_release(data.error);
+	if (handshake.error != NULL) {
+		zend_string_release(handshake.error);
 	}
 	
 #endif
@@ -1091,6 +1086,10 @@ static async_tcp_server *async_tcp_server_object_create()
 	uv_tcp_init(&server->scheduler->loop, &server->handle);
 
 	server->handle.data = server;
+	
+#ifdef HAVE_ASYNC_SSL
+	server->settings.mode = ASYNC_SSL_MODE_SERVER;
+#endif
 
 	return server;
 }
@@ -1219,7 +1218,7 @@ ZEND_METHOD(TcpServer, listen)
 
 		SSL_CTX_set_default_passwd_cb_userdata(server->ctx, &server->encryption->cert);
 
-		SSL_CTX_use_certificate_file(server->ctx, ZSTR_VAL(server->encryption->cert.file), SSL_FILETYPE_PEM);
+		SSL_CTX_use_certificate_chain_file(server->ctx, ZSTR_VAL(server->encryption->cert.file));
 		SSL_CTX_use_PrivateKey_file(server->ctx, ZSTR_VAL(server->encryption->cert.key), SSL_FILETYPE_PEM);
 
 		async_ssl_setup_sni(server->ctx, server->encryption);

@@ -22,11 +22,13 @@
 static php_stream_transport_factory orig_udp_factory;
 static php_stream_ops udp_socket_ops;
 
-#define ASYNC_XP_SOCKET_UDP_FLAG_RECEIVING (1 << 10)
+#define ASYNC_XP_SOCKET_UDP_FLAG_RECEIVING (1 << 7)
+#define ASYNC_XP_SOCKET_UDP_FLAG_CONNECTED (1 << 6)
 
 typedef struct {
-	ASYNC_XP_SOCKET_DATA_BASE;
+	ASYNC_XP_SOCKET_DATA_BASE
     uv_udp_t handle;
+    php_sockaddr_storage dest;
     async_op_queue senders;
     async_op_queue receivers;
 } async_xp_socket_data_udp;
@@ -36,6 +38,8 @@ typedef struct {
 	int code;
 	unsigned int flags;
 	php_stream_xport_param *xparam;
+	char *buf;
+	size_t len;
 } async_xp_udp_receive_op;
 
 
@@ -51,20 +55,6 @@ static int udp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 	
 	flags = 0;
 	
-	if (PHP_STREAM_CONTEXT(stream)) {
-		tmp = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream), "socket", "ipv6_v6only");
-		
-		if (tmp != NULL && Z_TYPE_P(tmp) != IS_NULL && zend_is_true(tmp)) {
-			flags |= UV_UDP_IPV6ONLY;
-		}
-		
-		tmp = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream), "socket", "so_reuseport");
-		
-		if (tmp != NULL && Z_TYPE_P(tmp) != IS_NULL && zend_is_true(tmp)) {
-			flags |= UV_UDP_REUSEADDR ;
-		}
-	}
-	
 	ip = NULL;
 	ip = async_xp_parse_ip(xparam->inputs.name, xparam->inputs.namelen, &port, xparam->want_errortext, &xparam->outputs.error_text);
 	code = async_dns_lookup_ipv4(ip, &dest, IPPROTO_UDP);
@@ -79,9 +69,27 @@ static int udp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 	
 	dest.sin_port = htons(port);
 	
+	if (PHP_STREAM_CONTEXT(stream)) {
+		tmp = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream), "socket", "so_reuseport");
+		
+		if (tmp != NULL && Z_TYPE_P(tmp) != IS_NULL && zend_is_true(tmp)) {
+			flags |= UV_UDP_REUSEADDR ;
+		}
+
+#ifdef HAVE_IPV6
+		if (dest.sin_family == AF_INET6) {
+			tmp = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream), "socket", "ipv6_v6only");
+			
+			if (tmp != NULL && Z_TYPE_P(tmp) != IS_NULL && zend_is_true(tmp)) {
+				flags |= UV_UDP_IPV6ONLY;
+			}
+		}
+#endif
+	}
+	
 	code = uv_udp_bind((uv_udp_t *) &data->handle, (const struct sockaddr *) &dest, flags);
 	
-	if (code > 0) {
+	if (code != 0) {
 		return code;
 	}
 	
@@ -113,7 +121,7 @@ static void udp_socket_send_cb(uv_udp_send_t *req, int status)
 	ASYNC_FINISH_OP(op);
 }
 
-static int udp_socket_send(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam)
+static int do_send(async_xp_socket_data *data, const struct sockaddr *dest, char *buf, size_t len)
 {
 	async_xp_socket_data_udp *udp;
 	async_uv_op *op;
@@ -122,14 +130,15 @@ static int udp_socket_send(php_stream *stream, async_xp_socket_data *data, php_s
 	uv_buf_t bufs[1];
 	int code;
 	
-	if (xparam->inputs.addr == NULL) {
-		// TODO: Implement support for connected UDP sockets.
-		return FAILURE;
-	}	
+	udp = (async_xp_socket_data_udp *) data;
 
-	bufs[0] = uv_buf_init(xparam->inputs.buf, xparam->inputs.buflen);
+	bufs[0] = uv_buf_init(buf, len);
 	
-	code = uv_udp_try_send((uv_udp_t *) &data->handle, bufs, 1, (const struct sockaddr *) xparam->inputs.addr);
+	if (dest == NULL) {
+		dest = (const struct sockaddr *) &udp->dest;
+	}
+	
+	code = uv_udp_try_send((uv_udp_t *) &data->handle, bufs, 1, dest);
 	
 	if (code >= 0) {
 		return SUCCESS;
@@ -139,11 +148,9 @@ static int udp_socket_send(php_stream *stream, async_xp_socket_data *data, php_s
 		return code;
 	}
 	
-	code = uv_udp_send(&req, (uv_udp_t *) &data->handle, bufs, 1, (const struct sockaddr *) xparam->inputs.addr, udp_socket_send_cb);
+	code = uv_udp_send(&req, (uv_udp_t *) &data->handle, bufs, 1, dest, udp_socket_send_cb);
 	
 	if (EXPECTED(code >= 0)) {
-		udp = (async_xp_socket_data_udp *) data;
-	
 		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op));
 		ASYNC_ENQUEUE_OP(&udp->senders, op);
 		
@@ -164,6 +171,11 @@ static int udp_socket_send(php_stream *stream, async_xp_socket_data *data, php_s
 	return code;
 }
 
+static int udp_socket_send(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam)
+{
+	return do_send(data, (const struct sockaddr *) xparam->inputs.addr, xparam->inputs.buf, xparam->inputs.buflen);
+}
+
 static void udp_socket_receive_cb(uv_udp_t *handle, ssize_t nread, const uv_buf_t *buf, const struct sockaddr *addr, unsigned int flags)
 {
 	async_xp_socket_data_udp *udp;
@@ -173,18 +185,24 @@ static void udp_socket_receive_cb(uv_udp_t *handle, ssize_t nread, const uv_buf_
 	
 	ZEND_ASSERT(udp->receivers.first != NULL);
 	
+	if (nread == 0) {
+		return;
+	}
+	
 	ASYNC_DEQUEUE_CUSTOM_OP(&udp->receivers, op, async_xp_udp_receive_op);
 	
 	op->code = nread;
 	op->flags = flags;
 	
-	php_network_populate_name_from_sockaddr(
-		(struct sockaddr *) addr,
-		sizeof(struct sockaddr),
-		op->xparam->want_textaddr ? &op->xparam->outputs.textaddr : NULL,
-		op->xparam->want_addr ? &op->xparam->outputs.addr : NULL,
-		op->xparam->want_addr ? &op->xparam->outputs.addrlen : NULL
-	);
+	if (nread > 0 && op->xparam != NULL) {
+		php_network_populate_name_from_sockaddr(
+			(struct sockaddr *) addr,
+			sizeof(struct sockaddr),
+			op->xparam->want_textaddr ? &op->xparam->outputs.textaddr : NULL,
+			op->xparam->want_addr ? &op->xparam->outputs.addr : NULL,
+			op->xparam->want_addr ? &op->xparam->outputs.addrlen : NULL
+		);
+	}
 	
 	ASYNC_FINISH_OP(op);
 	
@@ -198,16 +216,15 @@ static void udp_socket_receive_cb(uv_udp_t *handle, ssize_t nread, const uv_buf_
 static void udp_socket_receive_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
 {
 	async_xp_socket_data_udp *udp;
-	php_stream_xport_param *xparam;
+	async_xp_udp_receive_op *op;
 	
 	udp = (async_xp_socket_data_udp *) handle->data;
+	op = (async_xp_udp_receive_op *) udp->receivers.first;
 	
-	ZEND_ASSERT(udp->receivers.first != NULL);
+	ZEND_ASSERT(op != NULL);
 	
-	xparam = ((async_xp_udp_receive_op *) udp->receivers.first)->xparam;
-	
-	buf->base = xparam->inputs.buf;
-	buf->len = xparam->inputs.buflen;
+	buf->base = op->buf;
+	buf->len = op->len;
 }
 
 static int udp_socket_receive(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam)
@@ -221,12 +238,16 @@ static int udp_socket_receive(php_stream *stream, async_xp_socket_data *data, ph
 	
 	if (!(udp->flags & ASYNC_XP_SOCKET_UDP_FLAG_RECEIVING)) {
 		uv_udp_recv_start(&udp->handle, udp_socket_receive_alloc, udp_socket_receive_cb);
+		
+		udp->flags |= ASYNC_XP_SOCKET_UDP_FLAG_RECEIVING;
 	}
 	
 	ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_xp_udp_receive_op));
 	ASYNC_ENQUEUE_OP(&udp->receivers, op);
 	
 	op->xparam = xparam;
+	op->buf = xparam->inputs.buf;
+	op->len = xparam->inputs.buflen;
 	
 	if (async_await_op((async_op *) op) == FAILURE) {
 		ASYNC_FORWARD_OP_ERROR(op);
@@ -266,6 +287,102 @@ static int udp_socket_get_peer(async_xp_socket_data *data, zend_bool remote, zen
 	return SUCCESS;
 }
 
+static int udp_socket_connect(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam)
+{
+	async_xp_socket_data_udp *udp;
+	struct sockaddr_in dest;
+	
+	char *ip;
+	int port;
+	int code;
+
+	udp = (async_xp_socket_data_udp *) data;
+	
+	code = async_dns_lookup_ipv4("127.0.0.1", &dest, IPPROTO_UDP);
+	
+	if (UNEXPECTED(code != 0)) {
+		return FAILURE;
+	}
+	
+	dest.sin_port = htons(0);
+	
+	code = uv_udp_bind((uv_udp_t *) &data->handle, (const struct sockaddr *) &dest, 0);
+	
+	if (code != 0) {
+		return code;
+	}
+	
+	ip = NULL;
+	ip = async_xp_parse_ip(xparam->inputs.name, xparam->inputs.namelen, &port, xparam->want_errortext, &xparam->outputs.error_text);
+	code = async_dns_lookup_ipv4(ip, (struct sockaddr_in *) &udp->dest, IPPROTO_TCP);
+	
+	if (ip != NULL) {
+		efree(ip);
+	}
+	
+	if (UNEXPECTED(code != 0)) {
+		return FAILURE;
+	}
+	
+	((struct sockaddr_in *) &udp->dest)->sin_port = htons(port);
+	
+	data->flags |= ASYNC_XP_SOCKET_UDP_FLAG_CONNECTED;
+	
+	return SUCCESS;
+}
+
+static size_t udp_socket_write(php_stream *stream, async_xp_socket_data *data, const char *buf, size_t count)
+{
+	int code;
+	
+	ZEND_ASSERT(data->flags & ASYNC_XP_SOCKET_UDP_FLAG_CONNECTED);
+	
+	code = do_send(data, NULL, (char *) buf, count);
+	
+	if (code == 0) {
+		return count;
+	}
+
+	return FAILURE;
+}
+
+static size_t udp_socket_read(php_stream *stream, async_xp_socket_data *data, char *buf, size_t count)
+{
+	async_xp_socket_data_udp *udp;
+	async_xp_udp_receive_op *op;
+	
+	int code;
+	
+	ZEND_ASSERT(data->flags & ASYNC_XP_SOCKET_UDP_FLAG_CONNECTED);
+	
+	udp = (async_xp_socket_data_udp *) data;
+	
+	if (!(udp->flags & ASYNC_XP_SOCKET_UDP_FLAG_RECEIVING)) {
+		uv_udp_recv_start(&udp->handle, udp_socket_receive_alloc, udp_socket_receive_cb);
+		
+		udp->flags |= ASYNC_XP_SOCKET_UDP_FLAG_RECEIVING;
+	}
+	
+	ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_xp_udp_receive_op));
+	ASYNC_ENQUEUE_OP(&udp->receivers, op);
+	
+	op->buf = buf;
+	op->len = count;
+	
+	if (async_await_op((async_op *) op) == FAILURE) {
+		ASYNC_FORWARD_OP_ERROR(op);
+		ASYNC_FREE_OP(op);
+		
+		return FAILURE;
+	}
+	
+	code = op->code;
+	
+	ASYNC_FREE_OP(op);
+	
+	return code;
+}
+
 static php_stream *udp_socket_factory(const char *proto, size_t plen, const char *res, size_t reslen,
 	const char *pid, int options, int flags, struct timeval *timeout, php_stream_context *context STREAMS_DC)
 {
@@ -290,6 +407,11 @@ static php_stream *udp_socket_factory(const char *proto, size_t plen, const char
  	data->bind = udp_socket_bind;
  	data->send = udp_socket_send;
  	data->receive = udp_socket_receive;
+ 	
+ 	data->connect = udp_socket_connect;
+ 	data->write = udp_socket_write;
+ 	data->read = udp_socket_read;
+ 	
  	data->get_peer = udp_socket_get_peer;
  	
 	return stream;
@@ -299,12 +421,20 @@ void async_udp_socket_init()
 {
 	async_xp_socket_populate_ops(&udp_socket_ops, "udp_socket/async");
 
-	orig_udp_factory = async_xp_socket_register("udp", udp_socket_factory);
+	if (ASYNC_G(udp_enabled)) {
+		orig_udp_factory = async_xp_socket_register("udp", udp_socket_factory);
+	}
+	
+	php_stream_xport_register("async-udp", udp_socket_factory);
 }
 
 void async_udp_socket_shutdown()
 {
-	php_stream_xport_register("udp", orig_udp_factory);
+	php_stream_xport_unregister("async-udp");
+	
+	if (ASYNC_G(udp_enabled)) {
+		php_stream_xport_register("udp", orig_udp_factory);
+	}
 }
 
 

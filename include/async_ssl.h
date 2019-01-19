@@ -52,8 +52,8 @@ typedef struct {
 } async_ssl_op;
 
 typedef struct {
-	const char *host;
-	zend_bool allow_self_signed;
+	async_ssl_settings *settings;
+	zend_string *host;
 	int uv_error;
 	int ssl_error;
 	zend_string *error;

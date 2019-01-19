@@ -5,7 +5,7 @@ error_reporting(-1);
 $errno = null;
 $errstr = null;
 
-$fp = stream_socket_client('tcp://127.0.0.1:10008', $errno, $errstr, 1, STREAM_CLIENT_CONNECT);
+$fp = stream_socket_client('async-tcp://127.0.0.1:10008', $errno, $errstr, 1, STREAM_CLIENT_CONNECT);
 
 print_r(stream_get_meta_data($fp));
 

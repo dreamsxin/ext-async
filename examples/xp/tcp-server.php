@@ -5,7 +5,7 @@ error_reporting(-1);
 $errno = null;
 $errstr = null;
 
-$server = stream_socket_server('tcp://127.0.0.1:10008', $errno, $errstr, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN);
+$server = stream_socket_server('async-tcp://127.0.0.1:10008', $errno, $errstr, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN);
 
 while (true) {
     echo "AWAIT CONNECTION\n\n";

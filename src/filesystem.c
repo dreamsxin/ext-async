@@ -663,11 +663,6 @@ int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 		return NULL;
 	}
 	
-	// TODO: Configure default read buffer size using an INI option?
-	
-	stream->readbuflen = 0x8000;
- 	stream->readbuf = perealloc(stream->readbuf, stream->readbuflen, stream->is_persistent);
-	
 	data->file = req.result;
 	data->mode = flags;
 	data->lock_flag = LOCK_UN;

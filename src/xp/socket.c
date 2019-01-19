@@ -122,6 +122,10 @@ static void close_cb(uv_handle_t *handle)
 	
 	async_stream_free(data->astream);
 	
+	if (data->peer != NULL) {
+		zend_string_release(data->peer);
+	}
+	
 	ASYNC_DELREF(&data->scheduler->std);
 	
 	efree(data);
@@ -134,6 +138,10 @@ static void close_dgram_cb(uv_handle_t *handle)
 	data = (async_xp_socket_data *) handle->data;
 	
 	ZEND_ASSERT(data != NULL);
+	
+	if (data->peer != NULL) {
+		zend_string_release(data->peer);
+	}
 	
 	ASYNC_DELREF(&data->scheduler->std);
 	
@@ -174,33 +182,21 @@ static inline int async_xp_socket_xport_api(php_stream *stream, async_xp_socket_
 {
 	switch (xparam->op) {
 	case STREAM_XPORT_OP_ACCEPT:
-		if (data->accept == NULL) {
-			xparam->outputs.returncode = FAILURE;
-		} else {
-			xparam->outputs.returncode = data->accept(stream, data, xparam);
-			
-			if (xparam->outputs.returncode == SUCCESS) {
-				ZEND_ASSERT(((async_xp_socket_data *) xparam->outputs.client->abstract)->astream != NULL);
-			}
+		xparam->outputs.returncode = (data->accept == NULL) ? FAILURE : data->accept(stream, data, xparam);
+
+		if (xparam->outputs.returncode == SUCCESS) {
+			ZEND_ASSERT(((async_xp_socket_data *) xparam->outputs.client->abstract)->astream != NULL);
 		}
 		break;
 	case STREAM_XPORT_OP_BIND:
-		if (data->bind == NULL) {
-			xparam->outputs.returncode = FAILURE;
-		} else {
-			xparam->outputs.returncode = data->bind(stream, data, xparam);
-		}
+		xparam->outputs.returncode = (data->bind == NULL) ? FAILURE : data->bind(stream, data, xparam);
 		break;
 	case STREAM_XPORT_OP_CONNECT:
 	case STREAM_XPORT_OP_CONNECT_ASYNC:
-		if (data->connect == NULL) {
-			xparam->outputs.returncode = FAILURE;
-		} else {
-			xparam->outputs.returncode = data->connect(stream, data, xparam);
-			
-			if (xparam->outputs.returncode == SUCCESS) {
-				ZEND_ASSERT(data->astream != NULL);
-			}
+		xparam->outputs.returncode = (data->connect == NULL) ? FAILURE : data->connect(stream, data, xparam);
+
+		if (xparam->outputs.returncode == SUCCESS && !(data->flags & ASYNC_XP_SOCKET_FLAG_DGRAM)) {
+			ZEND_ASSERT(data->astream != NULL);
 		}
 		break;
 	case STREAM_XPORT_OP_GET_NAME:
@@ -214,47 +210,148 @@ static inline int async_xp_socket_xport_api(php_stream *stream, async_xp_socket_
 		);
 		break;
 	case STREAM_XPORT_OP_LISTEN:
-		if (data->listen == NULL) {
-			xparam->outputs.returncode = FAILURE;
-		} else {
-			xparam->outputs.returncode = data->listen(stream, data, xparam);
-		}
+		xparam->outputs.returncode = (data->listen == NULL) ? FAILURE : data->listen(stream, data, xparam);
 		break;
 	case STREAM_XPORT_OP_RECV:
-		if (data->receive == NULL) {
-			xparam->outputs.returncode = FAILURE;
-		} else {
-			xparam->outputs.returncode = data->receive(stream, data, xparam);
-		}
+		xparam->outputs.returncode = (data->receive == NULL) ? FAILURE : data->receive(stream, data, xparam);
 		break;
 	case STREAM_XPORT_OP_SEND:
-		if (data->send == NULL) {
-			xparam->outputs.returncode = FAILURE;
-		} else {
-			xparam->outputs.returncode = data->send(stream, data, xparam);
-		}
+		xparam->outputs.returncode = (data->send == NULL) ? FAILURE : data->send(stream, data, xparam);
 		break;
 	case STREAM_XPORT_OP_SHUTDOWN:
-		if (data->shutdown == NULL) {
-			xparam->outputs.returncode = SUCCESS;
-		} else {
-			xparam->outputs.returncode = data->shutdown(data, xparam->how);
-		}
+		xparam->outputs.returncode = (data->shutdown == NULL) ? SUCCESS : data->shutdown(data, xparam->how);
 		break;
 	}
 	
 	return PHP_STREAM_OPTION_RETURN_OK;
 }
 
+#ifdef HAVE_ASYNC_SSL
+
+static int cert_passphrase_cb(char *buf, int size, int rwflag, void *obj)
+{
+	zend_string *key;
+	
+	key = (zend_string *) obj;
+	
+	if (key == NULL) {
+		return 0;
+	}
+	
+	strncpy(buf, ZSTR_VAL(key), ZSTR_LEN(key));
+	
+	return ZSTR_LEN(key);
+}
+
+#endif
+
+static int setup_ssl(php_stream *stream, async_xp_socket_data *data, php_stream_xport_crypto_param *cparam)
+{
+#ifndef HAVE_ASYNC_SSL
+	return FAILURE;
+#else
+	
+	zval *val;
+	
+	data->astream->ssl.ctx = async_ssl_create_context();
+	
+	SSL_CTX_set_default_passwd_cb(data->astream->ssl.ctx, cert_passphrase_cb);
+	
+	data->astream->ssl.settings.verify_depth = ASYNC_SSL_DEFAULT_VERIFY_DEPTH;
+	
+	if (ASYNC_XP_SOCKET_SSL_OPT(stream, "peer_name", val)) {
+		data->astream->ssl.settings.peer_name = zend_string_copy(Z_STR_P(val));
+	} else if (data->peer != NULL) {
+		data->astream->ssl.settings.peer_name = zend_string_copy(data->peer);
+	}
+	
+	if (ASYNC_XP_SOCKET_SSL_OPT(stream, "verify_depth", val)) {
+		data->astream->ssl.settings.verify_depth = (int) Z_LVAL_P(val);
+	}
+	
+	if (ASYNC_XP_SOCKET_SSL_OPT(stream, "allow_self_signed", val)) {
+		if (zend_is_true(val)) {
+			data->astream->ssl.settings.allow_self_signed = 1;
+		}
+	}
+	
+	if (ASYNC_XP_SOCKET_SSL_OPT(stream, "passphrase", val)) {
+		SSL_CTX_set_default_passwd_cb_userdata(data->astream->ssl.ctx, Z_STR_P(val));
+	}
+	
+	if (ASYNC_XP_SOCKET_SSL_OPT(stream, "local_pk", val)) {
+		SSL_CTX_use_PrivateKey_file(data->astream->ssl.ctx, ZSTR_VAL(Z_STR_P(val)), SSL_FILETYPE_PEM);
+	}
+	
+	if (ASYNC_XP_SOCKET_SSL_OPT(stream, "local_cert", val)) {
+		SSL_CTX_use_certificate_chain_file(data->astream->ssl.ctx, ZSTR_VAL(Z_STR_P(val)));
+	}
+	
+	return SUCCESS;
+	
+#endif
+}
+
+static int toggle_ssl(php_stream *stream, async_xp_socket_data *data, php_stream_xport_crypto_param *cparam)
+{
+#ifndef HAVE_ASYNC_SSL
+	return FAILURE;
+#else
+
+	async_ssl_handshake_data handshake;
+	
+	int code;
+	
+	ZEND_SECURE_ZERO(&handshake, sizeof(async_ssl_handshake_data));
+	
+	handshake.settings = &data->astream->ssl.settings;
+	
+	if (data->flags & ASYNC_XP_SOCKET_FLAG_ACCEPTED) {
+		data->astream->ssl.settings.mode = ASYNC_SSL_MODE_SERVER;
+	} else {
+		data->astream->ssl.settings.mode = ASYNC_SSL_MODE_CLIENT;
+		
+		async_ssl_setup_verify_callback(data->astream->ssl.ctx, &data->astream->ssl.settings);
+	}
+	
+	async_ssl_create_engine(&data->astream->ssl);
+	async_ssl_setup_encryption(data->astream->ssl.ssl, &data->astream->ssl.settings);
+	
+	code = async_stream_ssl_handshake(data->astream, &handshake);
+
+	if (code != SUCCESS) {
+		return FAILURE;
+	}
+	
+	return 1;
+
+#endif
+}
+
 static int async_xp_socket_set_option(php_stream *stream, int option, int value, void *ptrparam)
 {
 	async_xp_socket_data *data;
+	php_stream_xport_crypto_param *cparam;
 	
 	data = (async_xp_socket_data *) stream->abstract;
 	
 	switch (option) {
 	case PHP_STREAM_OPTION_XPORT_API:
 		return async_xp_socket_xport_api(stream, data, (php_stream_xport_param *) ptrparam STREAMS_CC);
+	case PHP_STREAM_OPTION_CRYPTO_API:
+		cparam = (php_stream_xport_crypto_param *) ptrparam;
+		
+		switch (cparam->op) {
+			case STREAM_XPORT_CRYPTO_OP_SETUP:
+				cparam->outputs.returncode = (data->flags & ASYNC_XP_SOCKET_FLAG_DGRAM) ? FAILURE : setup_ssl(stream, data, cparam);
+				
+				return PHP_STREAM_OPTION_RETURN_OK;
+			case STREAM_XPORT_CRYPTO_OP_ENABLE:
+				cparam->outputs.returncode = (data->flags & ASYNC_XP_SOCKET_FLAG_DGRAM) ? FAILURE : toggle_ssl(stream, data, cparam);
+				
+				return PHP_STREAM_OPTION_RETURN_OK;
+		}
+		break;
 	case PHP_STREAM_OPTION_META_DATA_API:
 		add_assoc_bool((zval *) ptrparam, "timed_out", 0);
 		add_assoc_bool((zval *) ptrparam, "blocked", (data->flags & ASYNC_XP_SOCKET_FLAG_BLOCKING) ? 1 : 0);

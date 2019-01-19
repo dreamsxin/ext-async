@@ -68,13 +68,8 @@ void async_init()
 		async_timer_init();
 	}
 	
-	if (ASYNC_G(tcp_enabled)) {
-		async_tcp_socket_init();
-	}
-	
-	if (ASYNC_G(udp_enabled)) {
-		async_udp_socket_init();
-	}
+	async_tcp_socket_init();
+	async_udp_socket_init();
 }
 
 void async_shutdown()
@@ -91,13 +86,8 @@ void async_shutdown()
 		async_timer_shutdown();
 	}
 	
-	if (ASYNC_G(tcp_enabled)) {
-		async_tcp_socket_shutdown();
-	}
-
-	if (ASYNC_G(udp_enabled)) {
-		async_udp_socket_shutdown();
-	}	
+	async_tcp_socket_shutdown();
+	async_udp_socket_shutdown();
 }
 
 char *async_status_label(zend_uchar status)

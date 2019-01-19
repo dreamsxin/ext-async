@@ -44,6 +44,7 @@
 
 #define ASYNC_XP_SOCKET_FLAG_BLOCKING 1
 #define ASYNC_XP_SOCKET_FLAG_DGRAM 2
+#define ASYNC_XP_SOCKET_FLAG_ACCEPTED 4
 
 #define ASYNC_XP_SOCKET_SHUT_RD 0
 #define ASYNC_XP_SOCKET_SHUT_WR 1
@@ -56,6 +57,7 @@ typedef struct _async_xp_socket_data async_xp_socket_data;
 	async_task_scheduler *scheduler; \
 	async_stream *astream; \
 	uint8_t flags; \
+	zend_string *peer; \
     int (* connect)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
     int (* bind)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
     int (* listen)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
@@ -65,11 +67,11 @@ typedef struct _async_xp_socket_data async_xp_socket_data;
     size_t (* read)(php_stream *stream, async_xp_socket_data *data, char *buf, size_t count); \
     int (* send)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
     int (* receive)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
-    int (* get_peer)(async_xp_socket_data *data, zend_bool remote, zend_string **textaddr, struct sockaddr **addr, socklen_t *len)
+    int (* get_peer)(async_xp_socket_data *data, zend_bool remote, zend_string **textaddr, struct sockaddr **addr, socklen_t *len);
     
 
 struct _async_xp_socket_data {
-	ASYNC_XP_SOCKET_DATA_BASE;
+	ASYNC_XP_SOCKET_DATA_BASE
     uv_handle_t handle;
 };
 

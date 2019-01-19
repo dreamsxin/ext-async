@@ -76,7 +76,7 @@ static int ssl_cert_passphrase_cb(char *buf, int size, int rwflag, void *obj)
 	if (cert == NULL || cert->passphrase == NULL) {
 		return 0;
 	}
-
+	
 	strcpy(buf, ZSTR_VAL(cert->passphrase));
 
 	return ZSTR_LEN(cert->passphrase);

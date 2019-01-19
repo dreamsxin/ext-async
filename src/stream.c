@@ -1058,14 +1058,19 @@ int async_stream_ssl_handshake(async_stream *stream, async_ssl_handshake_data *d
 	int code;
 	
 	ZEND_ASSERT(stream->ssl.ssl != NULL);
-
-	if (data->host == NULL) {
+	ZEND_ASSERT(data->settings != NULL);
+	
+	if (data->settings->mode == ASYNC_SSL_MODE_SERVER) {
 		SSL_set_accept_state(stream->ssl.ssl);
 	} else {
 		SSL_set_connect_state(stream->ssl.ssl);
 		
 #ifdef ASYNC_TLS_SNI
-		SSL_set_tlsext_host_name(stream->ssl.ssl, data->host);
+		if (data->settings->peer_name != NULL) {
+			SSL_set_tlsext_host_name(stream->ssl.ssl, ZSTR_VAL(data->settings->peer_name));
+		} else if (data->host != NULL) {
+			SSL_set_tlsext_host_name(stream->ssl.ssl, ZSTR_VAL(data->host));
+		}
 #endif
 		
 		ERR_clear_error();
@@ -1083,7 +1088,11 @@ int async_stream_ssl_handshake(async_stream *stream, async_ssl_handshake_data *d
 		init_buffer(stream);
 	}
 
-	uv_read_stop(stream->handle);
+	if (stream->flags & ASYNC_STREAM_READING) {
+		uv_read_stop(stream->handle);
+		
+		stream->flags &= ~ASYNC_STREAM_READING;
+	}
 	
 	while (!SSL_is_init_finished(stream->ssl.ssl)) {
 		if (SUCCESS != send_handshake_bytes(stream, data)) {
@@ -1095,9 +1104,9 @@ int async_stream_ssl_handshake(async_stream *stream, async_ssl_handshake_data *d
 		}
 		
 		ERR_clear_error();
-
+		
 		code = SSL_do_handshake(stream->ssl.ssl);
-
+		
 		if (!is_ssl_continue_error(stream->ssl.ssl, code)) {
 			data->ssl_error = ERR_get_error();
 			
@@ -1119,7 +1128,7 @@ int async_stream_ssl_handshake(async_stream *stream, async_ssl_handshake_data *d
 		return FAILURE;
 	}
 	
-	if (data->host != NULL) {
+	if (data->settings->mode == ASYNC_SSL_MODE_CLIENT) {
 		char buffer[1024];
 		
 		ZEND_SECURE_ZERO(buffer, 1024);
@@ -1138,7 +1147,7 @@ int async_stream_ssl_handshake(async_stream *stream, async_ssl_handshake_data *d
 
 		result = SSL_get_verify_result(stream->ssl.ssl);
 		
-		if (X509_V_OK != result && !(data->allow_self_signed && result == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT)) {
+		if (X509_V_OK != result && !(data->settings->allow_self_signed && result == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT)) {
 			php_sprintf(buffer, "Failed to verify server SSL certificate [%ld]: %s", result, X509_verify_cert_error_string(result));
 			data->error = zend_string_init(buffer, strlen(buffer), 0);
 			
