@@ -867,8 +867,3 @@ void async_ssl_ce_register()
 	async_index = SSL_get_ex_new_index(0, "async", NULL, NULL, NULL);
 #endif
 }
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

@@ -812,8 +812,3 @@ void async_task_ce_register()
 
 	zend_class_implements(async_task_ce, 1, async_awaitable_ce);
 }
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

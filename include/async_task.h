@@ -32,8 +32,3 @@ void async_task_scheduler_run_loop(async_task_scheduler *scheduler);
 void async_task_scheduler_call_nowait(async_task_scheduler *scheduler, zend_fcall_info *fci, zend_fcall_info_cache *fcc);
 
 #endif
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

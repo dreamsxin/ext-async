@@ -91,11 +91,15 @@ static size_t async_xp_socket_read(php_stream *stream, char *buf, size_t count)
 		return data->read(stream, data, buf, count);
 	}
 	
-	code = async_stream_read(data->astream, buf, count);
+	data->flags &= ~ASYNC_XP_SOCKET_FLAG_TIMED_OUT;
 	
-	if (code < 1) {
-		if (code == 0) {
-			
+	code = async_stream_read(data->astream, buf, count, data->timeout);
+	
+	if (code < 0) {
+		if (code == UV_ETIMEDOUT) {
+			data->flags |= ASYNC_XP_SOCKET_FLAG_TIMED_OUT;
+		} else if (data->astream->read.error != NULL) {
+			php_error_docref(NULL, E_WARNING, "Socket read failed: %s", data->astream->read.error);
 		} else {
 			php_error_docref(NULL, E_WARNING, "Socket read failed: %s", uv_strerror(code));
 		}
@@ -104,6 +108,19 @@ static size_t async_xp_socket_read(php_stream *stream, char *buf, size_t count)
 	}
 
 	return code;
+}
+
+static void dispose_timer(uv_handle_t *handle)
+{
+	async_xp_socket_data *data;
+	
+	data = (async_xp_socket_data *) handle->data;
+	
+	ZEND_ASSERT(data != NULL);
+	
+	ASYNC_DELREF(&data->scheduler->std);
+	
+	efree(data);
 }
 
 static void close_cb(uv_handle_t *handle)
@@ -124,11 +141,16 @@ static void close_cb(uv_handle_t *handle)
 	
 	if (data->peer != NULL) {
 		zend_string_release(data->peer);
+		data->peer = NULL;
 	}
 	
-	ASYNC_DELREF(&data->scheduler->std);
-	
-	efree(data);
+	if (uv_is_closing((uv_handle_t *) &data->timer)) {
+		ASYNC_DELREF(&data->scheduler->std);
+		
+		efree(data);
+	} else {
+		uv_close((uv_handle_t *) &data->timer, dispose_timer);
+	}
 }
 
 static void close_dgram_cb(uv_handle_t *handle)
@@ -141,11 +163,16 @@ static void close_dgram_cb(uv_handle_t *handle)
 	
 	if (data->peer != NULL) {
 		zend_string_release(data->peer);
+		data->peer = NULL;
 	}
 	
-	ASYNC_DELREF(&data->scheduler->std);
-	
-	efree(data);
+	if (uv_is_closing((uv_handle_t *) &data->timer)) {
+		ASYNC_DELREF(&data->scheduler->std);
+		
+		efree(data);
+	} else {
+		uv_close((uv_handle_t *) &data->timer, dispose_timer);
+	}
 }
 
 static int async_xp_socket_close(php_stream *stream, int close_handle)
@@ -155,7 +182,16 @@ static int async_xp_socket_close(php_stream *stream, int close_handle)
 	data = (async_xp_socket_data *) stream->abstract;
 	
 	if (data->astream == NULL) {
-		uv_close(&data->handle, close_dgram_cb);
+		if (uv_is_closing(&data->handle)) {
+			if (data->peer != NULL) {
+				zend_string_release(data->peer);
+				data->peer = NULL;
+			}
+		
+			uv_close((uv_handle_t *) &data->timer, dispose_timer);
+		} else {
+			uv_close(&data->handle, close_dgram_cb);
+		}
 	} else {
 		async_stream_close(data->astream, close_cb, data);
 	}
@@ -331,15 +367,14 @@ static int toggle_ssl(php_stream *stream, async_xp_socket_data *data, php_stream
 static int async_xp_socket_set_option(php_stream *stream, int option, int value, void *ptrparam)
 {
 	async_xp_socket_data *data;
-	php_stream_xport_crypto_param *cparam;
 	
 	data = (async_xp_socket_data *) stream->abstract;
 	
 	switch (option) {
 	case PHP_STREAM_OPTION_XPORT_API:
 		return async_xp_socket_xport_api(stream, data, (php_stream_xport_param *) ptrparam STREAMS_CC);
-	case PHP_STREAM_OPTION_CRYPTO_API:
-		cparam = (php_stream_xport_crypto_param *) ptrparam;
+	case PHP_STREAM_OPTION_CRYPTO_API: {
+		php_stream_xport_crypto_param *cparam = (php_stream_xport_crypto_param *) ptrparam;
 		
 		switch (cparam->op) {
 			case STREAM_XPORT_CRYPTO_OP_SETUP:
@@ -351,9 +386,9 @@ static int async_xp_socket_set_option(php_stream *stream, int option, int value,
 				
 				return PHP_STREAM_OPTION_RETURN_OK;
 		}
-		break;
+	}
 	case PHP_STREAM_OPTION_META_DATA_API:
-		add_assoc_bool((zval *) ptrparam, "timed_out", 0);
+		add_assoc_bool((zval *) ptrparam, "timed_out", (data->flags & ASYNC_XP_SOCKET_FLAG_TIMED_OUT) ? 1 : 0);
 		add_assoc_bool((zval *) ptrparam, "blocked", (data->flags & ASYNC_XP_SOCKET_FLAG_BLOCKING) ? 1 : 0);
 		
 		if (data->astream == NULL) {
@@ -371,6 +406,17 @@ static int async_xp_socket_set_option(php_stream *stream, int option, int value,
 		}
 
 		return PHP_STREAM_OPTION_RETURN_OK;
+	case PHP_STREAM_OPTION_READ_TIMEOUT: {		
+		struct timeval tv = *(struct timeval *) ptrparam;
+		
+		data->timeout = ((uint64_t) tv.tv_sec * 1000) + (uint64_t) (tv.tv_usec / 1000);
+		
+		if (data->timeout == 0 && tv.tv_usec > 0) {
+			data->timeout = 1;
+		}
+
+		return PHP_STREAM_OPTION_RETURN_OK;
+	}
 	case PHP_STREAM_OPTION_READ_BUFFER:
 		if (value == PHP_STREAM_BUFFER_NONE) {
 			stream->readbuf = perealloc(stream->readbuf, 0, stream->is_persistent);
@@ -417,6 +463,9 @@ php_stream *async_xp_socket_create(async_xp_socket_data *data, php_stream_ops *o
 	data->stream = stream;
 	data->flags |= ASYNC_XP_SOCKET_FLAG_BLOCKING;
 	data->handle.data = data;
+	data->timer.data = data;
+	
+	uv_timer_init(&data->scheduler->loop, &data->timer);
 	
 	ASYNC_ADDREF(&scheduler->std);
  	
@@ -435,9 +484,3 @@ php_stream_transport_factory async_xp_socket_register(const char *protocol, php_
 	
 	return prev;
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

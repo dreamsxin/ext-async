@@ -22,6 +22,13 @@
 #include "async_ssl.h"
 #include "async_stream.h"
 
+#define ASYNC_XP_SOCKET_REPORT_NETWORK_ERROR(code, xparam) do { \
+	const char *message; \
+	message = uv_strerror(code); \
+	(xparam)->outputs.error_code = code * -1; \
+	(xparam)->outputs.error_text = zend_string_init(message, strlen(message), 0); \
+} while (0)
+
 #define ASYNC_XP_SOCKET_SSL_OPT(stream, name, val) \
 	(PHP_STREAM_CONTEXT(stream) && ((val) = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream), "ssl", name)) != NULL)
 
@@ -45,6 +52,7 @@
 #define ASYNC_XP_SOCKET_FLAG_BLOCKING 1
 #define ASYNC_XP_SOCKET_FLAG_DGRAM 2
 #define ASYNC_XP_SOCKET_FLAG_ACCEPTED 4
+#define ASYNC_XP_SOCKET_FLAG_TIMED_OUT 8
 
 #define ASYNC_XP_SOCKET_SHUT_RD 0
 #define ASYNC_XP_SOCKET_SHUT_WR 1
@@ -57,6 +65,8 @@ typedef struct _async_xp_socket_data async_xp_socket_data;
 	async_task_scheduler *scheduler; \
 	async_stream *astream; \
 	uint8_t flags; \
+	uint64_t timeout; \
+	uv_timer_t timer; \
 	zend_string *peer; \
     int (* connect)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
     int (* bind)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
@@ -83,8 +93,3 @@ php_stream *async_xp_socket_create(async_xp_socket_data *data, php_stream_ops *o
 php_stream_transport_factory async_xp_socket_register(const char *protocol, php_stream_transport_factory factory);
 
 #endif
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

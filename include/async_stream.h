@@ -47,6 +47,7 @@ typedef struct {
 
 typedef struct {
 	uv_stream_t *handle;
+	uv_timer_t timer;
 	uint16_t flags;
 	zend_uchar ref_count;
 	async_ring_buffer buffer;
@@ -74,8 +75,8 @@ async_stream *async_stream_init(uv_stream_t *handle, size_t bufsize);
 void async_stream_free(async_stream *stream);
 void async_stream_close(async_stream *stream, uv_close_cb onclose, void *data);
 void async_stream_shutdown(async_stream *stream, int how);
-int async_stream_read(async_stream *stream, char *buf, size_t len);
-int async_stream_read_string(async_stream *stream, zend_string **str, size_t len);
+int async_stream_read(async_stream *stream, char *buf, size_t len, uint64_t timeout);
+int async_stream_read_string(async_stream *stream, zend_string **str, size_t len, uint64_t timeout);
 void async_stream_write(async_stream *stream, char *buf, size_t len);
 void async_stream_async_write_string(async_stream *stream, zend_string *str, async_stream_write_cb cb, void *arg);
 
@@ -84,8 +85,3 @@ int async_stream_ssl_handshake(async_stream *stream, async_ssl_handshake_data *d
 #endif
 
 #endif
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

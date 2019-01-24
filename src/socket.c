@@ -119,9 +119,3 @@ void async_socket_ce_register()
 
 	zend_do_inheritance(async_socket_exception_ce, async_stream_exception_ce);
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

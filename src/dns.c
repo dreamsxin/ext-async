@@ -294,9 +294,3 @@ void async_dns_shutdown()
 	orig_gethostbyname->internal_function.handler = orig_gethostbyname_handler;
 	orig_gethostbynamel->internal_function.handler = orig_gethostbynamel_handler;
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

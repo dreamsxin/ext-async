@@ -582,9 +582,3 @@ void async_task_scheduler_shutdown()
 		ASYNC_DELREF(&scheduler->std);
 	}
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

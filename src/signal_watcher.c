@@ -368,9 +368,3 @@ void async_signal_watcher_ce_register()
 	ASYNC_SIGNAL_WATCHER_CONST("SIGUSR1", ASYNC_SIGNAL_SIGUSR1);
 	ASYNC_SIGNAL_WATCHER_CONST("SIGUSR2", ASYNC_SIGNAL_SIGUSR2);
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

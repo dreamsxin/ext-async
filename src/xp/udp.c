@@ -64,6 +64,8 @@ static int udp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 	}
 	
 	if (UNEXPECTED(code != 0)) {
+		ASYNC_XP_SOCKET_REPORT_NETWORK_ERROR(code, xparam);
+		
 		return FAILURE;
 	}
 	
@@ -90,7 +92,9 @@ static int udp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 	code = uv_udp_bind((uv_udp_t *) &data->handle, (const struct sockaddr *) &dest, flags);
 	
 	if (code != 0) {
-		return code;
+		ASYNC_XP_SOCKET_REPORT_NETWORK_ERROR(code, xparam);
+	
+		return FAILURE;
 	}
 	
 	if (PHP_STREAM_CONTEXT(stream)) {
@@ -100,7 +104,9 @@ static int udp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 			code = uv_udp_set_broadcast((uv_udp_t *) &data->handle, 1);
 			
 			if (code < 0) {
-				return code;
+				ASYNC_XP_SOCKET_REPORT_NETWORK_ERROR(code, xparam);
+				
+				return FAILURE;
 			}
 		}
 	}
@@ -309,7 +315,9 @@ static int udp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 	code = uv_udp_bind((uv_udp_t *) &data->handle, (const struct sockaddr *) &dest, 0);
 	
 	if (code != 0) {
-		return code;
+		ASYNC_XP_SOCKET_REPORT_NETWORK_ERROR(code, xparam);
+		
+		return FAILURE;
 	}
 	
 	ip = NULL;
@@ -321,6 +329,8 @@ static int udp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 	}
 	
 	if (UNEXPECTED(code != 0)) {
+		ASYNC_XP_SOCKET_REPORT_NETWORK_ERROR(code, xparam);
+		
 		return FAILURE;
 	}
 	
@@ -436,9 +446,3 @@ void async_udp_socket_shutdown()
 		php_stream_xport_register("udp", orig_udp_factory);
 	}
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

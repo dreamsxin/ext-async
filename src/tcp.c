@@ -614,11 +614,18 @@ static inline void call_read(async_tcp_socket *socket, zval *return_value, zend_
 		return;
 	}
 
-	code = async_stream_read_string(socket->stream, &str, len);
+	code = async_stream_read_string(socket->stream, &str, len, 0);
+	
+	if (UNEXPECTED(EG(exception))) {
+		return;
+	}
 	
 	if (code > 0) {
 		RETURN_STR(str);
 	}
+	
+	ASYNC_CHECK_EXCEPTION(socket->stream->read.error != NULL, async_stream_exception_ce, "Reading from socket failed: %s", socket->stream->read.error);
+	ASYNC_CHECK_EXCEPTION(code < 0, async_stream_exception_ce, "Reading from socket failed: %s", uv_strerror(code));
 }
 
 ZEND_METHOD(TcpSocket, read)
@@ -1484,9 +1491,3 @@ void async_tcp_ce_register()
 
 	ASYNC_TCP_SERVER_CONST("SIMULTANEOUS_ACCEPTS", ASYNC_SOCKET_TCP_SIMULTANEOUS_ACCEPTS);
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

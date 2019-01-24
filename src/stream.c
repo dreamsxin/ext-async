@@ -93,7 +93,12 @@ async_stream *async_stream_init(uv_stream_t *handle, size_t bufsize)
 	stream->handle = handle;
 	handle->data = stream;
 	
+	uv_timer_init(handle->loop, &stream->timer);
+	
+	stream->timer.data = stream;
+	
 	uv_unref((uv_handle_t *) handle);
+	uv_unref((uv_handle_t *) &stream->timer);
 	
 	return stream;
 }
@@ -108,15 +113,19 @@ void async_stream_free(async_stream *stream)
 	efree(stream);
 }
 
-void async_stream_close(async_stream *stream, uv_close_cb onclose, void *data)
+void async_stream_close(async_stream *stream, uv_close_cb callback, void *data)
 {
 	stream->flags |= ASYNC_STREAM_EOF | ASYNC_STREAM_CLOSED | ASYNC_STREAM_SHUT_WR;
 	
 	async_stream_shutdown(stream, ASYNC_STREAM_SHUT_RD);
 	
+	if (!uv_is_closing((uv_handle_t *) &stream->timer)) {
+		uv_close((uv_handle_t *) &stream->timer, NULL);
+	}
+	
 	stream->handle->data = data;
 	
-	uv_close((uv_handle_t *) stream->handle, onclose);
+	uv_close((uv_handle_t *) stream->handle, callback);
 }
 
 static void shutdown_cb(uv_shutdown_t *req, int status)
@@ -385,14 +394,25 @@ static void read_alloc_cb(uv_handle_t *handle, size_t suggested, uv_buf_t *buf)
 	buf->len = async_ring_buffer_write_len(&stream->buffer);
 }
 
-int async_stream_read(async_stream *stream, char *buf, size_t len)
+static void timeout_read(uv_timer_t *timer)
+{
+	async_stream *stream;
+	
+	stream = (async_stream *) timer->data;
+	
+	ZEND_ASSERT(stream != NULL);
+	
+	if (stream->read.base.status == ASYNC_STATUS_RUNNING) {
+		stream->read.code = UV_ETIMEDOUT;
+		
+		ASYNC_FINISH_OP(&stream->read);
+	}
+}
+
+int async_stream_read(async_stream *stream, char *buf, size_t len, uint64_t timeout)
 {
 	size_t blen;
 	int code;
-	
-#ifdef HAVE_ASYNC_SSL
-	const char *error;
-#endif
 	
 	ZEND_ASSERT(len > 0);
 	
@@ -439,8 +459,17 @@ int async_stream_read(async_stream *stream, char *buf, size_t len)
 	stream->read.data.buf.base = buf;
 	stream->read.data.buf.len = 0;
 	stream->read.len = len;
+	stream->read.error = NULL;
+	
+	if (timeout > 0) {
+		uv_timer_start(&stream->timer, timeout_read, timeout, 0);
+	}
 	
 	code = await_op(stream, (async_op *) &stream->read);
+	
+	if (timeout > 0) {
+		uv_timer_stop(&stream->timer);
+	}
 	
 	if (code == FAILURE) {
 		ASYNC_FORWARD_OP_ERROR(&stream->read);
@@ -451,10 +480,6 @@ int async_stream_read(async_stream *stream, char *buf, size_t len)
 	
 	len = stream->read.data.buf.len;
 	code = stream->read.code;
-	
-#ifdef HAVE_ASYNC_SSL
-	error = stream->read.error;
-#endif
 
 	ASYNC_RESET_OP(&stream->read);
 	
@@ -462,30 +487,14 @@ int async_stream_read(async_stream *stream, char *buf, size_t len)
 		return 0;
 	}
 	
-	if (code < 0) {
-#ifdef HAVE_ASYNC_SSL
-		if (code == FAILURE && stream->ssl.ssl != NULL && error != NULL) {
-			zend_throw_error(NULL, "SSL error: %s", error);
-			return FAILURE;
-		}
-#endif
-		
-		zend_throw_error(NULL, "Read operation failed: %s", uv_strerror(code));
-		return FAILURE;
-	}
-	
-	return len;
+	return (code < 0) ? code : len;
 }
 
-int async_stream_read_string(async_stream *stream, zend_string **str, size_t len)
+int async_stream_read_string(async_stream *stream, zend_string **str, size_t len, uint64_t timeout)
 {
 	zend_string *tmp;
 	size_t blen;
 	int code;
-	
-#ifdef HAVE_ASYNC_SSL
-	const char *error;
-#endif
 	
 	ZEND_ASSERT(len > 0);
 	
@@ -532,8 +541,17 @@ int async_stream_read_string(async_stream *stream, zend_string **str, size_t len
 	
 	stream->read.code = 1;
 	stream->read.len = len;
+	stream->read.error = NULL;
+	
+	if (timeout > 0) {
+		uv_timer_start(&stream->timer, timeout_read, timeout, 0);
+	}
 
 	code = await_op(stream, (async_op *) &stream->read);
+	
+	if (timeout > 0) {
+		uv_timer_stop(&stream->timer);
+	}
 
 	if (code == FAILURE) {
 		ASYNC_FORWARD_OP_ERROR(&stream->read);
@@ -544,10 +562,6 @@ int async_stream_read_string(async_stream *stream, zend_string **str, size_t len
 	
 	tmp = stream->read.data.str;
 	code = stream->read.code;
-	
-#ifdef HAVE_ASYNC_SSL
-	error = stream->read.error;
-#endif
 
 	ASYNC_RESET_OP(&stream->read);
 	
@@ -556,15 +570,7 @@ int async_stream_read_string(async_stream *stream, zend_string **str, size_t len
 	}
 	
 	if (code < 0) {
-#ifdef HAVE_ASYNC_SSL
-		if (code == FAILURE && stream->ssl.ssl != NULL && error != NULL) {
-			zend_throw_error(NULL, "SSL error: %s", error);
-			return FAILURE;
-		}
-#endif
-
-		zend_throw_error(NULL, "Read operation failed: %s", uv_strerror(code));
-		return FAILURE;
+		return code;
 	}
 	
 	*str = tmp;
@@ -1248,9 +1254,3 @@ void async_stream_ce_register()
 
 	zend_do_inheritance(async_pending_read_exception_ce, async_stream_exception_ce);
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

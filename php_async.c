@@ -370,8 +370,3 @@ ZEND_TSRMLS_CACHE_DEFINE()
 # endif
 ZEND_GET_MODULE(async)
 #endif
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

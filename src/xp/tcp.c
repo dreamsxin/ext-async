@@ -109,6 +109,12 @@ static int tcp_socket_listen(php_stream *stream, async_xp_socket_data *data, php
 	int code;
 	
 	code = uv_listen((uv_stream_t *) &data->handle, xparam->inputs.backlog, tcp_socket_listen_cb);
+	
+	if (UNEXPECTED(code < 0)) {
+		ASYNC_XP_SOCKET_REPORT_NETWORK_ERROR(code, xparam);
+		
+		return FAILURE;
+	}
 
 	return code;
 }
@@ -116,14 +122,24 @@ static int tcp_socket_listen(php_stream *stream, async_xp_socket_data *data, php
 static void tcp_socket_connect_cb(uv_connect_t *req, int status)
 {
 	async_uv_op *op;	
-
+	
 	op = (async_uv_op *) req->data;
 	
 	ZEND_ASSERT(op != NULL);
 	
-	op->code = status;
+	op->code = (status == UV_ECANCELED) ? UV_ETIMEDOUT : status;
 	
 	ASYNC_FINISH_OP(op);
+}
+
+static void connect_timer_cb(uv_timer_t *timer)
+{
+	async_xp_socket_data_tcp *tcp;
+	
+	tcp = (async_xp_socket_data_tcp *) timer->data;
+	
+	// Need to close the socket right here to cancel connect, anything else will segfault later...
+	uv_close((uv_handle_t *) &tcp->handle, NULL);
 }
 
 static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam)
@@ -133,8 +149,8 @@ static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 	
 	uv_connect_t req;
 	struct sockaddr_in dest;
+	uint64_t timeout;
 	
-	char message[512];
 	char *ip;
 	int port;
 	int code;
@@ -163,7 +179,19 @@ static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 		
 		req.data = op;
 		
-		if (async_await_op((async_op *) op) == FAILURE) {
+		timeout = ((uint64_t) xparam->inputs.timeout->tv_sec) * 1000 + ((uint64_t) xparam->inputs.timeout->tv_usec) / 1000;
+		
+		if (timeout > 0) {
+			uv_timer_start(&data->timer, connect_timer_cb, timeout, 0);
+		}
+		
+		code = async_await_op((async_op *) op);
+		
+		if (timeout > 0) {
+			uv_timer_stop(&data->timer);
+		}
+		
+		if (code == FAILURE) {
 			ASYNC_FORWARD_OP_ERROR(op);
 			ASYNC_FREE_OP(op);
 			
@@ -176,10 +204,7 @@ static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 	}
 	
 	if (UNEXPECTED(code < 0)) {
-		sprintf(message, "Connect failed: %s", uv_strerror(code));
-	
-		xparam->outputs.error_code = code;
-		xparam->outputs.error_text = zend_string_init(message, strlen(message), 0);
+		ASYNC_XP_SOCKET_REPORT_NETWORK_ERROR(code, xparam);
 		
 		return FAILURE;
 	}
@@ -410,9 +435,3 @@ void async_tcp_socket_shutdown()
 		php_stream_xport_register("tcp", orig_tcp_factory);
 	}
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

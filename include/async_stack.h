@@ -66,8 +66,3 @@ void async_fiber_stack_free(async_fiber_stack *stack);
 #endif
 
 #endif
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

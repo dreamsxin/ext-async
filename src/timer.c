@@ -401,9 +401,3 @@ void async_timer_shutdown()
 {
 	orig_sleep->internal_function.handler = orig_sleep_handler;
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

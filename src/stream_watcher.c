@@ -487,9 +487,3 @@ void async_stream_watcher_ce_register()
 	}
 #endif
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

@@ -55,9 +55,3 @@ void async_awaitable_ce_register()
 	async_awaitable_ce = zend_register_internal_interface(&ce);
 	async_awaitable_ce->interface_gets_implemented = async_awaitable_implement_interface;
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

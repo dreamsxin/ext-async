@@ -134,8 +134,3 @@ int async_ssl_setup_encryption(SSL *ssl, async_ssl_settings *settings);
 async_tls_client_encryption *async_clone_client_encryption(async_tls_client_encryption *encryption);
 
 #endif
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

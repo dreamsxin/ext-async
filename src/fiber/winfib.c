@@ -158,8 +158,3 @@ zend_bool async_fiber_yield(async_fiber_context current)
 
 	return 1;
 }
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

@@ -759,9 +759,3 @@ void async_context_shutdown()
 		ASYNC_DELREF(&context->std);
 	}
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

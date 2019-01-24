@@ -864,9 +864,3 @@ void async_deferred_ce_register()
 
 	zend_class_implements(async_deferred_awaitable_ce, 1, async_awaitable_ce);
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

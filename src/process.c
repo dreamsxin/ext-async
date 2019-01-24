@@ -1134,17 +1134,18 @@ ZEND_METHOD(ReadablePipe, read)
 		return;
 	}
 
-	code = async_stream_read_string(pipe->state->stream, &str, len);
+	code = async_stream_read_string(pipe->state->stream, &str, len, 0);
+
+	if (UNEXPECTED(EG(exception))) {
+		return;
+	}
 
 	if (code > 0) {
 		RETURN_STR(str);
 	}
-
-	if (code == 0) {
-		return;
-	}
-
-	ASYNC_CHECK_EXCEPTION(EG(exception) == NULL, async_stream_exception_ce, "Reading from pipe failed: %s", uv_strerror(code));
+	
+	ASYNC_CHECK_EXCEPTION(pipe->state->stream->read.error != NULL, async_stream_exception_ce, "Reading from pipe failed: %s", pipe->state->stream->read.error);
+	ASYNC_CHECK_EXCEPTION(code < 0, async_stream_exception_ce, "Reading from pipe failed: %s", uv_strerror(code));
 }
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_readable_pipe_close, 0, 0, IS_VOID, 0)
@@ -1316,9 +1317,3 @@ void async_process_ce_register()
 
 	zend_class_implements(async_writable_pipe_ce, 1, async_writable_stream_ce);
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

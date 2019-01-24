@@ -1129,9 +1129,3 @@ void async_filesystem_shutdown()
 		php_plain_files_wrapper = orig_file_wrapper;
 	}
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

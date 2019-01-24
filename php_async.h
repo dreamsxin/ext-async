@@ -1013,8 +1013,3 @@ ZEND_TSRMLS_CACHE_EXTERN()
 } while (0)
 
 #endif
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

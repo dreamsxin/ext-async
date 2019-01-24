@@ -969,9 +969,3 @@ void async_udp_socket_ce_register()
 	async_udp_datagram_handlers.has_property = has_datagram_property;
 	async_udp_datagram_handlers.read_property = read_datagram_property;
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */

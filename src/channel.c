@@ -1031,9 +1031,3 @@ void async_channel_ce_register()
 
 	zend_do_inheritance(async_channel_closed_exception_ce, zend_ce_exception);
 }
-
-
-/*
- * vim: sw=4 ts=4
- * vim600: fdm=marker
- */
