@@ -5,6 +5,7 @@ namespace Concurrent\Network;
 if ($_SERVER['argv'][1] ?? null) {
     $tls = new TlsClientEncryption();
     $tls = $tls->withAllowSelfSigned(true);
+    $tls = $tls->withAlpnProtocols('test/1.1', 'test/1.0');
 } else {
     $tls = null;
 }
@@ -14,7 +15,7 @@ $socket = TcpSocket::connect('localhost', 8080, $tls);
 try {
     if ($tls) {
         var_dump('Negotiate TLS');
-        $socket->encrypt();
+        var_dump($socket->encrypt());
         var_dump('TLS established');
     }
     

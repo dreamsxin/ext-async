@@ -8,10 +8,18 @@ $url = $ssl ? 'async-tls://httpbin.org:443' : 'async-tcp://httpbin.org:80';
 $errno = null;
 $errstr = null;
 
-$sock = @stream_socket_client($url, $errno, $errstr, 2, STREAM_CLIENT_CONNECT);
+if ($ssl) {
+    $sock = @stream_socket_client($url, $errno, $errstr, 2, STREAM_CLIENT_CONNECT, stream_context_create([
+        'ssl' => [
+            'alpn_protocols' => 'foo/bar,http/1.1'
+        ]
+    ]));
+} else {
+    $sock = @stream_socket_client($url, $errno, $errstr, 2, STREAM_CLIENT_CONNECT);
+}
 
 if ($sock === false) {
-    var_dump($errno, $errstr);
+    var_dump('Failed to establish connection!', $errno, $errstr);
     exit();
 }
 

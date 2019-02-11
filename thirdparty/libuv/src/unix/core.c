@@ -40,9 +40,9 @@
 #include <sys/uio.h> /* writev */
 #include <sys/resource.h> /* getrusage */
 #include <pwd.h>
+#include <sys/utsname.h>
 
 #ifdef __sun
-# include <netdb.h> /* MAXHOSTNAMELEN on Solaris */
 # include <sys/filio.h>
 # include <sys/types.h>
 # include <sys/wait.h>
@@ -85,15 +85,6 @@
 
 #if defined(__MVS__)
 #include <sys/ioctl.h>
-#endif
-
-#if !defined(__MVS__)
-#include <sys/param.h> /* MAXHOSTNAMELEN on Linux and the BSDs */
-#endif
-
-/* Fallback for the maximum hostname length */
-#ifndef MAXHOSTNAMELEN
-# define MAXHOSTNAMELEN 256
 #endif
 
 static int uv__run_pending(uv_loop_t* loop);
@@ -636,27 +627,6 @@ int uv__cloexec_fcntl(int fd, int set) {
 }
 
 
-/* This function is not execve-safe, there is a race window
- * between the call to dup() and fcntl(FD_CLOEXEC).
- */
-int uv__dup(int fd) {
-  int err;
-
-  fd = dup(fd);
-
-  if (fd == -1)
-    return UV__ERR(errno);
-
-  err = uv__cloexec(fd, 1);
-  if (err) {
-    uv__close(fd);
-    return err;
-  }
-
-  return fd;
-}
-
-
 ssize_t uv__recvmsg(int fd, struct msghdr* msg, int flags) {
   struct cmsghdr* cmsg;
   ssize_t rc;
@@ -912,7 +882,8 @@ void uv__io_close(uv_loop_t* loop, uv__io_t* w) {
   QUEUE_REMOVE(&w->pending_queue);
 
   /* Remove stale events for this file descriptor */
-  uv__platform_invalidate_fd(loop, w->fd);
+  if (w->fd != -1)
+    uv__platform_invalidate_fd(loop, w->fd);
 }
 
 
@@ -1311,7 +1282,7 @@ int uv_os_gethostname(char* buffer, size_t* size) {
     instead by creating a large enough buffer and comparing the hostname length
     to the size input.
   */
-  char buf[MAXHOSTNAMELEN + 1];
+  char buf[UV_MAXHOSTNAMESIZE];
   size_t len;
 
   if (buffer == NULL || size == NULL || *size == 0)
@@ -1377,4 +1348,60 @@ int uv_os_setpriority(uv_pid_t pid, int priority) {
     return UV__ERR(errno);
 
   return 0;
+}
+
+
+int uv_os_uname(uv_utsname_t* buffer) {
+  struct utsname buf;
+  int r;
+
+  if (buffer == NULL)
+    return UV_EINVAL;
+
+  if (uname(&buf) == -1) {
+    r = UV__ERR(errno);
+    goto error;
+  }
+
+  r = uv__strscpy(buffer->sysname, buf.sysname, sizeof(buffer->sysname));
+  if (r == UV_E2BIG)
+    goto error;
+
+#ifdef _AIX
+  r = snprintf(buffer->release,
+               sizeof(buffer->release),
+               "%s.%s",
+               buf.version,
+               buf.release);
+  if (r >= sizeof(buffer->release)) {
+    r = UV_E2BIG;
+    goto error;
+  }
+#else
+  r = uv__strscpy(buffer->release, buf.release, sizeof(buffer->release));
+  if (r == UV_E2BIG)
+    goto error;
+#endif
+
+  r = uv__strscpy(buffer->version, buf.version, sizeof(buffer->version));
+  if (r == UV_E2BIG)
+    goto error;
+
+#if defined(_AIX) || defined(__PASE__)
+  r = uv__strscpy(buffer->machine, "ppc64", sizeof(buffer->machine));
+#else
+  r = uv__strscpy(buffer->machine, buf.machine, sizeof(buffer->machine));
+#endif
+
+  if (r == UV_E2BIG)
+    goto error;
+
+  return 0;
+
+error:
+  buffer->sysname[0] = '\0';
+  buffer->release[0] = '\0';
+  buffer->version[0] = '\0';
+  buffer->machine[0] = '\0';
+  return r;
 }

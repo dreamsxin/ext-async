@@ -75,7 +75,7 @@ static inline void switch_context(async_fiber_context_asm *from, fcontext_t to)
 
 char *async_fiber_backend_info()
 {
-	return "asm (boost.context v1.67.0)";
+	return "asm (boost.context v1.69.0)";
 }
 
 static void async_fiber_asm_start(transfer_t trans)

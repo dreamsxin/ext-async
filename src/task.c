@@ -314,6 +314,8 @@ ASYNC_API int async_await_op(async_op *op)
 	async_task *task;
 	async_task_scheduler *scheduler;
 	async_context *context;
+	
+	zend_bool cancellable;
 
 	ZEND_ASSERT(op->status == ASYNC_OP_PENDING);
 
@@ -350,8 +352,9 @@ ASYNC_API int async_await_op(async_op *op)
 		ASYNC_OP_CHECK_ERROR(op, task->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED, "Cannot await after the task scheduler has been disposed");
 		
 		context = ASYNC_G(current_context);
+		cancellable = !(op->flags & ASYNC_OP_FLAG_ATOMIC) && context->cancel != NULL;
 		
-		if (context->cancel != NULL) {
+		if (cancellable) {
 			if (context->cancel->flags & ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED) {
 				op->status = ASYNC_STATUS_FAILED;
 				
@@ -379,7 +382,7 @@ ASYNC_API int async_await_op(async_op *op)
 	
 		async_fiber_context_yield();
 		
-		if (context->cancel != NULL) {
+		if (cancellable) {
 			ASYNC_DELREF(&context->std);
 			
 			if (op->cancel.object != NULL) {
@@ -412,12 +415,10 @@ static void await_val(async_fiber *fiber, zval *val, zval *return_value, zend_ex
 	async_task_scheduler *scheduler;
 	async_deferred_state *state;
 	async_context *context;
-
-	zend_bool busy;
+	
 	zval error;
 	
 	ce = (Z_TYPE_P(val) == IS_OBJECT) ? Z_OBJCE_P(val) : NULL;
-	busy = 0;
 
 	// Check for root level await.
 	if (fiber == NULL) {
@@ -439,11 +440,6 @@ static void await_val(async_fiber *fiber, zval *val, zval *return_value, zend_ex
 			scheduler->op.arg = scheduler;
 			
 			ASYNC_ENQUEUE_OP(&state->operations, &scheduler->op);
-			
-			if (!context->background && state->context->background) {
-				ASYNC_BUSY_ENTER(scheduler);
-				busy = 1;
-			}
 		} else {
 			inner = (async_task *) Z_OBJ_P(val);
 
@@ -457,16 +453,15 @@ static void await_val(async_fiber *fiber, zval *val, zval *return_value, zend_ex
 			scheduler->op.arg = scheduler;
 			
 			ASYNC_ENQUEUE_OP(&inner->operations, &scheduler->op);
-			
-			if (!context->background && inner->context->background) {
-				ASYNC_BUSY_ENTER(scheduler);
-				busy = 1;
-			}
+		}
+		
+		if (!context->background) {
+			ASYNC_BUSY_ENTER(scheduler);
 		}
 		
 		async_task_scheduler_run_loop(scheduler);
 		
-		if (busy) {
+		if (!context->background) {
 			ASYNC_BUSY_EXIT(scheduler);
 		}
 		
@@ -500,11 +495,6 @@ static void await_val(async_fiber *fiber, zval *val, zval *return_value, zend_ex
 		task->op.arg = task;
 		
 		ASYNC_ENQUEUE_OP(&inner->operations, &task->op);
-		
-		if (!task->context->background && inner->context->background) {
-			ASYNC_BUSY_ENTER(task->scheduler);
-			busy = 1;
-		}
 	} else {
 		state = ((async_deferred_awaitable *) Z_OBJ_P(val))->state;
 		
@@ -516,19 +506,18 @@ static void await_val(async_fiber *fiber, zval *val, zval *return_value, zend_ex
 		task->op.arg = task;
 
 		ASYNC_ENQUEUE_OP(&state->operations, &task->op);
-		
-		if (!task->context->background && state->context->background) {
-			ASYNC_BUSY_ENTER(task->scheduler);
-			busy = 1;
-		}
 	}
 
 	task->fiber.value = USED_RET() ? return_value : NULL;
 	task->fiber.status = ASYNC_FIBER_STATUS_SUSPENDED;
 	
+	if (!task->context->background) {
+		ASYNC_BUSY_ENTER(task->scheduler);
+	}
+	
 	async_fiber_context_yield();
 	
-	if (busy) {
+	if (!task->context->background) {
 		ASYNC_BUSY_EXIT(task->scheduler);
 	}
 	

@@ -15,9 +15,10 @@ TaskScheduler::run(function () {}, function (array $tasks) {
 
 TaskScheduler::run(function () {
     $defer = new Deferred();
+    $a = $defer->awaitable();
 
-    $t = Task::async(function () use ($defer) {
-        Task::await($defer->awaitable());
+    $t = Task::async(function () use ($a) {
+        Task::await($a);
     });
 }, function (array $tasks) {
     array_map(function (array $info) {

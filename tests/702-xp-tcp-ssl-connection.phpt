@@ -11,8 +11,7 @@ namespace Concurrent;
 
 $ctx = stream_context_create([
     'ssl' => [
-        'local_cert' => dirname(__DIR__) . '/examples/cert/localhost.crt',
-        'local_pk' => dirname(__DIR__) . '/examples/cert/localhost.key',
+        'local_cert' => dirname(__DIR__) . '/examples/cert/localhost.pem',
         'passphrase' => 'localhost'
     ]
 ]);
@@ -63,6 +62,8 @@ try {
 
     var_dump(stream_socket_get_name($socket, false));
     
+    (new Timer(100))->awaitTimeout();
+    
     var_dump(feof($socket));
     var_dump(trim(fgets($socket)));
     
@@ -74,7 +75,7 @@ try {
 --EXPECT--
 string(15) "127.0.0.1:10009"
 string(15) "127.0.0.1:10009"
-bool(false)
 string(15) "127.0.0.1:10009"
+bool(false)
 string(5) "Hello"
 string(5) "World"

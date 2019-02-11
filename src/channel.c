@@ -887,13 +887,12 @@ ZEND_METHOD(ChannelIterator, rewind)
 	
 	it = (async_channel_iterator *) Z_OBJ_P(getThis());
 	
-	zval_ptr_dtor(&it->entry);
-	ZVAL_UNDEF(&it->entry);
-	
-	if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->state)) {
-		fetch_next_entry(it);
-	} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
-		forward_error(&it->state->error);
+	if (Z_TYPE_P(&it->entry) == IS_UNDEF) {
+		if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->state)) {
+			fetch_next_entry(it);
+		} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
+			forward_error(&it->state->error);
+		}
 	}
 }
 
@@ -905,7 +904,15 @@ ZEND_METHOD(ChannelIterator, valid)
 	
 	it = (async_channel_iterator *) Z_OBJ_P(getThis());
 	
-	RETURN_BOOL(it->pos >= 0 && Z_TYPE_P(&it->entry) != IS_UNDEF);
+	if (Z_TYPE_P(&it->entry) == IS_UNDEF) {
+		if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->state)) {
+			fetch_next_entry(it);
+		} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
+			forward_error(&it->state->error);
+		}
+	}
+	
+	RETURN_BOOL(Z_TYPE_P(&it->entry) != IS_UNDEF);
 }
 
 ZEND_METHOD(ChannelIterator, current)
@@ -916,10 +923,12 @@ ZEND_METHOD(ChannelIterator, current)
 	
 	it = (async_channel_iterator *) Z_OBJ_P(getThis());
 	
-	if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->state)) {
-		fetch_next_entry(it);
-	} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
-		forward_error(&it->state->error);
+	if (Z_TYPE_P(&it->entry) == IS_UNDEF) {
+		if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->state)) {
+			fetch_next_entry(it);
+		} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
+			forward_error(&it->state->error);
+		}
 	}
 	
 	if (Z_TYPE_P(&it->entry) != IS_UNDEF) {
@@ -935,10 +944,12 @@ ZEND_METHOD(ChannelIterator, key)
 	
 	it = (async_channel_iterator *) Z_OBJ_P(getThis());
 	
-	if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->state)) {
-		fetch_next_entry(it);
-	} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
-		forward_error(&it->state->error);
+	if (Z_TYPE_P(&it->entry) == IS_UNDEF) {
+		if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->state)) {
+			fetch_next_entry(it);
+		} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
+			forward_error(&it->state->error);
+		}
 	}
 	
 	if (it->pos >= 0 && Z_TYPE_P(&it->entry) != IS_UNDEF) {
@@ -954,8 +965,10 @@ ZEND_METHOD(ChannelIterator, next)
 	
 	it = (async_channel_iterator *) Z_OBJ_P(getThis());
 	
-	zval_ptr_dtor(&it->entry);
-	ZVAL_UNDEF(&it->entry);
+	if (Z_TYPE_P(&it->entry) != IS_UNDEF) {
+		zval_ptr_dtor(&it->entry);
+		ZVAL_UNDEF(&it->entry);
+	}
 	
 	if (ASYNC_CHANNEL_READABLE(it->state)) {
 		fetch_next_entry(it);

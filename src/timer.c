@@ -17,9 +17,10 @@
 */
 
 #include "php_async.h"
-
 #include "async_task.h"
+#include "zend_inheritance.h"
 
+ASYNC_API zend_class_entry *async_timeout_exception_ce;
 ASYNC_API zend_class_entry *async_timer_ce;
 
 static zend_object_handlers async_timer_handlers;
@@ -51,6 +52,10 @@ typedef struct {
 	async_cancel_cb cancel;
 } async_timer;
 
+typedef struct {
+	async_deferred_custom_awaitable base;
+	uv_timer_t timer;
+} async_timeout_awaitable;
 
 static void trigger_timer(uv_timer_t *handle)
 {
@@ -277,6 +282,92 @@ ZEND_METHOD(Timer, awaitTimeout)
 	ASYNC_FREE_OP(op);
 }
 
+static void timeout_close_cb(uv_handle_t *handle)
+{
+	async_deferred_awaitable *awaitable;
+	
+	awaitable = (async_deferred_awaitable *) handle->data;
+	
+	ZEND_ASSERT(awaitable != NULL);
+	
+	ASYNC_DELREF(&awaitable->std);
+}
+
+static void timeout_cb(uv_timer_t *timer)
+{
+	async_deferred_awaitable *awaitable;
+	
+	zval error;
+	
+	awaitable = timer->data;
+	
+	ZEND_ASSERT(awaitable != NULL);
+	
+	ASYNC_ADDREF(&awaitable->std);
+	
+	ASYNC_PREPARE_EXCEPTION(&error, async_timeout_exception_ce, "Operation timed out");
+	
+	async_fail_awaitable(awaitable, &error);
+	zval_ptr_dtor(&error);
+	
+	uv_close((uv_handle_t *) timer, timeout_close_cb);
+}
+
+static void timeout_dispose_cb(async_deferred_awaitable *obj)
+{
+	async_timeout_awaitable *awaitable;
+	
+	awaitable = (async_timeout_awaitable *) obj;
+	
+	if (uv_is_active((uv_handle_t *) &awaitable->timer)) {
+		uv_timer_stop(&awaitable->timer);
+	}
+	
+	if (!uv_is_closing((uv_handle_t *) &awaitable->timer)) {
+		ASYNC_ADDREF(&awaitable->base.base.std);
+		
+		uv_close((uv_handle_t *) &awaitable->timer, timeout_close_cb);
+	}
+}
+
+ZEND_METHOD(Timer, timeout)
+{
+	async_timeout_awaitable *awaitable;
+	async_context *context;
+	
+	zval *a;
+	zval obj;
+	
+	uint64_t delay;
+	
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_ZVAL(a)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	delay = (uint64_t) Z_LVAL_P(a);
+
+	ASYNC_CHECK_ERROR(delay < 0, "Delay must not be shorter than 0 milliseconds");
+	
+	awaitable = ecalloc(1, sizeof(async_timeout_awaitable));
+	context = async_context_get();
+	
+	async_init_awaitable((async_deferred_custom_awaitable *) awaitable, timeout_dispose_cb, context);
+	
+	uv_timer_init(&awaitable->base.base.state->scheduler->loop, &awaitable->timer);
+	
+	awaitable->timer.data = awaitable;
+	
+	if (context->background) {
+		uv_unref((uv_handle_t *) &awaitable->timer);
+	}
+	
+	uv_timer_start(&awaitable->timer, timeout_cb, delay, 0);
+	
+	ZVAL_OBJ(&obj, &awaitable->base.base.std);
+	
+	RETURN_ZVAL(&obj, 1, 1);
+}
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_ctor, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, milliseconds, IS_LONG, 0)
 ZEND_END_ARG_INFO()
@@ -288,10 +379,15 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_timer_await_timeout, 0, 0, IS_VOID, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_timer_timeout, 0, 1, Concurrent\\Awaitable, 0)
+	ZEND_ARG_TYPE_INFO(0, milliseconds, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
 static const zend_function_entry async_timer_functions[] = {
 	ZEND_ME(Timer, __construct, arginfo_timer_ctor, ZEND_ACC_PUBLIC)
 	ZEND_ME(Timer, close, arginfo_timer_close, ZEND_ACC_PUBLIC)
 	ZEND_ME(Timer, awaitTimeout, arginfo_timer_await_timeout, ZEND_ACC_PUBLIC)
+	ZEND_ME(Timer, timeout, arginfo_timer_timeout, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_FE_END
 };
 
@@ -372,6 +468,10 @@ static PHP_FUNCTION(asyncsleep)
 }
 
 
+static const zend_function_entry empty_funcs[] = {
+	ZEND_FE_END
+};
+
 void async_timer_ce_register()
 {
 	zend_class_entry ce;
@@ -387,6 +487,11 @@ void async_timer_ce_register()
 	async_timer_handlers.free_obj = async_timer_object_destroy;
 	async_timer_handlers.dtor_obj = async_timer_object_dtor;
 	async_timer_handlers.clone_obj = NULL;
+	
+	INIT_CLASS_ENTRY(ce, "Concurrent\\TimeoutException", empty_funcs);
+	async_timeout_exception_ce = zend_register_internal_class(&ce);
+
+	zend_do_inheritance(async_timeout_exception_ce, zend_ce_exception);
 }
 
 void async_timer_init()

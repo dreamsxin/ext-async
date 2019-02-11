@@ -14,7 +14,7 @@ use Concurrent\Task;
 $file = dirname(__DIR__) . '/examples/cert/localhost.';
 
 $tls = new TlsServerEncryption();
-$tls = $tls->withDefaultCertificate($file . 'crt', $file . 'key', 'localhost');
+$tls = $tls->withDefaultCertificate($file . 'pem', null, 'localhost');
 
 $server = TcpServer::listen('127.0.0.1', 0, $tls);
 
@@ -34,7 +34,6 @@ try {
         try {
             var_dump('START CLIENT HANDSHAKE');
             $socket->encrypt();
-            var_dump('CLIENT HANDSHAKE DONE');
         
             var_dump($socket->read());
             $socket->write('World!');
@@ -52,7 +51,6 @@ try {
     try {
         var_dump('START SERVER HANDSHAKE');
         $socket->encrypt();
-        var_dump('SERVER HANDSHAKE DONE');
         
         $socket->write('Hello');
         
@@ -72,7 +70,5 @@ string(8) "ACCEPTED"
 string(22) "START SERVER HANDSHAKE"
 string(9) "CONNECTED"
 string(22) "START CLIENT HANDSHAKE"
-string(21) "SERVER HANDSHAKE DONE"
-string(21) "CLIENT HANDSHAKE DONE"
 string(5) "Hello"
 string(6) "World!"

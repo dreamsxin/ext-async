@@ -24,6 +24,7 @@ ASYNC_API zend_class_entry *async_deferred_awaitable_ce;
 
 static zend_object_handlers async_deferred_handlers;
 static zend_object_handlers async_deferred_awaitable_handlers;
+static zend_object_handlers async_deferred_custom_awaitable_handlers;
 
 
 static inline void trigger_ops(async_deferred_state *state)
@@ -837,6 +838,57 @@ static const zend_function_entry deferred_functions[] = {
 };
 
 
+ASYNC_API void async_init_awaitable(async_deferred_custom_awaitable *awaitable, void (* dtor)(async_deferred_awaitable *awaitable), async_context *context)
+{
+	if (context == NULL) {
+		context = async_context_get();
+	}
+	
+	zend_object_std_init(&awaitable->base.std, async_deferred_awaitable_ce);
+	awaitable->base.std.handlers = &async_deferred_custom_awaitable_handlers;
+
+	awaitable->base.state = create_state(context);
+	awaitable->dtor = dtor;
+}
+
+ASYNC_API void async_resolve_awaitable(async_deferred_awaitable *awaitable, zval *val)
+{
+	if (awaitable->state->status == ASYNC_DEFERRED_STATUS_PENDING) {
+		awaitable->state->status = ASYNC_DEFERRED_STATUS_RESOLVED;
+		
+		if (val == NULL) {
+			ZVAL_NULL(&awaitable->state->result);
+		} else {
+			ZVAL_COPY(&awaitable->state->result, val);
+		}
+		
+		trigger_ops(awaitable->state);
+	}
+}
+
+ASYNC_API void async_fail_awaitable(async_deferred_awaitable *awaitable, zval *error)
+{
+	if (awaitable->state->status == ASYNC_DEFERRED_STATUS_PENDING) {
+		awaitable->state->status = ASYNC_DEFERRED_STATUS_FAILED;
+		
+		ZVAL_COPY(&awaitable->state->result, error);
+		
+		trigger_ops(awaitable->state);
+	}
+}
+
+static void async_deferred_custom_awaitable_object_destroy(zend_object *object)
+{
+	async_deferred_custom_awaitable *awaitable;
+	
+	awaitable = (async_deferred_custom_awaitable *) object;
+	
+	if (awaitable->base.state->status == ASYNC_DEFERRED_STATUS_PENDING) {
+		awaitable->dtor((async_deferred_awaitable *) awaitable);
+	}
+}
+
+
 void async_deferred_ce_register()
 {
 	zend_class_entry ce;
@@ -861,6 +913,11 @@ void async_deferred_ce_register()
 	memcpy(&async_deferred_awaitable_handlers, &std_object_handlers, sizeof(zend_object_handlers));
 	async_deferred_awaitable_handlers.free_obj = async_deferred_awaitable_object_destroy;
 	async_deferred_awaitable_handlers.clone_obj = NULL;
+	
+	memcpy(&async_deferred_custom_awaitable_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_deferred_custom_awaitable_handlers.free_obj = async_deferred_awaitable_object_destroy;
+	async_deferred_custom_awaitable_handlers.dtor_obj = async_deferred_custom_awaitable_object_destroy;
+	async_deferred_custom_awaitable_handlers.clone_obj = NULL;
 
 	zend_class_implements(async_deferred_awaitable_ce, 1, async_awaitable_ce);
 }

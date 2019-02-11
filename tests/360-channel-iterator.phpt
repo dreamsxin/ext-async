@@ -42,7 +42,7 @@ $it->next();
 var_dump($it->valid());
 
 --EXPECT--
-bool(false)
+bool(true)
 bool(true)
 int(0)
 string(1) "X"

@@ -512,9 +512,6 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_context_shield, 0, 0, Concurrent\\Context, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_context_is_cancelled, 0, 0, _IS_BOOL, 0)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_context_throw_if_cancelled, 0, 0, IS_VOID, 0)
 ZEND_END_ARG_INFO()
 
@@ -680,10 +677,6 @@ ZEND_METHOD(CancellationHandler, __invoke)
 		callback->func(callback->object, &cancel->error);
 	}
 }
-
-ZEND_BEGIN_ARG_INFO_EX(arginfo_cancellation_handler_ctor, 0, 0, 0)
-	ZEND_ARG_OBJ_INFO(0, context, Concurrent\\Context, 1)
-ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_cancellation_handler_invoke, 0, 0, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)

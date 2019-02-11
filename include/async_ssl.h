@@ -38,6 +38,9 @@ typedef struct {
 	/* If set self-signed server certificates are accepted. */
 	zend_bool allow_self_signed;
 
+	/* Can be used to opt out of SNI usage. */
+	zend_bool disable_sni;
+
 	/* Name of the peer to connect to. */
 	zend_string *peer_name;
 
@@ -111,6 +114,11 @@ typedef struct {
 	zend_object std;
 
 	async_ssl_settings settings;
+	
+	zend_string *alpn;
+	
+	zend_string *cafile;
+	zend_string *capath;
 } async_tls_client_encryption;
 
 typedef struct {
@@ -119,14 +127,37 @@ typedef struct {
 
 	async_tls_cert cert;
 	async_tls_cert_queue certs;
+	
+	zend_string *alpn;
+	
+	zend_string *cafile;
+	zend_string *capath;
 } async_tls_server_encryption;
+
+typedef struct {
+	/* PHP object handle. */
+	zend_object std;
+	
+	const char *protocol;
+	const char *cipher_name;
+	int cipher_bits;
+	
+	zend_string *alpn;
+} async_tls_info;
 
 #ifdef HAVE_ASYNC_SSL
 SSL_CTX *async_ssl_create_context();
 int async_ssl_create_engine(async_ssl_engine *engine);
 void async_ssl_dispose_engine(async_ssl_engine *engine, zend_bool ctx);
 
-void async_ssl_setup_sni(SSL_CTX *ctx, async_tls_server_encryption *encryption);
+async_tls_server_encryption *async_ssl_create_server_encryption();
+async_tls_info *async_tls_info_object_create(SSL *ssl);
+
+void async_ssl_setup_client_alpn(SSL_CTX *ctx, zend_string *alpn, zend_bool release);
+
+void async_ssl_setup_server_sni(SSL_CTX *ctx, async_tls_server_encryption *encryption);
+void async_ssl_setup_server_alpn(SSL_CTX *ctx, async_tls_server_encryption *encryption);
+
 void async_ssl_setup_verify_callback(SSL_CTX *ctx, async_ssl_settings *settings);
 int async_ssl_setup_encryption(SSL *ssl, async_ssl_settings *settings);
 #endif

@@ -141,7 +141,9 @@ ASYNC_API extern zend_class_entry *async_tcp_socket_ce;
 ASYNC_API extern zend_class_entry *async_tcp_socket_reader_ce;
 ASYNC_API extern zend_class_entry *async_tcp_socket_writer_ce;
 ASYNC_API extern zend_class_entry *async_tls_client_encryption_ce;
+ASYNC_API extern zend_class_entry *async_tls_info_ce;
 ASYNC_API extern zend_class_entry *async_tls_server_encryption_ce;
+ASYNC_API extern zend_class_entry *async_timeout_exception_ce;
 ASYNC_API extern zend_class_entry *async_timer_ce;
 ASYNC_API extern zend_class_entry *async_udp_datagram_ce;
 ASYNC_API extern zend_class_entry *async_udp_socket_ce;
@@ -202,6 +204,7 @@ typedef struct _async_context_timeout               async_context_timeout;
 typedef struct _async_context_var                   async_context_var;
 typedef struct _async_deferred                      async_deferred;
 typedef struct _async_deferred_awaitable            async_deferred_awaitable;
+typedef struct _async_deferred_custom_awaitable     async_deferred_custom_awaitable;
 typedef struct _async_deferred_state                async_deferred_state;
 typedef struct _async_fiber                         async_fiber;
 typedef struct _async_op                            async_op;
@@ -300,6 +303,7 @@ struct _async_cancel_cb {
 
 #define ASYNC_OP_FLAG_CANCELLED 1
 #define ASYNC_OP_FLAG_DEFER 2
+#define ASYNC_OP_FLAG_ATOMIC 4
 
 typedef enum {
 	ASYNC_STATUS_PENDING,
@@ -541,6 +545,11 @@ struct _async_deferred_awaitable {
 	async_deferred_state *state;
 };
 
+struct _async_deferred_custom_awaitable {
+	async_deferred_awaitable base;	
+	void (* dtor)(async_deferred_awaitable *awaitable);
+};
+
 struct _async_deferred_state {
 	/* Deferred status, one of PENDING, RESOLVED or FAILED. */
 	zend_uchar status;
@@ -692,6 +701,10 @@ ASYNC_API async_context *async_context_get_background();
 ASYNC_API async_task_scheduler *async_task_scheduler_get();
 
 ASYNC_API int async_await_op(async_op *op);
+
+ASYNC_API void async_init_awaitable(async_deferred_custom_awaitable *awaitable, void (* dtor)(async_deferred_awaitable *awaitable), async_context *context);
+ASYNC_API void async_resolve_awaitable(async_deferred_awaitable *awaitable, zval *val);
+ASYNC_API void async_fail_awaitable(async_deferred_awaitable *awaitable, zval *error);
 
 ASYNC_API size_t async_ring_buffer_read_len(async_ring_buffer *buffer);
 ASYNC_API size_t async_ring_buffer_write_len(async_ring_buffer *buffer);

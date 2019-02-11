@@ -212,8 +212,19 @@ static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 	data->astream = async_stream_init((uv_stream_t *) &data->handle, 0);
 	
 	if (tcp->encrypt) {
-		php_stream_xport_crypto_setup(stream, 0, NULL);
-		php_stream_xport_crypto_enable(stream, 1);
+		if (FAILURE == php_stream_xport_crypto_setup(stream, 0, NULL)) {
+			php_error_docref(NULL, E_WARNING, "Failed to setup crypto");
+			xparam->outputs.returncode = -1;
+			
+			return FAILURE;
+		}
+		
+		if (FAILURE == php_stream_xport_crypto_enable(stream, 1)) {
+			php_error_docref(NULL, E_WARNING, "Failed to enable crypto");
+			xparam->outputs.returncode = -1;
+			
+			return FAILURE;
+		}
 	}
 	
 	return SUCCESS;
@@ -331,9 +342,29 @@ static int tcp_socket_accept(php_stream *stream, async_xp_socket_data *data, php
 	client->shutdown = tcp_socket_shutdown;
 	client->get_peer = tcp_socket_get_peer;
 
+	if (server->ssl != NULL) {
+		client->ssl = server->ssl;
+		client->ssl->refcount++;
+	}
+
 	if (server->encrypt) {
-		php_stream_xport_crypto_setup(xparam->outputs.client, 0, NULL);
-		php_stream_xport_crypto_enable(xparam->outputs.client, 1);
+		if (FAILURE == php_stream_xport_crypto_setup(xparam->outputs.client, 0, NULL)) {
+			php_error_docref(NULL, E_WARNING, "Failed to setup crypto");
+			xparam->outputs.returncode = -1;
+			
+			php_stream_close(xparam->outputs.client);
+			
+			return FAILURE;
+		}
+		
+		if (FAILURE == php_stream_xport_crypto_enable(xparam->outputs.client, 1)) {
+			php_error_docref(NULL, E_WARNING, "Failed to enable crypto");
+			xparam->outputs.returncode = -1;
+			
+			php_stream_close(xparam->outputs.client);
+			
+			return FAILURE;
+		}
 	}
 
 	return SUCCESS;

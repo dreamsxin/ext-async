@@ -3,9 +3,10 @@
 
 Vagrant.configure("2") do |config|
 
-  config.vm.box = "ubuntu/trusty64"
+  config.vm.box = "bento/ubuntu-18.10"
 
   config.vm.provider "virtualbox" do |vb|
+    vb.customize ["modifyvm", :id, "--hwvirtex", "off"]
     vb.cpus = 2
     vb.memory = 2048
   end

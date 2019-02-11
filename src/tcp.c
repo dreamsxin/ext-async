@@ -753,6 +753,10 @@ ZEND_METHOD(TcpSocket, encrypt)
 	async_tcp_socket *socket;
 	async_ssl_handshake_data handshake;
 	
+	zval obj;
+	
+	char *cafile;
+	char *capath;
 	int code;
 
 	ZEND_PARSE_PARAMETERS_NONE();
@@ -762,12 +766,19 @@ ZEND_METHOD(TcpSocket, encrypt)
 	ZEND_SECURE_ZERO(&handshake, sizeof(async_ssl_handshake_data));
 	
 	if (socket->server == NULL) {
-		socket->stream->ssl.ctx = async_ssl_create_context();
+		ASYNC_CHECK_ERROR(socket->encryption == NULL, "No encryption settings have been passed to TcpSocket::connect()");
+	
+		cafile = (socket->encryption->cafile == NULL) ? NULL : ZSTR_VAL(socket->encryption->cafile);
+		capath = (socket->encryption->capath == NULL) ? NULL : ZSTR_VAL(socket->encryption->capath);
+	
+		socket->stream->ssl.ctx = async_ssl_create_context(SSL_OP_SINGLE_DH_USE, cafile, capath);
 		
 		async_ssl_setup_verify_callback(socket->stream->ssl.ctx, &socket->encryption->settings);
 		
 		handshake.settings = &socket->encryption->settings;
 		handshake.host = socket->name;
+		
+		async_ssl_setup_client_alpn(socket->stream->ssl.ctx, socket->encryption->alpn, 0);
 	} else {
 		ASYNC_CHECK_EXCEPTION(socket->server->encryption == NULL, async_socket_exception_ce, "No encryption settings have been passed to TcpServer::listen()");
 
@@ -807,6 +818,9 @@ ZEND_METHOD(TcpSocket, encrypt)
 		zend_string_release(handshake.error);
 	}
 	
+	ZVAL_OBJ(&obj, &async_tls_info_object_create(socket->stream->ssl.ssl)->std);
+	
+	RETURN_ZVAL(&obj, 1, 1);	
 #endif
 }
 
@@ -861,7 +875,7 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_get_writable_stream, 0, 0, Concurrent\\Stream\\WritableStream, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_encrypt, 0, 0, IS_VOID, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_encrypt, 0, 0, Concurrent\\Network\\TlsInfo, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_tcp_socket_functions[] = {
@@ -1177,6 +1191,11 @@ ZEND_METHOD(TcpServer, listen)
 
 	struct sockaddr_in bind;
 	int code;
+	
+#ifdef HAVE_ASYNC_SSL
+	char *cafile;
+	char *capath;
+#endif
 
 	tls = NULL;
 
@@ -1220,15 +1239,19 @@ ZEND_METHOD(TcpServer, listen)
 		server->encryption = (async_tls_server_encryption *) Z_OBJ_P(tls);
 
 		ASYNC_ADDREF(&server->encryption->std);
+		
+		cafile = (server->encryption->cafile == NULL) ? NULL : ZSTR_VAL(server->encryption->cafile);
+		capath = (server->encryption->capath == NULL) ? NULL : ZSTR_VAL(server->encryption->capath);
 
-		server->ctx = async_ssl_create_context();
+		server->ctx = async_ssl_create_context(SSL_OP_SINGLE_DH_USE | SSL_OP_CIPHER_SERVER_PREFERENCE, cafile, capath);
 
 		SSL_CTX_set_default_passwd_cb_userdata(server->ctx, &server->encryption->cert);
 
 		SSL_CTX_use_certificate_chain_file(server->ctx, ZSTR_VAL(server->encryption->cert.file));
 		SSL_CTX_use_PrivateKey_file(server->ctx, ZSTR_VAL(server->encryption->cert.key), SSL_FILETYPE_PEM);
 
-		async_ssl_setup_sni(server->ctx, server->encryption);
+		async_ssl_setup_server_sni(server->ctx, server->encryption);
+		async_ssl_setup_server_alpn(server->ctx, server->encryption);
 #else
 		zend_throw_exception_ex(async_socket_exception_ce, 0, "Server encryption requires async extension to be compiled with SSL support");
 		ASYNC_DELREF(&server->std);

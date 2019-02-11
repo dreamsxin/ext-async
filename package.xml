@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2019-01-05</date>
-  <time>18:28:43</time>
+  <date>2019-02-06</date>
+  <time>15:45:31</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -260,6 +260,8 @@
       <file role="test" name="tests/125-task-prevents-duplicate-inlining.phpt"/>
       <file role="test" name="tests/126-task-executor-restores-error.phpt"/>
       <file role="test" name="tests/127-task-busy-while-waiting.phpt"/>
+      <file role="test" name="tests/128-task-await-return-refcount.phpt"/>
+      <file role="test" name="tests/129-task-background-with-cancel.phpt"/>
       <file role="test" name="tests/200-context-var-access.phpt"/>
       <file role="test" name="tests/201-context-nested-var.phpt"/>
       <file role="test" name="tests/202-context-cancel-internal.phpt"/>
@@ -290,6 +292,8 @@
       <file role="test" name="tests/357-channel-select-nonblocking.phpt"/>
       <file role="test" name="tests/358-channel-select-timeout.phpt"/>
       <file role="test" name="tests/359-channel-select-error.phpt"/>
+      <file role="test" name="tests/360-channel-iterator.phpt"/>
+      <file role="test" name="tests/361-channel-buffer-close.phpt"/>
       <file role="test" name="tests/400-timer-at-root-level.phpt"/>
       <file role="test" name="tests/401-timer-within-task.phpt"/>
       <file role="test" name="tests/402-timer-disposed-within-task.phpt"/>
@@ -327,6 +331,9 @@
       <file role="test" name="tests/650-udp-unicast.phpt"/>
       <file role="test" name="tests/651-udp-cancel-receiver.phpt"/>
       <file role="test" name="tests/652-udp-async-send.phpt"/>
+      <file role="test" name="tests/700-xp-tcp-connection.phpt"/>
+      <file role="test" name="tests/701-xp-udp-connection.phpt"/>
+      <file role="test" name="tests/702-xp-tcp-ssl-connection.phpt"/>
       <file role="test" name="tests/ssl.inc"/>
     </dir>
   </contents>

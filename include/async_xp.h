@@ -58,6 +58,17 @@
 #define ASYNC_XP_SOCKET_SHUT_WR 1
 #define ASYNC_XP_SOCKET_SHUT_RDWR 2
 
+typedef struct {
+	uint32_t refcount;
+#ifdef HAVE_ASYNC_SSL
+	SSL_CTX *ctx;
+	async_tls_server_encryption *encryption;
+#endif
+} async_xp_socket_ssl;
+
+async_xp_socket_ssl *async_xp_socket_create_ssl(int options, char *cafile, char *capath);
+void async_xp_socket_release_ssl(async_xp_socket_ssl *ssl);
+
 typedef struct _async_xp_socket_data async_xp_socket_data;
 
 #define ASYNC_XP_SOCKET_DATA_BASE \
@@ -68,6 +79,7 @@ typedef struct _async_xp_socket_data async_xp_socket_data;
 	uint64_t timeout; \
 	uv_timer_t timer; \
 	zend_string *peer; \
+	async_xp_socket_ssl *ssl; \
     int (* connect)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
     int (* bind)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
     int (* listen)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \

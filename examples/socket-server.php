@@ -5,6 +5,7 @@ namespace Concurrent\Network;
 if (($_SERVER['argv'][1] ?? null)) {
     $tls = new TlsServerEncryption();
     $tls = $tls->withDefaultCertificate(__DIR__ . '/cert/localhost.crt', __DIR__ . '/cert/localhost.key', 'localhost');
+    $tls = $tls->withAlpnProtocols('foo/bar', 'test/1.0');
 } else {
     $tls = null;
 }
@@ -23,7 +24,7 @@ try {
             try {
                 if ($tls) {
                     var_dump('Negotiate TLS');
-                    $socket->encrypt();
+                    var_dump($socket->encrypt());
                     var_dump('TLS established');
                 }
                 

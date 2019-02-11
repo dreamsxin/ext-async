@@ -37,7 +37,7 @@ Task::asyncWithContext($c2, function () {
 Task::asyncWithContext($c3, function () {
     var_dump('START UNRELATED');
     
-    (new Timer(200))->awaitTimeout();
+    (new Timer(300))->awaitTimeout();
     
     $context = Context::current();
     

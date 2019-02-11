@@ -9,8 +9,12 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 
 namespace Concurrent;
 
-$producer = function (Channel $channel, string $item, int $delay) {
+$producer = function (Channel $channel, string $item, int $delay, int $skip) {
     try {
+        if ($skip > 0) {
+            (new Timer($skip))->awaitTimeout();
+        }
+        
         $timer = new Timer($delay);
     
         for ($i = 0; $i < 3; $i++) {
@@ -26,11 +30,9 @@ $channels = [
     'A' => new Channel(),
     'B' => new Channel()
 ];
-$delay = 40;
 
 foreach ($channels as $k => $v) {
-    Task::async($producer, $v, $k, $delay);
-    $delay += 50;
+    Task::async($producer, $v, $k, 100, ($k == 'A') ? 0 : 150);
 }
 
 $group = new ChannelGroup($channels, null, true);

@@ -73,14 +73,14 @@ Async stream wrappers have (limited) support for TLS encryption using stream con
 
 | Option | Implementation Status |
 | --- | --- |
-| `crypto_method` | Ignored, ext async will always use TLS 1.2 and automatically detect server / client mode. |
+| `crypto_method` | Ignored, ext-async will always use TLS 1.2 and automatically detect server / client mode. |
 | `peer_name` | Supported, fallback to host name being used to establish the connection. |
 | `verify_peer` | Always enabled! |
 | `verify_peer_name` | Always enabled! |
 | `allow_self_signed` | Supported, defaults to `false`. |
-| `cafile` | Not supported |
-| `capath` | Not supported |
-| `local_cert` | Supported but requires a the private key to be in a file specified by `local_pk`. |
+| `cafile` | Supported |
+| `capath` | Supported |
+| `local_cert` | Supported |
 | `local_pk` | Supported |
 | `passphrase` | Supported |
 | `CN_match` | Ignored (use `peer_name` instead). |
@@ -88,10 +88,11 @@ Async stream wrappers have (limited) support for TLS encryption using stream con
 | `ciphers` | Not supported |
 | `capture_peer_cert` | Not supported |
 | `capture_peer_cert_chain` | Not supported |
-| `SNI_enabled` | Supported, defaults to `false`. |
+| `SNI_enabled` | Supported, defaults to `true`. |
 | `SNI_server_name` | Ignored (use `peer_name` instead). |
 | `disable_compression` | Ignored, compression is always disabled to protect against CRIME attacks. |
 | `peer_fingerprint` | Not supported |
+| `alpn_protocols` | Supported |
 
 ### Awaitable
 
@@ -278,6 +279,8 @@ final class CancellationHandler
 
 The `Timer` class is used to schedule timers with the integrated event loop. Timers do not make use of callbacks, instead they will suspend the current task during `awaitTimeout()` and continue when the next timeout is exceeded. The first call to `awaitTimeout()` will start the timer. If additional tasks await an active the timer they will share the same timeout (which could be less than the value passed to the constructor). A `Timer` can be closed by calling `close()` which will fail all pending timeout subscriptions and prevent any further operations.
 
+You can use `timeout()` to create an awaitable that will fail with a `TimeoutException` after the given number of milliseconds have passed. This is mostly useful when deferred combinators are involved and the (preferred) context API (`withTimeout()`) cannot be used.
+
 ```php
 namespace Concurrent;
 
@@ -288,6 +291,8 @@ final class Timer
     public function close(?\Throwable $e = null): void { }
     
     public function awaitTimeout(): void { }
+    
+    public static function timeout(int $milliseconds): Awaitable { }
 }
 ```
 
@@ -449,6 +454,8 @@ interface Server extends Socket
 
 A `TcpSocket` wraps a TCP network conneciton. It implements `DuplexStream` to provide access based on the stream API. Closing a TCP socket will close both read and write sides of the stream. You can use `getWritableStream()` to aquire the writer and call `close()` on it to signal the remote peer that the stream is half-closed, you can still read data from the remote peer until the stream is closed by the remote peer.
 
+A call to `encrypt()` is needed in order to establish TLS connection encryption. You have to pass a `TlsClientEncryption` object to `connect()` if you want to establish an encrypted connection. A call to `encrypt()` will return the negotiated ALPN protocol or NULL when ALPN is not being used.
+
 ```php
 namespace Concurrent\Network;
 
@@ -461,7 +468,7 @@ final class TcpSocket implements SocketStream
     
     public static function pair(): array { }
     
-    public function encrypt(): void { }
+    public function encrypt(): TlsInfo { }
 }
 ```
 
@@ -480,6 +487,23 @@ final class TcpServer implements Server
 }
 ```
 
+### TlsInfo
+
+```php
+namespace Concurrent\Network;
+
+final class TlsInfo
+{
+    public readonly string $protocol;
+    
+    public readonly string $cipher_name;
+    
+    public readonly int $cipher_bits;
+    
+    public readonly string $alpn_protocol;
+}
+```
+
 ### TlsClientEncryption
 
 Configures an encrypted (TLS) socket client.
@@ -494,6 +518,12 @@ final class TlsClientEncryption
     public function withVerifyDepth(int $depth): TlsClientEncryption { }
     
     public function withPeerName(string $name): TlsClientEncryption { }
+    
+    public function withAlpnProtocols(string ...$protocols): TlsClientEncryption { }
+    
+    public function withCertificateAuthorityPath(string $path): TlsClientEncryption { }
+    
+    public function withCertificateAuthorityFile(string $file): TlsClientEncryption { }
 }
 ```
 
@@ -509,6 +539,12 @@ final class TlsServerEncryption
     public function withDefaultCertificate(string $cert, string $key, ?string $passphrase = null): TlsServerEncryption { }
     
     public function withCertificate(string $host, string $cert, string $key, ?string $passphrase = null): TlsServerEncryption { }
+    
+    public function withAlpnProtocols(string ...$protocols): TlsServerEncryption { }
+    
+    public function withCertificateAuthorityPath(string $path): TlsServerEncryption { }
+    
+    public function withCertificateAuthorityFile(string $file): TlsServerEncryption { }
 }
 ```
 

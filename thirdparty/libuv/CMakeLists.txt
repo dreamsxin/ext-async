@@ -13,7 +13,9 @@ endif()
 
 set(uv_sources
     src/fs-poll.c
+    src/idna.c
     src/inet.c
+    src/strscpy.c
     src/threadpool.c
     src/timer.c
     src/uv-common.c
@@ -64,6 +66,7 @@ set(uv_test_sources
     test/test-homedir.c
     test/test-hrtime.c
     test/test-idle.c
+    test/test-idna.c
     test/test-ip4-addr.c
     test/test-ip6-addr.c
     test/test-ip6-addr.c
@@ -114,6 +117,7 @@ set(uv_test_sources
     test/test-socket-buffer-size.c
     test/test-spawn.c
     test/test-stdio-over-pipes.c
+    test/test-strscpy.c
     test/test-tcp-alloc-cb-fail.c
     test/test-tcp-bind-error.c
     test/test-tcp-bind6-error.c
@@ -145,6 +149,7 @@ set(uv_test_sources
     test/test-timer-from-check.c
     test/test-timer.c
     test/test-tmpdir.c
+    test/test-tty-duplicate-key.c
     test/test-tty.c
     test/test-udp-alloc-cb-fail.c
     test/test-udp-bind.c
@@ -163,6 +168,7 @@ set(uv_test_sources
     test/test-udp-send-immediate.c
     test/test-udp-send-unreachable.c
     test/test-udp-try-send.c
+    test/test-uname.c
     test/test-walk-handles.c
     test/test-watcher-cross-stop.c)
 
@@ -206,7 +212,11 @@ if(WIN32)
   list(APPEND uv_test_sources src/win/snprintf.c test/runner-win.c)
 else()
   list(APPEND uv_defines _FILE_OFFSET_BITS=64 _LARGEFILE_SOURCE)
-  list(APPEND uv_libraries pthread)
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    # Android has pthread as part of its c library, not as a separate
+    # libpthread.so.
+    list(APPEND uv_libraries pthread)
+  endif()
   list(APPEND uv_sources
        src/unix/async.c
        src/unix/core.c
@@ -260,7 +270,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "DragonFly|FreeBSD")
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "DragonFly|FreeBSD|NetBSD|OpenBSD")
-  list(APPEND uv_sources src/unix/posix-hrtime.c)
+  list(APPEND uv_sources src/unix/posix-hrtime.c src/unix/bsd-proctitle.c)
   list(APPEND uv_libraries kvm)
 endif()
 

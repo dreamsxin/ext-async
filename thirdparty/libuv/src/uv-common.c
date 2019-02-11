@@ -72,7 +72,9 @@ char* uv__strndup(const char* s, size_t n) {
 }
 
 void* uv__malloc(size_t size) {
-  return uv__allocator.local_malloc(size);
+  if (size > 0)
+    return uv__allocator.local_malloc(size);
+  return NULL;
 }
 
 void uv__free(void* ptr) {
@@ -91,7 +93,10 @@ void* uv__calloc(size_t count, size_t size) {
 }
 
 void* uv__realloc(void* ptr, size_t size) {
-  return uv__allocator.local_realloc(ptr, size);
+  if (size > 0)
+    return uv__allocator.local_realloc(ptr, size);
+  uv__free(ptr);
+  return NULL;
 }
 
 int uv_replace_allocator(uv_malloc_func malloc_func,
@@ -157,7 +162,7 @@ static const char* uv__unknown_err_code(int err) {
 
 #define UV_ERR_NAME_GEN_R(name, _) \
 case UV_## name: \
-  snprintf(buf, buflen, "%s", #name); break;
+  uv__strscpy(buf, #name, buflen); break;
 char* uv_err_name_r(int err, char* buf, size_t buflen) {
   switch (err) {
     UV_ERRNO_MAP(UV_ERR_NAME_GEN_R)

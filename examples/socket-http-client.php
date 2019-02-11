@@ -4,6 +4,10 @@ namespace Concurrent\Network;
 
 $tls = ($_SERVER['argv'][1] ?? null) ? new TlsClientEncryption() : null;
 
+if ($tls) {
+    $tls = $tls->withAlpnProtocols('foo/bar', 'http/1.1');
+}
+
 $socket = TcpSocket::connect('httpbin.org', $tls ? 443 : 80, $tls);
 
 try {
@@ -13,7 +17,7 @@ try {
     var_dump($socket->setOption(TcpSocket::NODELAY, true));
     
     if ($tls) {
-        $socket->encrypt();
+        var_dump($socket->encrypt());
     }
     
     var_dump($socket->writeAsync("GET /json HTTP/1.0\r\nHost: httpbin.org\r\nConnection: close\r\n\r\n"));
