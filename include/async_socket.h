@@ -175,9 +175,6 @@ static zend_always_inline int async_socket_parse_ipv6(const char *address, uint1
 
 // Socket
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_flush, 0, 0, IS_VOID, 0)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_get_address, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
@@ -195,6 +192,9 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_stream_get_remote_address
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_stream_get_remote_port, 0, 0, IS_LONG, 1)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_stream_flush, 0, 0, IS_VOID, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_stream_write_async, 0, 1, IS_LONG, 0)

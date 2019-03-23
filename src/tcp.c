@@ -818,7 +818,7 @@ static const zend_function_entry async_tcp_socket_functions[] = {
 	ZEND_ME(TcpSocket, connect, arginfo_tcp_socket_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(TcpSocket, pair, arginfo_tcp_socket_pair, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(TcpSocket, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, flush, arginfo_socket_flush, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, flush, arginfo_socket_stream_flush, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, getAddress, arginfo_socket_get_address, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, getPort, arginfo_socket_get_port, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC)

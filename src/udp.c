@@ -713,7 +713,7 @@ static const zend_function_entry async_udp_socket_functions[] = {
 	ZEND_ME(UdpSocket, bind, arginfo_udp_socket_bind, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(UdpSocket, multicast, arginfo_udp_socket_multicast, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(UdpSocket, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(UdpSocket, flush, arginfo_socket_flush, ZEND_ACC_PUBLIC)
+	ZEND_ME(UdpSocket, flush, arginfo_socket_stream_flush, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, getAddress, arginfo_socket_get_address, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, getPort, arginfo_socket_get_port, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC)

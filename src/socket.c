@@ -28,14 +28,12 @@ ASYNC_API zend_class_entry *async_socket_stream_ce;
 
 
 ZEND_METHOD(Socket, close) { }
-ZEND_METHOD(Socket, flush) { }
 ZEND_METHOD(Socket, getAddress) { }
 ZEND_METHOD(Socket, getPort) { }
 ZEND_METHOD(Socket, setOption) { }
 
 static const zend_function_entry async_socket_functions[] = {
 	ZEND_ME(Socket, close, arginfo_stream_close, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
-	ZEND_ME(Socket, flush, arginfo_socket_flush, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_ME(Socket, getAddress, arginfo_socket_get_address, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_ME(Socket, getPort, arginfo_socket_get_port, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_ME(Socket, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
@@ -45,12 +43,14 @@ static const zend_function_entry async_socket_functions[] = {
 
 ZEND_METHOD(SocketStream, getRemoteAddress) { }
 ZEND_METHOD(SocketStream, getRemotePort) { }
+ZEND_METHOD(SocketStream, flush) { }
 ZEND_METHOD(SocketStream, writeAsync) { }
 ZEND_METHOD(SocketStream, getWriteQueueSize) { }
 
 static const zend_function_entry async_socket_stream_functions[] = {
 	ZEND_ME(SocketStream, getRemoteAddress, arginfo_socket_stream_get_remote_address, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_ME(SocketStream, getRemotePort, arginfo_socket_stream_get_remote_port, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
+	ZEND_ME(SocketStream, flush, arginfo_socket_stream_flush, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_ME(SocketStream, writeAsync, arginfo_socket_stream_write_async, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_ME(SocketStream, getWriteQueueSize, arginfo_socket_get_write_queue_size, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_FE_END
