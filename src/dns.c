@@ -17,7 +17,7 @@
 */
 
 #include "php_async.h"
-
+#include "async_socket.h"
 
 static zend_function *orig_gethostbyname;
 static zif_handler orig_gethostbyname_handler;
@@ -26,7 +26,7 @@ static zend_function *orig_gethostbynamel;
 static zif_handler orig_gethostbynamel_handler;
 
 
-static void dns_gethostbyname_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *addr)
+ASYNC_CALLBACK dns_gethostbyname_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *addr)
 {
 	async_uv_op *op;
 	
@@ -34,7 +34,7 @@ static void dns_gethostbyname_cb(uv_getaddrinfo_t *req, int status, struct addri
 	
 	ZEND_ASSERT(op != NULL);
 	
-	if (status == UV_ECANCELED) {
+	if (UNEXPECTED(status == UV_ECANCELED)) {
 		ASYNC_FREE_OP(op);
 	} else {	
 		op->code = status;
@@ -45,31 +45,31 @@ static void dns_gethostbyname_cb(uv_getaddrinfo_t *req, int status, struct addri
 
 static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, int proto)
 {
-	async_task_scheduler *scheduler;
 	async_uv_op *op;
 	
 	struct addrinfo hints;
 	int code;
 	
 	op = NULL;
-	scheduler = async_task_scheduler_get();
 	
-	if (async_cli) {
+	if (ASYNC_CLI) {
 		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op));
 		
 		req->data = op;
 	}
 	
-	ZEND_SECURE_ZERO(&hints, sizeof(struct addrinfo));
+	memset(&hints, 0, sizeof(struct addrinfo));
 	
 	if (proto > 0) {
 		hints.ai_protocol = proto;
 	}
 
-	code = uv_getaddrinfo(&scheduler->loop, req, async_cli ? dns_gethostbyname_cb : NULL, name, NULL, &hints);
+	async_configure_threadpool();
+
+	code = uv_getaddrinfo(async_loop_get(), req, ASYNC_CLI ? dns_gethostbyname_cb : NULL, name, NULL, &hints);
 	
 	if (UNEXPECTED(code < 0)) {
-		if (async_cli) {
+		if (ASYNC_CLI) {
 			ASYNC_FREE_OP(op);
 		}
 	
@@ -78,7 +78,7 @@ static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, int proto)
 		return code;
 	}
 	
-	if (async_cli) {
+	if (ASYNC_CLI) {
 		if (async_await_op((async_op *) op) == FAILURE) {
 			ASYNC_FORWARD_OP_ERROR(op);
 			
@@ -105,15 +105,70 @@ static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, int proto)
 	return 0;
 }
 
+ASYNC_API int async_dns_lookup_ip(char *name, php_sockaddr_storage *dest, int proto)
+{
+	uv_getaddrinfo_t req;
+	struct addrinfo *info;
+	int code;
+	
+	memset(dest, 0, sizeof(php_sockaddr_storage));
+	
+	if (SUCCESS == async_socket_parse_ip((const char *) name, 0, dest)) {
+		return 0;
+	}
+	
+	code = dns_gethostbyname(&req, name, proto);
+	
+	if (UNEXPECTED(code != 0)) {
+		return code;
+	}
+	
+	info = req.addrinfo;
+	
+	while (info != NULL) {
+		if (info->ai_family == AF_INET && (info->ai_protocol == proto || proto == 0)) {
+			memcpy(dest, info->ai_addr, sizeof(struct sockaddr_in));
+			
+			uv_freeaddrinfo(req.addrinfo);
+			
+			return 0;
+		}
+		
+		info = info->ai_next;
+	}
+	
+	info = req.addrinfo;
+
+	while (info != NULL) {
+		if (info->ai_family == AF_INET6 && (info->ai_protocol == proto || proto == 0)) {
+			memcpy(dest, info->ai_addr, sizeof(struct sockaddr_in6));
+
+			uv_freeaddrinfo(req.addrinfo);
+			
+			return 0;
+		}
+
+		info = info->ai_next;
+	}
+	
+	uv_freeaddrinfo(req.addrinfo);
+	
+	return UV_EAI_NODATA;
+}
+
 ASYNC_API int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, int proto)
 {
 	uv_getaddrinfo_t req;
 	struct addrinfo *info;
 	int code;
 	
+	if (SUCCESS == async_socket_parse_ipv4((const char *) name, 0, dest)) {
+		return 0;
+	}
+	
 	code = dns_gethostbyname(&req, name, proto);
 	
-	if (code != 0) {
+	if (UNEXPECTED(code != 0)) {
 		return code;
 	}
 	
@@ -136,15 +191,20 @@ ASYNC_API int async_dns_lookup_ipv4(char *name, struct sockaddr_in *dest, int pr
 	return UV_EAI_NODATA;
 }
 
+#ifdef HAVE_IPV6
 ASYNC_API int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, int proto)
 {
 	uv_getaddrinfo_t req;
 	struct addrinfo *info;
 	int code;
 
+	if (SUCCESS == async_socket_parse_ipv6((const char *) name, 0, dest)) {
+		return 0;
+	}
+
 	code = dns_gethostbyname(&req, name, proto);
 
-	if (code != 0) {
+	if (UNEXPECTED(code != 0)) {
 		return code;
 	}
 
@@ -166,7 +226,7 @@ ASYNC_API int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, int p
 
 	return UV_EAI_NODATA;
 }
-
+#endif
 
 static PHP_FUNCTION(asyncgethostbyname)
 {
@@ -174,26 +234,33 @@ static PHP_FUNCTION(asyncgethostbyname)
 	size_t len;
 	
 	uv_getaddrinfo_t req;
+	struct sockaddr_in dest;
 	struct addrinfo *info;
-	char ip[16];
+	char ip[256];
 	int code;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_STRING(name, len)
 	ZEND_PARSE_PARAMETERS_END();
 
-	if (len > MAXFQDNLEN) {
+	if (UNEXPECTED(len > MAXFQDNLEN)) {
 		php_error_docref(NULL, E_WARNING, "Host name is too long, the limit is %d characters", MAXFQDNLEN);
 		RETURN_STRINGL(name, len);
 	}
 	
-	if (!USED_RET()) {
+	if (UNEXPECTED(!USED_RET())) {
 		return;
+	}
+	
+	if (SUCCESS == async_socket_parse_ipv4((const char *) name, 0, &dest)) {
+		uv_ip4_name(&dest, ip, 255);
+		
+		RETURN_STRING(ip);
 	}
 	
 	code = dns_gethostbyname(&req, name, 0);
 	
-	if (code != 0) {
+	if (UNEXPECTED(code != 0)) {
 		RETURN_STRINGL(name, len);
 	}
 	
@@ -222,26 +289,36 @@ static PHP_FUNCTION(asyncgethostbynamel)
 	zend_string *k;
 	
 	uv_getaddrinfo_t req;
+	struct sockaddr_in dest;
 	struct addrinfo *info;
-	char ip[16];
+	char ip[256];
 	int code;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_STRING(name, len)
 	ZEND_PARSE_PARAMETERS_END();
 
-	if (len > MAXFQDNLEN) {
+	if (UNEXPECTED(len > MAXFQDNLEN)) {
 		php_error_docref(NULL, E_WARNING, "Host name is too long, the limit is %d characters", MAXFQDNLEN);
 		RETURN_STRINGL(name, len);
 	}
 	
-	if (!USED_RET()) {
+	if (UNEXPECTED(!USED_RET())) {
+		return;
+	}
+	
+	if (SUCCESS == async_socket_parse_ipv4((const char *) name, 0, &dest)) {
+		uv_ip4_name(&dest, ip, 255);
+		
+		array_init(return_value);
+		add_next_index_str(return_value, zend_string_init(ip, strlen(ip), 0));
+		
 		return;
 	}
 	
 	code = dns_gethostbyname(&req, name, 0);
 	
-	if (code != 0) {
+	if (UNEXPECTED(code != 0)) {
 		RETURN_FALSE;
 	}
 

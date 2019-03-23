@@ -17,7 +17,6 @@
 */
 
 #include "php_async.h"
-#include "async_task.h"
 
 ASYNC_API zend_class_entry *async_deferred_ce;
 ASYNC_API zend_class_entry *async_deferred_awaitable_ce;
@@ -26,18 +25,22 @@ static zend_object_handlers async_deferred_handlers;
 static zend_object_handlers async_deferred_awaitable_handlers;
 static zend_object_handlers async_deferred_custom_awaitable_handlers;
 
+#define ASYNC_DEFERRED_STATUS_PENDING 0
+#define ASYNC_DEFERRED_STATUS_RESOLVED ASYNC_OP_RESOLVED
+#define ASYNC_DEFERRED_STATUS_FAILED ASYNC_OP_FAILED
 
-static inline void trigger_ops(async_deferred_state *state)
+
+static zend_always_inline void trigger_ops(async_deferred_state *state)
 {
 	async_op *op;
 	
 	if (state->cancel.object != NULL) {
-		ASYNC_Q_DETACH(&state->scheduler->shutdown, &state->cancel);
+		ASYNC_LIST_REMOVE(&state->scheduler->shutdown, &state->cancel);
 		state->cancel.object = NULL;
 	}
 	
 	while (state->operations.first != NULL) {
-		ASYNC_DEQUEUE_OP(&state->operations, op);
+		ASYNC_NEXT_OP(&state->operations, op);
 		
 		if (state->status == ASYNC_OP_RESOLVED) {
 			ASYNC_RESOLVE_OP(op, &state->result);
@@ -47,7 +50,7 @@ static inline void trigger_ops(async_deferred_state *state)
 	}
 }
 
-static void shutdown_state(void *obj, zval *error)
+ASYNC_CALLBACK shutdown_state(void *obj, zval *error)
 {
 	async_deferred_state *state;
 	
@@ -63,31 +66,29 @@ static void shutdown_state(void *obj, zval *error)
 	trigger_ops(state);
 }
 
-static async_deferred_state *create_state(async_context *context)
+static zend_always_inline async_deferred_state *create_state(async_context *context)
 {
 	async_deferred_state *state;
 
-	state = emalloc(sizeof(async_deferred_state));
-	ZEND_SECURE_ZERO(state, sizeof(async_deferred_state));
+	state = ecalloc(1, sizeof(async_deferred_state));
 
 	ZVAL_NULL(&state->result);
 
 	state->refcount = 1;
-	state->scheduler = async_task_scheduler_get();
+	state->scheduler = async_task_scheduler_ref();
 	state->context = context;
 	
 	state->cancel.object = state;
 	state->cancel.func = shutdown_state;
 	
-	ASYNC_Q_ENQUEUE(&state->scheduler->shutdown, &state->cancel);
+	ASYNC_LIST_APPEND(&state->scheduler->shutdown, &state->cancel);
 	
-	ASYNC_ADDREF(&state->scheduler->std);
 	ASYNC_ADDREF(&context->std);
 
 	return state;
 }
 
-static void release_state(async_deferred_state *state)
+static zend_always_inline void release_state(async_deferred_state *state)
 {
 	async_op *op;
 
@@ -98,18 +99,18 @@ static void release_state(async_deferred_state *state)
 	ZEND_ASSERT(state->status == ASYNC_DEFERRED_STATUS_PENDING || state->operations.first == NULL);
 
 	if (state->cancel.object != NULL) {
-		ASYNC_Q_DETACH(&state->scheduler->shutdown, &state->cancel);
+		ASYNC_LIST_REMOVE(&state->scheduler->shutdown, &state->cancel);
 		state->cancel.object = NULL;
 	}
 
-	if (state->status == ASYNC_DEFERRED_STATUS_PENDING) {
+	if (UNEXPECTED(state->status == ASYNC_DEFERRED_STATUS_PENDING)) {
 		state->status = state->status == ASYNC_DEFERRED_STATUS_FAILED;
 
 		if (state->operations.first != NULL) {
 			ASYNC_PREPARE_ERROR(&state->result, "Awaitable has been disposed before it was resolved");
 
 			while (state->operations.first != NULL) {
-				ASYNC_DEQUEUE_OP(&state->operations, op);
+				ASYNC_NEXT_OP(&state->operations, op);
 				ASYNC_FAIL_OP(op, &state->result);
 			}
 		}
@@ -117,44 +118,43 @@ static void release_state(async_deferred_state *state)
 
 	zval_ptr_dtor(&state->result);
 
-	ASYNC_DELREF(&state->scheduler->std);
+	async_task_scheduler_unref(state->scheduler);
 	ASYNC_DELREF(&state->context->std);
 
 	efree(state);
 }
 
+static zend_always_inline void cleanup_cancel(async_deferred *defer)
+{
+	if (defer->cancel.object != NULL && Z_TYPE_P(&defer->fci.function_name) != IS_UNDEF) {
+		ASYNC_LIST_REMOVE(&defer->state->context->cancel->callbacks, &defer->cancel);
+		defer->cancel.object = NULL;
+	}
+}
 
-#define ASYNC_DEFERRED_CLEANUP_CANCEL(defer) do { \
-	if (defer->cancel.object != NULL && Z_TYPE_P(&defer->fci.function_name) != IS_UNDEF) { \
-		ASYNC_Q_DETACH(&defer->state->context->cancel->callbacks, &defer->cancel); \
-		defer->cancel.object = NULL; \
-	} \
-} while (0);
-
-
-static inline void register_defer_op(async_op *op, async_deferred_state *state)
+static zend_always_inline void register_defer_op(async_op *op, async_deferred_state *state)
 {
 	if (state->status == ASYNC_OP_RESOLVED) {
 		ASYNC_RESOLVE_OP(op, &state->result);
 	} else if (state->status == ASYNC_OP_FAILED) {
 		ASYNC_FAIL_OP(op, &state->result);
 	} else {
-		ASYNC_ENQUEUE_OP(&state->operations, op);
+		ASYNC_APPEND_OP(&state->operations, op);
 	}
 }
 
-static inline void register_task_op(async_op *op, async_task *task)
+static zend_always_inline void register_task_op(async_op *op, async_task *task)
 {
-	if (task->fiber.status == ASYNC_OP_RESOLVED) {
+	if (task->status == ASYNC_OP_RESOLVED) {
 		ASYNC_RESOLVE_OP(op, &task->result);
-	} else if (task->fiber.status == ASYNC_OP_FAILED) {
+	} else if (task->status == ASYNC_OP_FAILED) {
 		ASYNC_FAIL_OP(op, &task->result);
 	} else {
-		ASYNC_ENQUEUE_OP(&task->operations, op);
+		ASYNC_APPEND_OP(&task->operations, op);
 	}
 }
 
-static void cancel_defer(void *obj, zval* error)
+ASYNC_CALLBACK cancel_defer(void *obj, zval* error)
 {
 	async_deferred *defer;
 
@@ -177,7 +177,7 @@ static void cancel_defer(void *obj, zval* error)
 	defer->fci.retval = &retval;
 	defer->fci.no_separation = 1;
 
-	async_task_scheduler_call_nowait(async_task_scheduler_get(), &defer->fci, &defer->fcc);
+	async_call_nowait(&defer->fci, &defer->fcc);
 
 	zval_ptr_dtor(&args[0]);
 	zval_ptr_dtor(&args[1]);
@@ -185,7 +185,7 @@ static void cancel_defer(void *obj, zval* error)
 
 	ASYNC_DELREF_CB(defer->fci);
 
-	ASYNC_CHECK_FATAL(UNEXPECTED(EG(exception)), "Must not throw an error from cancellation handler");
+	ASYNC_CHECK_FATAL(EG(exception), "Must not throw an error from cancellation handler");
 }
 
 
@@ -193,8 +193,7 @@ static async_deferred_awaitable *async_deferred_awaitable_object_create(async_de
 {
 	async_deferred_awaitable *awaitable;
 
-	awaitable = emalloc(sizeof(async_deferred_awaitable));
-	ZEND_SECURE_ZERO(awaitable, sizeof(async_deferred_awaitable));
+	awaitable = ecalloc(1, sizeof(async_deferred_awaitable));
 
 	zend_object_std_init(&awaitable->std, async_deferred_awaitable_ce);
 	awaitable->std.handlers = &async_deferred_awaitable_handlers;
@@ -217,14 +216,14 @@ static void async_deferred_awaitable_object_destroy(zend_object *object)
 	zend_object_std_dtor(&awaitable->std);
 }
 
-ZEND_METHOD(DeferredAwaitable, __construct)
+static ZEND_METHOD(DeferredAwaitable, __construct)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	zend_throw_error(NULL, "Deferred awaitable must not be created from userland code");
 }
 
-ZEND_METHOD(DeferredAwaitable, __debugInfo)
+static ZEND_METHOD(DeferredAwaitable, __debugInfo)
 {
 	async_deferred_state *state;
 
@@ -262,8 +261,7 @@ static zend_object *async_deferred_object_create(zend_class_entry *ce)
 {
 	async_deferred *defer;
 
-	defer = emalloc(sizeof(async_deferred));
-	ZEND_SECURE_ZERO(defer, sizeof(async_deferred));
+	defer = ecalloc(1, sizeof(async_deferred));
 
 	zend_object_std_init(&defer->std, ce);
 	defer->std.handlers = &async_deferred_handlers;
@@ -279,7 +277,7 @@ static void async_deferred_object_destroy(zend_object *object)
 
 	defer = (async_deferred *) object;
 
-	ASYNC_DEFERRED_CLEANUP_CANCEL(defer);
+	cleanup_cancel(defer);
 	
 	if (defer->state->status == ASYNC_DEFERRED_STATUS_PENDING) {
 		defer->state->status = ASYNC_OP_FAILED;
@@ -293,7 +291,7 @@ static void async_deferred_object_destroy(zend_object *object)
 	zend_object_std_dtor(&defer->std);
 }
 
-ZEND_METHOD(Deferred, __construct)
+static ZEND_METHOD(Deferred, __construct)
 {
 	async_deferred *defer;
 	async_context *context;
@@ -317,13 +315,13 @@ ZEND_METHOD(Deferred, __construct)
 				
 				ASYNC_ADDREF_CB(defer->fci);
 
-				ASYNC_Q_ENQUEUE(&context->cancel->callbacks, &defer->cancel);
+				ASYNC_LIST_APPEND(&context->cancel->callbacks, &defer->cancel);
 			}
 		}
 	}
 }
 
-ZEND_METHOD(Deferred, __debugInfo)
+static ZEND_METHOD(Deferred, __debugInfo)
 {
 	async_deferred *defer;
 
@@ -344,7 +342,7 @@ ZEND_METHOD(Deferred, __debugInfo)
 	}
 }
 
-ZEND_METHOD(Deferred, awaitable)
+static ZEND_METHOD(Deferred, awaitable)
 {
 	async_deferred *defer;
 
@@ -359,7 +357,7 @@ ZEND_METHOD(Deferred, awaitable)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(Deferred, resolve)
+static ZEND_METHOD(Deferred, resolve)
 {
 	async_deferred *defer;
 
@@ -373,8 +371,7 @@ ZEND_METHOD(Deferred, resolve)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if (val != NULL && Z_TYPE_P(val) == IS_OBJECT) {
-		if (instanceof_function(Z_OBJCE_P(val), async_awaitable_ce) != 0) {
-
+		if (UNEXPECTED(instanceof_function(Z_OBJCE_P(val), async_awaitable_ce) != 0)) {
 			zend_throw_error(NULL, "Deferred must not be resolved with an object implementing Awaitable");
 			return;
 		}
@@ -382,22 +379,22 @@ ZEND_METHOD(Deferred, resolve)
 
 	defer = (async_deferred *) Z_OBJ_P(getThis());
 
-	if (defer->state->status != ASYNC_DEFERRED_STATUS_PENDING) {
+	if (UNEXPECTED(defer->state->status != ASYNC_DEFERRED_STATUS_PENDING)) {
 		return;
 	}
 
-	if (val != NULL) {
+	if (EXPECTED(val != NULL)) {
 		ZVAL_COPY(&defer->state->result, val);
 	}
 
 	defer->state->status = ASYNC_DEFERRED_STATUS_RESOLVED;
 
-	ASYNC_DEFERRED_CLEANUP_CANCEL(defer);
+	cleanup_cancel(defer);
 	
 	trigger_ops(defer->state);
 }
 
-ZEND_METHOD(Deferred, fail)
+static ZEND_METHOD(Deferred, fail)
 {
 	async_deferred *defer;
 
@@ -409,7 +406,7 @@ ZEND_METHOD(Deferred, fail)
 
 	defer = (async_deferred *) Z_OBJ_P(getThis());
 
-	if (defer->state->status != ASYNC_DEFERRED_STATUS_PENDING) {
+	if (UNEXPECTED(defer->state->status != ASYNC_DEFERRED_STATUS_PENDING)) {
 		return;
 	}
 
@@ -417,12 +414,12 @@ ZEND_METHOD(Deferred, fail)
 
 	defer->state->status = ASYNC_DEFERRED_STATUS_FAILED;
 
-	ASYNC_DEFERRED_CLEANUP_CANCEL(defer);
+	cleanup_cancel(defer);
 	
 	trigger_ops(defer->state);
 }
 
-ZEND_METHOD(Deferred, value)
+static ZEND_METHOD(Deferred, value)
 {
 	async_deferred_state *state;
 	async_deferred_awaitable *awaitable;
@@ -438,7 +435,7 @@ ZEND_METHOD(Deferred, value)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if (val != NULL && Z_TYPE_P(val) == IS_OBJECT) {
-		if (instanceof_function(Z_OBJCE_P(val), async_awaitable_ce) != 0) {
+		if (UNEXPECTED(instanceof_function(Z_OBJCE_P(val), async_awaitable_ce) != 0)) {
 			zend_throw_error(NULL, "Deferred must not be resolved with an object implementing Awaitable");
 			return;
 		}
@@ -450,7 +447,7 @@ ZEND_METHOD(Deferred, value)
 	state->status = ASYNC_DEFERRED_STATUS_RESOLVED;
 	state->refcount--;
 
-	if (val != NULL) {
+	if (EXPECTED(val != NULL)) {
 		ZVAL_COPY(&state->result, val);
 	}
 
@@ -459,7 +456,7 @@ ZEND_METHOD(Deferred, value)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(Deferred, error)
+static ZEND_METHOD(Deferred, error)
 {
 	async_deferred_state *state;
 	async_deferred_awaitable *awaitable;
@@ -499,7 +496,7 @@ typedef struct {
 	zval key;
 } async_defer_combine_op;
 
-static void combine_cb(async_op *op)
+ASYNC_CALLBACK combine_cb(async_op *op)
 {
 	async_defer_combine_op *cb;
 	async_defer_combine *combined;
@@ -537,14 +534,13 @@ static void combine_cb(async_op *op)
 	combined->fci.retval = &retval;
 
 	error = EG(exception);
-	EG(exception) = NULL;
 
-	// TODO: Check why keeping a reference is necessary...
-	if (error != NULL) {
+	if (UNEXPECTED(error != NULL)) {
 		ASYNC_ADDREF(error);
+		zend_clear_exception();
 	}
 
-	async_task_scheduler_call_nowait(async_task_scheduler_get(), &combined->fci, &combined->fcc);
+	async_call_nowait(&combined->fci, &combined->fcc);
 
 	for (i = 0; i < 5; i++) {
 		zval_ptr_dtor(&args[i]);
@@ -593,7 +589,7 @@ static void combine_cb(async_op *op)
 	EG(exception) = error;
 }
 
-ZEND_METHOD(Deferred, combine)
+static ZEND_METHOD(Deferred, combine)
 {
 	async_deferred *defer;
 	async_deferred_awaitable *awaitable;
@@ -618,7 +614,7 @@ ZEND_METHOD(Deferred, combine)
 
 	count = zend_array_count(Z_ARRVAL_P(args));
 
-	if (count == 0) {
+	if (UNEXPECTED(count == 0)) {
 		zend_throw_error(zend_ce_argument_count_error, "At least one awaitable is required");
 		return;
 	}
@@ -628,7 +624,7 @@ ZEND_METHOD(Deferred, combine)
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(args), entry) {
 		ce = (Z_TYPE_P(entry) == IS_OBJECT) ? Z_OBJCE_P(entry) : NULL;
 
-		if (ce != async_task_ce && ce != async_deferred_awaitable_ce) {
+		if (UNEXPECTED(ce != async_task_ce && ce != async_deferred_awaitable_ce)) {
 			zend_throw_error(zend_ce_type_error, "All input elements must be awaitable");
 			return;
 		}
@@ -684,7 +680,7 @@ typedef struct {
 	zend_fcall_info_cache fcc;	
 } async_defer_transform_op;
 
-static void transform_cb(async_op *op)
+ASYNC_CALLBACK transform_cb(async_op *op)
 {
 	async_defer_transform_op *trans;
 	
@@ -707,14 +703,13 @@ static void transform_cb(async_op *op)
 	trans->fci.retval = &retval;
 
 	error = EG(exception);
-	EG(exception) = NULL;
 
-	// TODO: Check why keeping a reference is necessary...
-	if (error != NULL) {
+	if (UNEXPECTED(error != NULL)) {
 		ASYNC_ADDREF(error);
+		zend_clear_exception();
 	}
 
-	async_task_scheduler_call_nowait(async_task_scheduler_get(), &trans->fci, &trans->fcc);
+	async_call_nowait(&trans->fci, &trans->fcc);
 
 	zval_ptr_dtor(&args[0]);
 	zval_ptr_dtor(&args[1]);
@@ -745,7 +740,7 @@ static void transform_cb(async_op *op)
 	ASYNC_FREE_OP(op);
 }
 
-ZEND_METHOD(Deferred, transform)
+static ZEND_METHOD(Deferred, transform)
 {
 	async_deferred_state *state;
 	async_deferred_awaitable *awaitable;
@@ -840,7 +835,7 @@ static const zend_function_entry deferred_functions[] = {
 
 ASYNC_API void async_init_awaitable(async_deferred_custom_awaitable *awaitable, void (* dtor)(async_deferred_awaitable *awaitable), async_context *context)
 {
-	if (context == NULL) {
+	if (EXPECTED(context == NULL)) {
 		context = async_context_get();
 	}
 	
@@ -853,10 +848,10 @@ ASYNC_API void async_init_awaitable(async_deferred_custom_awaitable *awaitable, 
 
 ASYNC_API void async_resolve_awaitable(async_deferred_awaitable *awaitable, zval *val)
 {
-	if (awaitable->state->status == ASYNC_DEFERRED_STATUS_PENDING) {
+	if (EXPECTED(awaitable->state->status == ASYNC_DEFERRED_STATUS_PENDING)) {
 		awaitable->state->status = ASYNC_DEFERRED_STATUS_RESOLVED;
 		
-		if (val == NULL) {
+		if (UNEXPECTED(val == NULL)) {
 			ZVAL_NULL(&awaitable->state->result);
 		} else {
 			ZVAL_COPY(&awaitable->state->result, val);
@@ -868,7 +863,7 @@ ASYNC_API void async_resolve_awaitable(async_deferred_awaitable *awaitable, zval
 
 ASYNC_API void async_fail_awaitable(async_deferred_awaitable *awaitable, zval *error)
 {
-	if (awaitable->state->status == ASYNC_DEFERRED_STATUS_PENDING) {
+	if (EXPECTED(awaitable->state->status == ASYNC_DEFERRED_STATUS_PENDING)) {
 		awaitable->state->status = ASYNC_DEFERRED_STATUS_FAILED;
 		
 		ZVAL_COPY(&awaitable->state->result, error);
@@ -883,7 +878,7 @@ static void async_deferred_custom_awaitable_object_destroy(zend_object *object)
 	
 	awaitable = (async_deferred_custom_awaitable *) object;
 	
-	if (awaitable->base.state->status == ASYNC_DEFERRED_STATUS_PENDING) {
+	if (UNEXPECTED(awaitable->base.state->status == ASYNC_DEFERRED_STATUS_PENDING)) {
 		awaitable->dtor((async_deferred_awaitable *) awaitable);
 	}
 }

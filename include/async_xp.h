@@ -21,6 +21,7 @@
 
 #include "async_ssl.h"
 #include "async_stream.h"
+#include "async_socket.h"
 
 #define ASYNC_XP_SOCKET_REPORT_NETWORK_ERROR(code, xparam) do { \
 	const char *message; \
@@ -84,7 +85,7 @@ typedef struct _async_xp_socket_data async_xp_socket_data;
     int (* bind)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
     int (* listen)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
     int (* accept)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \
-    int (* shutdown)(async_xp_socket_data *data, int how); \
+    int (* shutdown)(php_stream *stream, async_xp_socket_data *data, int how); \
     size_t (* write)(php_stream *stream, async_xp_socket_data *data, const char *buf, size_t count); \
     size_t (* read)(php_stream *stream, async_xp_socket_data *data, char *buf, size_t count); \
     int (* send)(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam); \

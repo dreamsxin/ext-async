@@ -107,7 +107,7 @@ struct _async_tls_cert {
 typedef struct {
 	async_tls_cert *first;
 	async_tls_cert *last;
-} async_tls_cert_queue;
+} async_tls_cert_list;
 
 typedef struct {
 	/* PHP object handle. */
@@ -126,7 +126,7 @@ typedef struct {
 	zend_object std;
 
 	async_tls_cert cert;
-	async_tls_cert_queue certs;
+	async_tls_cert_list certs;
 	
 	zend_string *alpn;
 	
@@ -146,8 +146,10 @@ typedef struct {
 } async_tls_info;
 
 #ifdef HAVE_ASYNC_SSL
+
 SSL_CTX *async_ssl_create_context();
 int async_ssl_create_engine(async_ssl_engine *engine);
+int async_ssl_create_socket_engine(async_ssl_engine *engine, php_socket_t sock);
 void async_ssl_dispose_engine(async_ssl_engine *engine, zend_bool ctx);
 
 async_tls_server_encryption *async_ssl_create_server_encryption();

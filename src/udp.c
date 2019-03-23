@@ -17,8 +17,8 @@
 */
 
 #include "php_async.h"
-
-#include "async_task.h"
+#include "async_stream.h"
+#include "async_socket.h"
 
 #define ASYNC_SOCKET_UDP_TTL 200
 #define ASYNC_SOCKET_UDP_MULTICAST_LOOP 250
@@ -41,8 +41,7 @@ typedef struct {
 	zend_object std;
 	
 	zend_string *data;
-	zend_string *address;
-	zend_long port;
+	php_sockaddr_storage peer;
 } async_udp_datagram;
 
 typedef struct {
@@ -60,8 +59,9 @@ typedef struct {
 	zval error;
 	zend_uchar ref_count;
 	
-	async_op_queue receivers;
-	async_op_queue senders;
+	async_op_list receivers;
+	async_op_list senders;
+	async_op_list flush;
 	async_cancel_cb cancel;
 } async_udp_socket;
 
@@ -75,38 +75,7 @@ typedef struct {
 } async_udp_send_op;
 
 
-static void assemble_peer(async_udp_socket *socket, zval *return_value, zend_execute_data *execute_data)
-{
-	struct sockaddr_storage addr;
-
-	char name[64];
-	int port;
-
-	int len;
-	int code;
-
-	len = sizeof(struct sockaddr_storage);
-	code = uv_udp_getsockname(&socket->handle, (struct sockaddr *) &addr, &len);
-
-	ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to get peer name: %s", uv_strerror(code));
-
-	if (addr.ss_family == AF_INET) {
-		code = uv_ip4_name((const struct sockaddr_in *) &addr, name, len);
-		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
-
-		port = ntohs(((struct sockaddr_in *) &addr)->sin_port);
-	} else {
-		code = uv_ip6_name((const struct sockaddr_in6 *) &addr, name, len);
-		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
-
-		port = ntohs(((struct sockaddr_in6 *) &addr)->sin6_port);
-	}
-	
-	socket->ip = zend_string_init(name, strlen(name), 0);
-	socket->port = port;
-}
-
-static void socket_closed(uv_handle_t *handle)
+ASYNC_CALLBACK socket_closed(uv_handle_t *handle)
 {
 	async_udp_socket *socket;
 	
@@ -117,10 +86,9 @@ static void socket_closed(uv_handle_t *handle)
 	ASYNC_DELREF(&socket->std);
 }
 
-static void socket_shutdown(void *obj, zval *error)
+ASYNC_CALLBACK socket_shutdown(void *obj, zval *error)
 {
 	async_udp_socket *socket;
-	async_op *op;
 	
 	socket = (async_udp_socket *) obj;
 	
@@ -140,13 +108,15 @@ static void socket_shutdown(void *obj, zval *error)
 	
 	if (error != NULL) {
 		while (socket->receivers.first != NULL) {
-			ASYNC_DEQUEUE_OP(&socket->receivers, op);
-			ASYNC_FAIL_OP(op, &socket->error);
+			ASYNC_FAIL_OP(socket->receivers.first, &socket->error);
 		}
 		
 		while (socket->senders.first != NULL) {
-			ASYNC_DEQUEUE_OP(&socket->senders, op);
-			ASYNC_FAIL_OP(op, &socket->error);
+			ASYNC_FAIL_OP(socket->senders.first, &socket->error);
+		}
+		
+		while (socket->flush.first != NULL) {
+			ASYNC_FAIL_OP(socket->flush.first, &socket->error);
 		}
 	}
 }
@@ -156,15 +126,12 @@ static async_udp_socket *async_udp_socket_object_create()
 {
 	async_udp_socket *socket;
 
-	socket = emalloc(sizeof(async_udp_socket));
-	ZEND_SECURE_ZERO(socket, sizeof(async_udp_socket));
+	socket = ecalloc(1, sizeof(async_udp_socket));
 
 	zend_object_std_init(&socket->std, async_udp_socket_ce);
 	socket->std.handlers = &async_udp_socket_handlers;
 	
-	socket->scheduler = async_task_scheduler_get();
-	
-	ASYNC_ADDREF(&socket->scheduler->std);
+	socket->scheduler = async_task_scheduler_ref();
 	
 	uv_udp_init(&socket->scheduler->loop, &socket->handle);
 	socket->handle.data = socket;
@@ -176,7 +143,7 @@ static async_udp_socket *async_udp_socket_object_create()
 	socket->cancel.object = socket;
 	socket->cancel.func = socket_shutdown;
 	
-	ASYNC_Q_ENQUEUE(&socket->scheduler->shutdown, &socket->cancel);
+	ASYNC_LIST_APPEND(&socket->scheduler->shutdown, &socket->cancel);
 
 	return socket;
 }
@@ -188,7 +155,7 @@ static void async_udp_socket_object_dtor(zend_object *object)
 	socket = (async_udp_socket *) object;
 	
 	if (socket->cancel.func != NULL) {
-		ASYNC_Q_DETACH(&socket->scheduler->shutdown, &socket->cancel);
+		ASYNC_LIST_REMOVE(&socket->scheduler->shutdown, &socket->cancel);
 		
 		socket->cancel.func(socket, NULL);
 	}
@@ -210,21 +177,22 @@ static void async_udp_socket_object_destroy(zend_object *object)
 		zend_string_release(socket->ip);
 	}
 	
-	ASYNC_DELREF(&socket->scheduler->std);
+	async_task_scheduler_unref(socket->scheduler);
 	
 	zend_object_std_dtor(&socket->std);
 }
 
-ZEND_METHOD(UdpSocket, bind)
+static ZEND_METHOD(UdpSocket, bind)
 {
 	async_udp_socket *socket;
 
 	zend_string *name;
 	zend_long port;
-	
+
+	uv_os_fd_t sock;	
 	zval obj;
 	
-	struct sockaddr_in dest;
+	php_sockaddr_storage dest;
 	int code;
 	
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 2)
@@ -232,11 +200,11 @@ ZEND_METHOD(UdpSocket, bind)
 		Z_PARAM_LONG(port)
 	ZEND_PARSE_PARAMETERS_END();
 	
-	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &dest, IPPROTO_UDP);
+	code = async_dns_lookup_ip(ZSTR_VAL(name), &dest, IPPROTO_UDP);
 	
 	ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 	
-	dest.sin_port = htons(port);
+	async_socket_set_port((struct sockaddr *) &dest, port);
 	
 	socket = async_udp_socket_object_create();
 	socket->name = zend_string_copy(name);
@@ -249,7 +217,9 @@ ZEND_METHOD(UdpSocket, bind)
 		return;
 	}
 	
-	assemble_peer(socket, return_value, execute_data);
+	if (EXPECTED(0 == uv_fileno((const uv_handle_t *) &socket->handle, &sock))) {
+		async_socket_get_local_peer((php_socket_t) sock, &socket->ip, &socket->port);
+	}
 	
 	if (UNEXPECTED(EG(exception))) {
 		ASYNC_DELREF(&socket->std);
@@ -261,13 +231,14 @@ ZEND_METHOD(UdpSocket, bind)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(UdpSocket, multicast)
+static ZEND_METHOD(UdpSocket, multicast)
 {
 	async_udp_socket *socket;
 
 	zend_string *group;
 	zend_long port;
 	
+	uv_os_fd_t sock;
 	zval obj;
 	
 	struct sockaddr_in dest;
@@ -279,7 +250,8 @@ ZEND_METHOD(UdpSocket, multicast)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	socket = async_udp_socket_object_create();
-	socket->name = zend_string_init("localhost", sizeof("localhost")-1, 0);
+	
+	ASYNC_STR(socket->name, "localhost");
 	
 	code = uv_ip4_addr("0.0.0.0", (int) port, &dest);
 
@@ -305,7 +277,9 @@ ZEND_METHOD(UdpSocket, multicast)
 		return;
 	}
 	
-	assemble_peer(socket, return_value, execute_data);
+	if (EXPECTED(0 == uv_fileno((const uv_handle_t *) &socket->handle, &sock))) {
+		async_socket_get_local_peer((php_socket_t) sock, &socket->ip, &socket->port);
+	}
 	
 	if (UNEXPECTED(EG(exception))) {
 		ASYNC_DELREF(&socket->std);
@@ -317,7 +291,7 @@ ZEND_METHOD(UdpSocket, multicast)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(UdpSocket, close)
+static ZEND_METHOD(UdpSocket, close)
 {
 	async_udp_socket *socket;
 
@@ -344,14 +318,42 @@ ZEND_METHOD(UdpSocket, close)
 		GC_ADDREF(Z_OBJ_P(val));
 	}
 	
-	ASYNC_Q_DETACH(&socket->scheduler->shutdown, &socket->cancel);
+	ASYNC_LIST_REMOVE(&socket->scheduler->shutdown, &socket->cancel);
 	
 	socket->cancel.func(socket, &error);
 
 	zval_ptr_dtor(&error);
 }
 
-ZEND_METHOD(UdpSocket, getAddress)
+static ZEND_METHOD(UdpSocket, flush)
+{
+	async_udp_socket *socket;
+	async_op *op;
+	
+	ZEND_PARSE_PARAMETERS_NONE();
+	
+	socket = (async_udp_socket *) Z_OBJ_P(getThis());
+	
+	if (UNEXPECTED(Z_TYPE_P(&socket->error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&socket->error);
+		return;
+	}
+	
+	if (socket->senders.first == NULL) {
+		return;
+	}
+	
+	ASYNC_ALLOC_OP(op);
+	ASYNC_APPEND_OP(&socket->flush, op);
+	
+	if (UNEXPECTED(async_await_op(op) == FAILURE)) {
+		ASYNC_FORWARD_OP_ERROR(op);
+	}
+	
+	ASYNC_FREE_OP(op);
+}
+
+static ZEND_METHOD(UdpSocket, getAddress)
 {
 	async_udp_socket *socket;
 
@@ -362,7 +364,7 @@ ZEND_METHOD(UdpSocket, getAddress)
 	RETURN_STR_COPY(socket->ip);
 }
 
-ZEND_METHOD(UdpSocket, getPort)
+static ZEND_METHOD(UdpSocket, getPort)
 {
 	async_udp_socket *socket;
 
@@ -373,7 +375,7 @@ ZEND_METHOD(UdpSocket, getPort)
 	RETURN_LONG(socket->port);
 }
 
-ZEND_METHOD(UdpSocket, setOption)
+static ZEND_METHOD(UdpSocket, setOption)
 {
 	async_udp_socket *socket;
 
@@ -405,34 +407,31 @@ ZEND_METHOD(UdpSocket, setOption)
 	RETURN_BOOL((code < 0) ? 0 : 1);
 }
 
-static void socket_received(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buffer, const struct sockaddr* addr, unsigned int flags)
+ASYNC_CALLBACK socket_received(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buffer, const struct sockaddr *addr, unsigned int flags)
 {
 	async_udp_socket *socket;
 	async_udp_datagram *datagram;
-	async_uv_op *op;
 	
-	char peer[17] = { 0 };
+	async_uv_op *op;
 	
 	socket = (async_udp_socket *) udp->data;
 	
 	ZEND_ASSERT(socket != NULL);
 	ZEND_ASSERT(socket->receivers.first != NULL);
 	
-	if (nread == 0) {
+	if (UNEXPECTED(nread == 0)) {
 		efree(buffer->base);
 		
 		return;
 	}
 	
-	ASYNC_DEQUEUE_CUSTOM_OP(&socket->receivers, op, async_uv_op);
+	ASYNC_NEXT_CUSTOM_OP(&socket->receivers, op, async_uv_op);
 	
-	if (nread > 0) {
-		uv_ip4_name((struct sockaddr_in *) addr, peer, 16);
-		
+	if (EXPECTED(nread > 0)) {
 		datagram = (async_udp_datagram *) async_udp_datagram_object_create(async_udp_datagram_ce);
 		datagram->data = zend_string_init(buffer->base, (int) nread, 0);
-		datagram->address = zend_string_init(peer, strlen(peer), 0);
-		datagram->port = ntohs(((struct sockaddr_in *) addr)->sin_port);
+		
+		memcpy(&datagram->peer, addr, async_socket_addr_size(addr));
 		
 		efree(buffer->base);
 		
@@ -450,13 +449,13 @@ static void socket_received(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buffer
 	}
 }
 
-static void socket_alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buffer)
+ASYNC_CALLBACK socket_alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buffer)
 {
 	buffer->base = emalloc(8192);
 	buffer->len = 8192;
 }
 
-ZEND_METHOD(UdpSocket, receive)
+static ZEND_METHOD(UdpSocket, receive)
 {
 	async_udp_socket *socket;
 	async_context *context;
@@ -468,13 +467,8 @@ ZEND_METHOD(UdpSocket, receive)
 	
 	socket = (async_udp_socket *) Z_OBJ_P(getThis());
 	
-	if (Z_TYPE_P(&socket->error) != IS_UNDEF) {
-		Z_ADDREF_P(&socket->error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&socket->error);
-		execute_data->opline++;
-
+	if (UNEXPECTED(Z_TYPE_P(&socket->error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&socket->error);
 		return;
 	}
 
@@ -489,19 +483,19 @@ ZEND_METHOD(UdpSocket, receive)
 	context = async_context_get();
 	
 	ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op));
-	ASYNC_ENQUEUE_OP(&socket->receivers, op);
+	ASYNC_APPEND_OP(&socket->receivers, op);
 	
 	ASYNC_UNREF_ENTER(context, socket);
 	
-	if (async_await_op((async_op *) op) == FAILURE) {
+	if (UNEXPECTED(async_await_op((async_op *) op) == FAILURE)) {
 		ASYNC_FORWARD_OP_ERROR(op);
 	}
 	
 	ASYNC_UNREF_EXIT(context, socket);
 	
-	if (EXPECTED(EG(exception) == NULL)) {
+	if (EXPECTED(!EG(exception))) {
 		if (op->code < 0) {
-			zend_throw_exception_ex(async_stream_exception_ce, 0,  "UDP receive error: %s", uv_strerror(op->code));
+			zend_throw_exception_ex(async_stream_exception_ce, 0, "UDP receive error: %s", uv_strerror(op->code));
 		} else if (USED_RET()) {
 			ZVAL_COPY(return_value, &op->base.result);
 		}
@@ -510,7 +504,7 @@ ZEND_METHOD(UdpSocket, receive)
 	ASYNC_FREE_OP(op);
 }
 
-static void socket_sent(uv_udp_send_t *req, int status)
+ASYNC_CALLBACK socket_sent(uv_udp_send_t *req, int status)
 {
 	async_udp_send_op *op;
 	
@@ -521,7 +515,7 @@ static void socket_sent(uv_udp_send_t *req, int status)
 	ASYNC_DELREF(&op->datagram->std);
 	ASYNC_DELREF(&op->socket->std);
 	
-	if (op->base.flags & ASYNC_OP_FLAG_CANCELLED) {
+	if (UNEXPECTED(op->base.flags & ASYNC_OP_FLAG_CANCELLED)) {
 		ASYNC_FREE_OP(op);
 	} else {
 		op->code = status;
@@ -530,13 +524,12 @@ static void socket_sent(uv_udp_send_t *req, int status)
 	}	
 }
 
-ZEND_METHOD(UdpSocket, send)
+static ZEND_METHOD(UdpSocket, send)
 {
 	async_udp_socket *socket;
 	async_udp_datagram *datagram;
 	async_udp_send_op *op;
 	
-	struct sockaddr_in dest;
 	uv_buf_t buffers[1];
 	int code;
 	
@@ -549,26 +542,17 @@ ZEND_METHOD(UdpSocket, send)
 	socket = (async_udp_socket *) Z_OBJ_P(getThis());
 	datagram = (async_udp_datagram *) Z_OBJ_P(val);
 	
-	if (Z_TYPE_P(&socket->error) != IS_UNDEF) {
-		Z_ADDREF_P(&socket->error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&socket->error);
-		execute_data->opline++;
-
+	if (UNEXPECTED(Z_TYPE_P(&socket->error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&socket->error);
 		return;
 	}
 	
-	code = uv_ip4_addr(ZSTR_VAL(datagram->address), (int) datagram->port, &dest);
-	
-	ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble remote IP address: %s", uv_strerror(code));
-	
-	buffers[0] = uv_buf_init(ZSTR_VAL(datagram->data), ZSTR_LEN(datagram->data));
+	buffers[0] = uv_buf_init(ZSTR_VAL(datagram->data), (unsigned int) ZSTR_LEN(datagram->data));
 	
 	if (0 && socket->senders.first == NULL) {
-	    code = uv_udp_try_send(&socket->handle, buffers, 1, (const struct sockaddr *)&dest);
+	    code = uv_udp_try_send(&socket->handle, buffers, 1, (const struct sockaddr *) &datagram->peer);
 	    
-	    if (code >= 0) {
+	    if (EXPECTED(code >= 0)) {
 	        return;
 	    }
 	    
@@ -582,7 +566,7 @@ ZEND_METHOD(UdpSocket, send)
 	op->datagram = datagram;
 	op->context = async_context_get();
 	
-	code = uv_udp_send(&op->req, &socket->handle, buffers, 1, (const struct sockaddr *)&dest, socket_sent);
+	code = uv_udp_send(&op->req, &socket->handle, buffers, 1, (const struct sockaddr *) &datagram->peer, socket_sent);
 	
 	if (UNEXPECTED(code < 0)) {	
 		ASYNC_FREE_OP(op);
@@ -594,21 +578,27 @@ ZEND_METHOD(UdpSocket, send)
 	ASYNC_ADDREF(&socket->std);
 	ASYNC_ADDREF(&datagram->std);
 	
-	ASYNC_ENQUEUE_OP(&socket->senders, op);
+	ASYNC_APPEND_OP(&socket->senders, op);
 	ASYNC_UNREF_ENTER(op->context, socket);
 	
-	if (async_await_op((async_op *) op) == FAILURE) {
+	if (UNEXPECTED(async_await_op((async_op *) op) == FAILURE)) {
 		ASYNC_FORWARD_OP_ERROR(op);
 	}
 	
 	ASYNC_UNREF_EXIT(op->context, socket);
 	
-	if (!(op->base.flags & ASYNC_OP_FLAG_CANCELLED)) {
+	if (EXPECTED(!(op->base.flags & ASYNC_OP_FLAG_CANCELLED))) {
 		ASYNC_FREE_OP(op);
+	}
+	
+	if (socket->senders.first == NULL) {
+		while (socket->flush.first != NULL) {
+			ASYNC_FINISH_OP(socket->flush.first);
+		}
 	}
 }
 
-static void socket_sent_async(uv_udp_send_t *req, int status)
+ASYNC_CALLBACK socket_sent_async(uv_udp_send_t *req, int status)
 {
 	async_udp_send_op *op;
 	
@@ -620,6 +610,17 @@ static void socket_sent_async(uv_udp_send_t *req, int status)
 	
 	ASYNC_UNREF_EXIT(op->context, op->socket);
 	
+	if (op->base.list) {
+		ASYNC_LIST_REMOVE(op->base.list, &op->base);
+		op->base.list = NULL;
+	}
+	
+	if (op->socket->senders.first == NULL) {
+		while (op->socket->flush.first != NULL) {
+			ASYNC_FINISH_OP(op->socket->flush.first);
+		}
+	}
+	
 	ASYNC_DELREF(&op->context->std);
 	ASYNC_DELREF(&op->datagram->std);
 	ASYNC_DELREF(&op->socket->std);
@@ -627,13 +628,12 @@ static void socket_sent_async(uv_udp_send_t *req, int status)
 	ASYNC_FREE_OP(op);
 }
 
-ZEND_METHOD(UdpSocket, sendAsync)
+static ZEND_METHOD(UdpSocket, sendAsync)
 {
 	async_udp_socket *socket;
 	async_udp_datagram *datagram;
 	async_udp_send_op *op;
 	
-	struct sockaddr_in dest;
 	uv_buf_t buffers[1];
 	int code;
 	
@@ -646,26 +646,17 @@ ZEND_METHOD(UdpSocket, sendAsync)
 	socket = (async_udp_socket *) Z_OBJ_P(getThis());
 	datagram = (async_udp_datagram *) Z_OBJ_P(val);
 	
-	if (Z_TYPE_P(&socket->error) != IS_UNDEF) {
-		Z_ADDREF_P(&socket->error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&socket->error);
-		execute_data->opline++;
-
+	if (UNEXPECTED(Z_TYPE_P(&socket->error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&socket->error);
 		return;
 	}
 	
-	code = uv_ip4_addr(ZSTR_VAL(datagram->address), (int) datagram->port, &dest);
-	
-	ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble remote IP address: %s", uv_strerror(code));
-	
-	buffers[0] = uv_buf_init(ZSTR_VAL(datagram->data), ZSTR_LEN(datagram->data));
+	buffers[0] = uv_buf_init(ZSTR_VAL(datagram->data), (unsigned int) ZSTR_LEN(datagram->data));
 	
 	if (0 && socket->senders.first == NULL) {
-	    code = uv_udp_try_send(&socket->handle, buffers, 1, (const struct sockaddr *)&dest);
+	    code = uv_udp_try_send(&socket->handle, buffers, 1, (const struct sockaddr *) &datagram->peer);
 	    
-	    if (code >= 0) {
+	    if (EXPECTED(code >= 0)) {
 	        RETURN_LONG(0);
 	    }
 	    
@@ -677,11 +668,11 @@ ZEND_METHOD(UdpSocket, sendAsync)
 	op->req.data = op;
 	op->socket = socket;
 	op->datagram = datagram;
-	op->context = async_context_get();
+	op->context = async_context_ref();
 	
-	code = uv_udp_send(&op->req, &socket->handle, buffers, 1, (const struct sockaddr *)&dest, socket_sent_async);
+	code = uv_udp_send(&op->req, &socket->handle, buffers, 1, (const struct sockaddr *) &datagram->peer, socket_sent_async);
 	
-	if (code != 0) {
+	if (UNEXPECTED(code != 0)) {
 		ASYNC_FREE_OP(op);		
 		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to send UDP data: %s", uv_strerror(code));
 		
@@ -690,9 +681,8 @@ ZEND_METHOD(UdpSocket, sendAsync)
 	
 	ASYNC_ADDREF(&socket->std);
 	ASYNC_ADDREF(&datagram->std);
-	ASYNC_ADDREF(&op->context->std);
 	
-	ASYNC_ENQUEUE_OP(&socket->senders, op);
+	ASYNC_APPEND_OP(&socket->senders, op);
 	ASYNC_UNREF_ENTER(op->context, socket);
 	
 	RETURN_LONG(socket->handle.send_queue_size);
@@ -706,21 +696,6 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_udp_socket_multicast, 0, 2, Concurrent\\Network\\UdpSocket, 0)
 	ZEND_ARG_TYPE_INFO(0, group, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_close, 0, 0, IS_VOID, 0)
-	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_get_address, 0, 0, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_get_port, 0, 0, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_udp_socket_set_option, 0, 2, _IS_BOOL, 0)
-	ZEND_ARG_TYPE_INFO(0, option, IS_LONG, 0)
-	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_udp_socket_receive, 0, 0, Concurrent\\Network\\UdpDatagram, 0)
@@ -737,10 +712,11 @@ ZEND_END_ARG_INFO()
 static const zend_function_entry async_udp_socket_functions[] = {
 	ZEND_ME(UdpSocket, bind, arginfo_udp_socket_bind, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(UdpSocket, multicast, arginfo_udp_socket_multicast, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(UdpSocket, close, arginfo_udp_socket_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(UdpSocket, getAddress, arginfo_udp_socket_get_address, ZEND_ACC_PUBLIC)
-	ZEND_ME(UdpSocket, getPort, arginfo_udp_socket_get_port, ZEND_ACC_PUBLIC)
-	ZEND_ME(UdpSocket, setOption, arginfo_udp_socket_set_option, ZEND_ACC_PUBLIC)
+	ZEND_ME(UdpSocket, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(UdpSocket, flush, arginfo_socket_flush, ZEND_ACC_PUBLIC)
+	ZEND_ME(UdpSocket, getAddress, arginfo_socket_get_address, ZEND_ACC_PUBLIC)
+	ZEND_ME(UdpSocket, getPort, arginfo_socket_get_port, ZEND_ACC_PUBLIC)
+	ZEND_ME(UdpSocket, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, receive, arginfo_udp_socket_receive, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, send, arginfo_udp_socket_send, ZEND_ACC_PUBLIC)
 	ZEND_ME(UdpSocket, sendAsync, arginfo_udp_socket_send_async, ZEND_ACC_PUBLIC)
@@ -752,8 +728,7 @@ static zend_object *async_udp_datagram_object_create(zend_class_entry *ce)
 {
 	async_udp_datagram *datagram;
 	
-	datagram = emalloc(sizeof(async_udp_datagram));
-	ZEND_SECURE_ZERO(datagram, sizeof(async_udp_datagram));
+	datagram = ecalloc(1, sizeof(async_udp_datagram));
 	
 	zend_object_std_init(&datagram->std, ce);
 	datagram->std.handlers = &async_udp_datagram_handlers;
@@ -767,9 +742,10 @@ static void async_udp_datagram_object_destroy(zend_object *object)
 
 	datagram = (async_udp_datagram *) object;
 	
-	zend_string_release(datagram->data);
-	zend_string_release(datagram->address);
-
+	if (EXPECTED(datagram->data != NULL)) {
+		zend_string_release(datagram->data);
+	}
+	
 	zend_object_std_dtor(&datagram->std);
 }
 
@@ -777,6 +753,8 @@ static zval *read_datagram_property(zval *object, zval *member, int type, void *
 {
 	async_udp_datagram *datagram;
 	
+	zend_string *ip;
+	uint16_t port;
 	char *key;
 	
 	datagram = (async_udp_datagram *) Z_OBJ_P(object);
@@ -786,9 +764,11 @@ static zval *read_datagram_property(zval *object, zval *member, int type, void *
 	if (strcmp(key, "data") == 0) {
 		ZVAL_STR_COPY(rv, datagram->data);
 	} else if (strcmp(key, "address") == 0) {
-		ZVAL_STR_COPY(rv, datagram->address);
+		async_socket_get_peer((const struct sockaddr *) &datagram->peer, &ip, NULL);
+		ZVAL_STR(rv, ip);
 	} else if (strcmp(key, "port") == 0) {
-		ZVAL_LONG(rv, datagram->port);
+		async_socket_get_peer((const struct sockaddr *) &datagram->peer, NULL, &port);
+		ZVAL_LONG(rv, port);
 	} else {
 		rv = &EG(uninitialized_zval);
 	}
@@ -819,7 +799,7 @@ static int has_datagram_property(zval *object, zval *member, int has_set_exists,
     return (Z_TYPE_P(val) == IS_TRUE) ? 1 : 0;
 }
 
-ZEND_METHOD(UdpDatagram, __construct)
+static ZEND_METHOD(UdpDatagram, __construct)
 {
 	async_udp_datagram *datagram;
 	
@@ -835,28 +815,38 @@ ZEND_METHOD(UdpDatagram, __construct)
 	
 	datagram = (async_udp_datagram *) Z_OBJ_P(getThis());
 	datagram->data = zend_string_copy(data);
-	datagram->address = zend_string_copy(address);
-	datagram->port = port;
+	
+	if (UNEXPECTED(0 != async_dns_lookup_ip(ZSTR_VAL(address), &datagram->peer, IPPROTO_UDP))) {
+		zend_throw_error(NULL, "Failed to assemble peer IP address");		
+		return;
+	}
+	
+	async_socket_set_port((struct sockaddr *) &datagram->peer, port);
 }
 
-ZEND_METHOD(UdpDatagram, __debugInfo)
+static ZEND_METHOD(UdpDatagram, __debugInfo)
 {
 	async_udp_datagram *datagram;
+	
+	zend_string *ip;
+	uint16_t port;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	if (USED_RET()) {
 		datagram = (async_udp_datagram *) Z_OBJ_P(getThis());
+		
+		async_socket_get_peer((const struct sockaddr *) &datagram->peer, &ip, &port);
 	
 		array_init(return_value);
 
 		add_assoc_str(return_value, "data", zend_string_copy(datagram->data));
-		add_assoc_str(return_value, "address", zend_string_copy(datagram->address));
-		add_assoc_long(return_value, "port", datagram->port);
+		add_assoc_str(return_value, "address", ip);
+		add_assoc_long(return_value, "port", port);
 	}
 }
 
-ZEND_METHOD(UdpDatagram, withData)
+static ZEND_METHOD(UdpDatagram, withData)
 {
 	async_udp_datagram *datagram;
 	async_udp_datagram *result;
@@ -873,15 +863,14 @@ ZEND_METHOD(UdpDatagram, withData)
 	result = (async_udp_datagram *) async_udp_datagram_object_create(async_udp_datagram_ce);
 	
 	result->data = zend_string_copy(data);
-	result->address = zend_string_copy(datagram->address);
-	result->port = datagram->port;
+	result->peer = datagram->peer;
 	
 	ZVAL_OBJ(&obj, &result->std);
 	
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(UdpDatagram, withPeer)
+static ZEND_METHOD(UdpDatagram, withPeer)
 {
 	async_udp_datagram *datagram;
 	async_udp_datagram *result;
@@ -899,9 +888,16 @@ ZEND_METHOD(UdpDatagram, withPeer)
 	datagram = (async_udp_datagram *) Z_OBJ_P(getThis());
 	result = (async_udp_datagram *) async_udp_datagram_object_create(async_udp_datagram_ce);
 	
+	if (UNEXPECTED(0 != async_dns_lookup_ip(ZSTR_VAL(address), &result->peer, IPPROTO_UDP))) {
+		ASYNC_DELREF(&result->std);		
+		zend_throw_error(NULL, "Failed to assemble peer IP address");
+				
+		return;
+	}
+	
+	async_socket_set_port((struct sockaddr *) &result->peer, port);
+	
 	result->data = zend_string_copy(datagram->data);
-	result->address = zend_string_copy(address);
-	result->port = port;
 	
 	ZVAL_OBJ(&obj, &result->std);
 	

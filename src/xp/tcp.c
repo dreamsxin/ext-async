@@ -31,19 +31,19 @@ typedef struct {
 	ASYNC_XP_SOCKET_DATA_BASE
     uv_tcp_t handle;
     uint16_t pending;
-    async_op_queue ops;
+    async_op_list ops;
     zend_bool encrypt;
 } async_xp_socket_data_tcp;
 
 
-static void free_cb(uv_handle_t *handle)
+ASYNC_CALLBACK free_cb(uv_handle_t *handle)
 {
 	efree(handle->data);
 }
 
 static int tcp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam)
 {
-	struct sockaddr_in dest;
+	php_sockaddr_storage dest;
 	unsigned int flags;
 	
 	char *ip;
@@ -55,7 +55,7 @@ static int tcp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 	
 	ip = NULL;
 	ip = async_xp_parse_ip(xparam->inputs.name, xparam->inputs.namelen, &port, xparam->want_errortext, &xparam->outputs.error_text);
-	code = async_dns_lookup_ipv4(ip, &dest, IPPROTO_TCP);
+	code = async_dns_lookup_ip(ip, &dest, IPPROTO_TCP);
 	
 	if (ip != NULL) {
 		efree(ip);
@@ -65,11 +65,11 @@ static int tcp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 		return FAILURE;
 	}
 	
-	dest.sin_port = htons(port);
+	async_socket_set_port((struct sockaddr *) &dest, port);
 	
 	if (PHP_STREAM_CONTEXT(stream)) {
 #ifdef HAVE_IPV6
-		if (dest.sin_family == AF_INET6) {
+		if (dest.ss_family == AF_INET6) {
 			tmp = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream), "socket", "ipv6_v6only");
 			
 			if (tmp != NULL && Z_TYPE_P(tmp) != IS_NULL && zend_is_true(tmp)) {
@@ -84,7 +84,7 @@ static int tcp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 	return code;
 }
 
-static void tcp_socket_listen_cb(uv_stream_t *server, int status)
+ASYNC_CALLBACK tcp_socket_listen_cb(uv_stream_t *server, int status)
 {
 	async_xp_socket_data_tcp *tcp;
 	async_uv_op *op;
@@ -96,7 +96,7 @@ static void tcp_socket_listen_cb(uv_stream_t *server, int status)
 	}
 	
 	while (tcp->ops.first != NULL) {
-		ASYNC_DEQUEUE_CUSTOM_OP(&tcp->ops, op, async_uv_op);
+		ASYNC_NEXT_CUSTOM_OP(&tcp->ops, op, async_uv_op);
 		
 		op->code = status;
 		
@@ -119,7 +119,7 @@ static int tcp_socket_listen(php_stream *stream, async_xp_socket_data *data, php
 	return code;
 }
 
-static void tcp_socket_connect_cb(uv_connect_t *req, int status)
+ASYNC_CALLBACK tcp_socket_connect_cb(uv_connect_t *req, int status)
 {
 	async_uv_op *op;	
 	
@@ -132,7 +132,7 @@ static void tcp_socket_connect_cb(uv_connect_t *req, int status)
 	ASYNC_FINISH_OP(op);
 }
 
-static void connect_timer_cb(uv_timer_t *timer)
+ASYNC_CALLBACK connect_timer_cb(uv_timer_t *timer)
 {
 	async_xp_socket_data_tcp *tcp;
 	
@@ -148,7 +148,7 @@ static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 	async_uv_op *op;
 	
 	uv_connect_t req;
-	struct sockaddr_in dest;
+	php_sockaddr_storage dest;
 	uint64_t timeout;
 	
 	char *ip;
@@ -159,7 +159,7 @@ static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 	
 	ip = NULL;
 	ip = async_xp_parse_ip(xparam->inputs.name, xparam->inputs.namelen, &port, xparam->want_errortext, &xparam->outputs.error_text);
-	code = async_dns_lookup_ipv4(ip, &dest, IPPROTO_TCP);
+	code = async_dns_lookup_ip(ip, &dest, IPPROTO_TCP);
 	
 	if (ip != NULL) {
 		efree(ip);
@@ -169,13 +169,13 @@ static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 		return FAILURE;
 	}
 	
-	dest.sin_port = htons(port);
+	async_socket_set_port((struct sockaddr *) &dest, port);
 	
 	code = uv_tcp_connect(&req, (uv_tcp_t *) &data->handle, (const struct sockaddr *) &dest, tcp_socket_connect_cb);
 	
 	if (EXPECTED(code == 0)) {
 		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op));
-		ASYNC_ENQUEUE_OP(&tcp->ops, op);
+		ASYNC_APPEND_OP(&tcp->ops, op);
 		
 		req.data = op;
 		
@@ -230,8 +230,10 @@ static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 	return SUCCESS;
 }
 
-static int tcp_socket_shutdown(async_xp_socket_data *data, int how)
+static int tcp_socket_shutdown(php_stream *stream, async_xp_socket_data *data, int how)
 {
+	zval ref;
+
 	int flag;
 	
 	switch (how) {
@@ -245,7 +247,8 @@ static int tcp_socket_shutdown(async_xp_socket_data *data, int how)
 		flag = ASYNC_STREAM_SHUT_RDWR;
 	}
 	
-	async_stream_shutdown(data->astream, flag);
+	ZVAL_RES(&ref, stream->res);
+	async_stream_shutdown(data->astream, flag, &ref);
 	
 	return SUCCESS;
 }
@@ -285,8 +288,7 @@ static int tcp_socket_accept(php_stream *stream, async_xp_socket_data *data, php
 	server = (async_xp_socket_data_tcp *) data;
 	code = 0;
 	
-	client = emalloc(sizeof(async_xp_socket_data_tcp));
-	ZEND_SECURE_ZERO(client, sizeof(async_xp_socket_data_tcp));
+	client = ecalloc(1, sizeof(async_xp_socket_data_tcp));
 	
 	uv_tcp_init(&server->scheduler->loop, &client->handle);
 	
@@ -306,7 +308,7 @@ static int tcp_socket_accept(php_stream *stream, async_xp_socket_data *data, php
 		}
 		
 		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op));
-		ASYNC_ENQUEUE_OP(&server->ops, op);
+		ASYNC_APPEND_OP(&server->ops, op);
 		
 		if (async_await_op((async_op *) op) == FAILURE) {
 			ASYNC_FORWARD_OP_ERROR(op);
@@ -414,8 +416,7 @@ static php_stream *tcp_socket_factory(const char *proto, size_t plen, const char
 	async_xp_socket_data_tcp *data;
 	php_stream *stream;
 
-	data = emalloc(sizeof(async_xp_socket_data_tcp));
-	ZEND_SECURE_ZERO(data, sizeof(async_xp_socket_data_tcp));
+	data = ecalloc(1, sizeof(async_xp_socket_data_tcp));
 	
 	stream = async_xp_socket_create((async_xp_socket_data *) data, &tcp_socket_ops, pid STREAMS_CC);
 

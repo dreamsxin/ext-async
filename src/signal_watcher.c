@@ -18,8 +18,6 @@
 
 #include "php_async.h"
 
-#include "async_task.h"
-
 ASYNC_API zend_class_entry *async_signal_watcher_ce;
 
 static zend_object_handlers async_signal_watcher_handlers;
@@ -39,7 +37,7 @@ typedef struct {
 
 	uv_signal_t handle;
 
-	async_op_queue observers;
+	async_op_list observers;
 
 	zend_uchar ref_count;
 
@@ -48,7 +46,7 @@ typedef struct {
 	async_cancel_cb cancel;
 } async_signal_watcher;
 
-static void trigger_signal(uv_signal_t *handle, int signum)
+ASYNC_CALLBACK trigger_signal(uv_signal_t *handle, int signum)
 {
 	async_signal_watcher *watcher;
 	async_op *op;
@@ -59,12 +57,12 @@ static void trigger_signal(uv_signal_t *handle, int signum)
 
 	ZEND_ASSERT(watcher != NULL);
 
-	if (Z_TYPE_P(&watcher->error) == IS_UNDEF) {
+	if (EXPECTED(Z_TYPE_P(&watcher->error) == IS_UNDEF)) {
 		last = watcher->observers.last;
 		cont = 1;
 	
 		while (cont && watcher->observers.first != NULL) {
-			ASYNC_DEQUEUE_OP(&watcher->observers, op);
+			ASYNC_NEXT_OP(&watcher->observers, op);
 			
 			cont = (op != last);
 			
@@ -72,7 +70,7 @@ static void trigger_signal(uv_signal_t *handle, int signum)
 		}
 	} else {
 		while (watcher->observers.first != NULL) {
-			ASYNC_DEQUEUE_OP(&watcher->observers, op);
+			ASYNC_NEXT_OP(&watcher->observers, op);
 			ASYNC_FAIL_OP(op, &watcher->error);
 		}
 	}
@@ -84,7 +82,7 @@ static void trigger_signal(uv_signal_t *handle, int signum)
 	}
 }
 
-static void close_signal(uv_handle_t *handle)
+ASYNC_CALLBACK close_signal(uv_handle_t *handle)
 {
 	async_signal_watcher *watcher;
 
@@ -95,7 +93,7 @@ static void close_signal(uv_handle_t *handle)
 	ASYNC_DELREF(&watcher->std);
 }
 
-static void shutdown_signal(void *obj, zval *error)
+ASYNC_CALLBACK shutdown_signal(void *obj, zval *error)
 {
 	async_signal_watcher *watcher;
 	async_op *op;
@@ -118,7 +116,7 @@ static void shutdown_signal(void *obj, zval *error)
 	
 	if (error != NULL) {
 		while (watcher->observers.first != NULL) {
-			ASYNC_DEQUEUE_OP(&watcher->observers, op);
+			ASYNC_NEXT_OP(&watcher->observers, op);
 			ASYNC_FAIL_OP(op, &watcher->error);
 		}
 	}
@@ -129,17 +127,14 @@ static zend_object *async_signal_watcher_object_create(zend_class_entry *ce)
 {
 	async_signal_watcher *watcher;
 
-	watcher = emalloc(sizeof(async_signal_watcher));
-	ZEND_SECURE_ZERO(watcher, sizeof(async_signal_watcher));
+	watcher = ecalloc(1, sizeof(async_signal_watcher));
 
 	zend_object_std_init(&watcher->std, ce);
 	watcher->std.handlers = &async_signal_watcher_handlers;
 
 	ZVAL_UNDEF(&watcher->error);
 	
-	watcher->scheduler = async_task_scheduler_get();
-	
-	ASYNC_ADDREF(&watcher->scheduler->std);
+	watcher->scheduler = async_task_scheduler_ref();
 	
 	watcher->cancel.object = watcher;
 	watcher->cancel.func = shutdown_signal;
@@ -154,7 +149,7 @@ static void async_signal_watcher_object_dtor(zend_object *object)
 	watcher = (async_signal_watcher *) object;
 	
 	if (watcher->cancel.func != NULL) {
-		ASYNC_Q_DETACH(&watcher->scheduler->shutdown, &watcher->cancel);
+		ASYNC_LIST_REMOVE(&watcher->scheduler->shutdown, &watcher->cancel);
 		
 		watcher->cancel.func(watcher, NULL);
 	}
@@ -168,7 +163,7 @@ static void async_signal_watcher_object_destroy(zend_object *object)
 
 	zval_ptr_dtor(&watcher->error);
 	
-	ASYNC_DELREF(&watcher->scheduler->std);
+	async_task_scheduler_unref(watcher->scheduler);
 
 	zend_object_std_dtor(&watcher->std);
 }
@@ -182,7 +177,7 @@ ZEND_METHOD(SignalWatcher, __construct)
 	    Z_PARAM_LONG(signum)
 	ZEND_PARSE_PARAMETERS_END();
 
-	ASYNC_CHECK_ERROR(!async_cli, "Signal watchers require PHP running in CLI mode");
+	ASYNC_CHECK_ERROR(!ASYNC_CLI, "Signal watchers require PHP running in CLI mode");
 
 	watcher = (async_signal_watcher *) Z_OBJ_P(getThis());
 
@@ -195,7 +190,7 @@ ZEND_METHOD(SignalWatcher, __construct)
 
 	watcher->handle.data = watcher;
 	
-	ASYNC_Q_ENQUEUE(&watcher->scheduler->shutdown, &watcher->cancel);
+	ASYNC_LIST_APPEND(&watcher->scheduler->shutdown, &watcher->cancel);
 }
 
 ZEND_METHOD(SignalWatcher, close)
@@ -225,7 +220,7 @@ ZEND_METHOD(SignalWatcher, close)
 		GC_ADDREF(Z_OBJ_P(val));
 	}
 	
-	ASYNC_Q_DETACH(&watcher->scheduler->shutdown, &watcher->cancel);
+	ASYNC_LIST_REMOVE(&watcher->scheduler->shutdown, &watcher->cancel);
 	
 	watcher->cancel.func(watcher, &error);
 	
@@ -242,13 +237,8 @@ ZEND_METHOD(SignalWatcher, awaitSignal)
 
 	watcher = (async_signal_watcher *) Z_OBJ_P(getThis());
 
-	if (Z_TYPE_P(&watcher->error) != IS_UNDEF) {
-		Z_ADDREF_P(&watcher->error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&watcher->error);
-		execute_data->opline++;
-
+	if (UNEXPECTED(Z_TYPE_P(&watcher->error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&watcher->error);
 		return;
 	}
 	
@@ -259,11 +249,11 @@ ZEND_METHOD(SignalWatcher, awaitSignal)
 	context = async_context_get();
 	
 	ASYNC_ALLOC_OP(op);
-	ASYNC_ENQUEUE_OP(&watcher->observers, op);
+	ASYNC_APPEND_OP(&watcher->observers, op);
 
 	ASYNC_UNREF_ENTER(context, watcher);
 
-	if (async_await_op(op) == FAILURE) {
+	if (UNEXPECTED(async_await_op(op) == FAILURE)) {
 		ASYNC_FORWARD_OP_ERROR(op);
 	}
 
@@ -280,40 +270,24 @@ ZEND_METHOD(SignalWatcher, isSupported)
 		Z_PARAM_LONG(tmp)
 	ZEND_PARSE_PARAMETERS_END();
 
-	if (!async_cli) {
+	if (!ASYNC_CLI) {
 		RETURN_FALSE;
 	}
 
 	signum = (int) tmp;
 
-	if (signum < 1) {
+	if (UNEXPECTED(signum < 1)) {
 		RETURN_FALSE;
 	}
-
-	if (signum == ASYNC_SIGNAL_SIGHUP) {
-		RETURN_TRUE;
-	}
-
-	if (signum == ASYNC_SIGNAL_SIGINT) {
-		RETURN_TRUE;
-	}
-
-	if (signum == ASYNC_SIGNAL_SIGQUIT) {
-		RETURN_TRUE;
-	}
-
-	if (signum == ASYNC_SIGNAL_SIGKILL) {
-		RETURN_TRUE;
-	}
-
-	if (signum == ASYNC_SIGNAL_SIGTERM) {
-		RETURN_TRUE;
-	}
-
-	if (signum == ASYNC_SIGNAL_SIGUSR1) {
-		RETURN_TRUE;
-	}
-	if (signum == ASYNC_SIGNAL_SIGUSR2) {
+	
+	switch (signum) {
+	case ASYNC_SIGNAL_SIGHUP:
+	case ASYNC_SIGNAL_SIGINT:
+	case ASYNC_SIGNAL_SIGQUIT:
+	case ASYNC_SIGNAL_SIGKILL:
+	case ASYNC_SIGNAL_SIGTERM:
+	case ASYNC_SIGNAL_SIGUSR1:
+	case ASYNC_SIGNAL_SIGUSR2:
 		RETURN_TRUE;
 	}
 

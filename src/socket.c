@@ -17,7 +17,8 @@
 */
 
 #include "php_async.h"
-
+#include "async_stream.h"
+#include "async_socket.h"
 #include "zend_inheritance.h"
 
 ASYNC_API zend_class_entry *async_server_ce;
@@ -27,50 +28,25 @@ ASYNC_API zend_class_entry *async_socket_stream_ce;
 
 
 ZEND_METHOD(Socket, close) { }
+ZEND_METHOD(Socket, flush) { }
 ZEND_METHOD(Socket, getAddress) { }
 ZEND_METHOD(Socket, getPort) { }
 ZEND_METHOD(Socket, setOption) { }
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_close, 0, 0, IS_VOID, 0)
-	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_get_address, 0, 0, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_get_port, 0, 0, IS_LONG, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_set_option, 0, 2, _IS_BOOL, 0)
-	ZEND_ARG_TYPE_INFO(0, option, IS_LONG, 0)
-	ZEND_ARG_INFO(0, value)
-ZEND_END_ARG_INFO()
-
 static const zend_function_entry async_socket_functions[] = {
-	ZEND_ME(Socket, close, arginfo_socket_close, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
+	ZEND_ME(Socket, close, arginfo_stream_close, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
+	ZEND_ME(Socket, flush, arginfo_socket_flush, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_ME(Socket, getAddress, arginfo_socket_get_address, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_ME(Socket, getPort, arginfo_socket_get_port, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_ME(Socket, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
 	ZEND_FE_END
 };
 
+
 ZEND_METHOD(SocketStream, getRemoteAddress) { }
 ZEND_METHOD(SocketStream, getRemotePort) { }
 ZEND_METHOD(SocketStream, writeAsync) { }
 ZEND_METHOD(SocketStream, getWriteQueueSize) { }
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_stream_get_remote_address, 0, 0, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_stream_get_remote_port, 0, 0, IS_LONG, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_stream_write_async, 0, 1, IS_LONG, 0)
-	ZEND_ARG_TYPE_INFO(0, data, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_socket_get_write_queue_size, 0, 0, IS_LONG, 0)
-ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_socket_stream_functions[] = {
 	ZEND_ME(SocketStream, getRemoteAddress, arginfo_socket_stream_get_remote_address, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
@@ -82,9 +58,6 @@ static const zend_function_entry async_socket_stream_functions[] = {
 
 
 ZEND_METHOD(Server, accept) { }
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_server_accept, 0, 0, Concurrent\\Network\\SocketStream, 0)
-ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_server_functions[] = {
 	ZEND_ME(Server, accept, arginfo_server_accept, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)

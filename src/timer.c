@@ -17,7 +17,6 @@
 */
 
 #include "php_async.h"
-#include "async_task.h"
 #include "zend_inheritance.h"
 
 ASYNC_API zend_class_entry *async_timeout_exception_ce;
@@ -42,7 +41,7 @@ typedef struct {
 	uv_timer_t handle;
 
 	/* Queued timeout continuations. */
-	async_op_queue timeouts;
+	async_op_list timeouts;
 
 	/* Number of pending referenced timeout subscriptions. */
 	zend_uchar ref_count;
@@ -57,7 +56,7 @@ typedef struct {
 	uv_timer_t timer;
 } async_timeout_awaitable;
 
-static void trigger_timer(uv_timer_t *handle)
+ASYNC_CALLBACK trigger_timer(uv_timer_t *handle)
 {
 	async_timer *timer;
 	async_op *op;
@@ -68,21 +67,16 @@ static void trigger_timer(uv_timer_t *handle)
 
 	ZEND_ASSERT(timer != NULL);
 	
-	if (Z_TYPE_P(&timer->error) == IS_UNDEF) {	
+	if (EXPECTED(Z_TYPE_P(&timer->error) == IS_UNDEF)) {	
 		last = timer->timeouts.last;
 		cont = 1;
 	
 		while (cont && timer->timeouts.first != NULL) {
-			ASYNC_DEQUEUE_OP(&timer->timeouts, op);
+			ASYNC_NEXT_OP(&timer->timeouts, op);
 			
 			cont = (op != last);
 			
 			ASYNC_FINISH_OP(op);
-		}
-	} else {
-		while (timer->timeouts.first != NULL) {
-			ASYNC_DEQUEUE_OP(&timer->timeouts, op);
-			ASYNC_FAIL_OP(op, &timer->error);
 		}
 	}
 	
@@ -93,7 +87,7 @@ static void trigger_timer(uv_timer_t *handle)
 	}
 }
 
-static void close_timer(uv_handle_t *handle)
+ASYNC_CALLBACK close_timer(uv_handle_t *handle)
 {
 	async_timer *timer;
 
@@ -104,7 +98,7 @@ static void close_timer(uv_handle_t *handle)
 	ASYNC_DELREF(&timer->std);
 }
 
-static void shutdown_timer(void *obj, zval *error)
+ASYNC_CALLBACK shutdown_timer(void *obj, zval *error)
 {
 	async_timer *timer;
 	async_op *op;
@@ -127,7 +121,7 @@ static void shutdown_timer(void *obj, zval *error)
 	
 	if (error != NULL) {
 		while (timer->timeouts.first != NULL) {
-			ASYNC_DEQUEUE_OP(&timer->timeouts, op);
+			ASYNC_NEXT_OP(&timer->timeouts, op);
 			ASYNC_FAIL_OP(op, &timer->error);
 		}
 	}
@@ -138,17 +132,14 @@ static zend_object *async_timer_object_create(zend_class_entry *ce)
 {
 	async_timer *timer;
 
-	timer = emalloc(sizeof(async_timer));
-	ZEND_SECURE_ZERO(timer, sizeof(async_timer));
+	timer = ecalloc(1, sizeof(async_timer));
 
 	zend_object_std_init(&timer->std, ce);
 	timer->std.handlers = &async_timer_handlers;
 
 	ZVAL_UNDEF(&timer->error);
 	
-	timer->scheduler = async_task_scheduler_get();
-	
-	ASYNC_ADDREF(&timer->scheduler->std);
+	timer->scheduler = async_task_scheduler_ref();
 
 	uv_timer_init(&timer->scheduler->loop, &timer->handle);
 	uv_unref((uv_handle_t *) &timer->handle);
@@ -158,7 +149,7 @@ static zend_object *async_timer_object_create(zend_class_entry *ce)
 	timer->cancel.object = timer;
 	timer->cancel.func = shutdown_timer;
 
-	ASYNC_Q_ENQUEUE(&timer->scheduler->shutdown, &timer->cancel);
+	ASYNC_LIST_APPEND(&timer->scheduler->shutdown, &timer->cancel);
 
 	return &timer->std;
 }
@@ -170,7 +161,7 @@ static void async_timer_object_dtor(zend_object *object)
 	timer = (async_timer *) object;
 
 	if (timer->cancel.func != NULL) {
-		ASYNC_Q_DETACH(&timer->scheduler->shutdown, &timer->cancel);
+		ASYNC_LIST_REMOVE(&timer->scheduler->shutdown, &timer->cancel);
 		
 		timer->cancel.func(timer, NULL);
 	}
@@ -184,7 +175,7 @@ static void async_timer_object_destroy(zend_object *object)
 
 	zval_ptr_dtor(&timer->error);
 	
-	ASYNC_DELREF(&timer->scheduler->std);
+	async_task_scheduler_unref(timer->scheduler);
 	
 	zend_object_std_dtor(&timer->std);
 }
@@ -236,7 +227,7 @@ ZEND_METHOD(Timer, close)
 		GC_ADDREF(Z_OBJ_P(val));
 	}
 	
-	ASYNC_Q_DETACH(&timer->scheduler->shutdown, &timer->cancel);
+	ASYNC_LIST_REMOVE(&timer->scheduler->shutdown, &timer->cancel);
 	
 	timer->cancel.func(timer, &error);
 	
@@ -253,13 +244,8 @@ ZEND_METHOD(Timer, awaitTimeout)
 
 	timer = (async_timer *) Z_OBJ_P(getThis());
 
-	if (Z_TYPE_P(&timer->error) != IS_UNDEF) {
-		Z_ADDREF_P(&timer->error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&timer->error);
-		execute_data->opline++;
-
+	if (UNEXPECTED(Z_TYPE_P(&timer->error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&timer->error);
 		return;
 	}
 	
@@ -270,11 +256,11 @@ ZEND_METHOD(Timer, awaitTimeout)
 	context = async_context_get();
 	
 	ASYNC_ALLOC_OP(op);
-	ASYNC_ENQUEUE_OP(&timer->timeouts, op);
+	ASYNC_APPEND_OP(&timer->timeouts, op);
 
 	ASYNC_UNREF_ENTER(context, timer);
 
-	if (async_await_op(op) == FAILURE) {
+	if (UNEXPECTED(async_await_op(op) == FAILURE)) {
 		ASYNC_FORWARD_OP_ERROR(op);
 	}
 
@@ -282,7 +268,7 @@ ZEND_METHOD(Timer, awaitTimeout)
 	ASYNC_FREE_OP(op);
 }
 
-static void timeout_close_cb(uv_handle_t *handle)
+ASYNC_CALLBACK timeout_close_cb(uv_handle_t *handle)
 {
 	async_deferred_awaitable *awaitable;
 	
@@ -293,7 +279,7 @@ static void timeout_close_cb(uv_handle_t *handle)
 	ASYNC_DELREF(&awaitable->std);
 }
 
-static void timeout_cb(uv_timer_t *timer)
+ASYNC_CALLBACK timeout_cb(uv_timer_t *timer)
 {
 	async_deferred_awaitable *awaitable;
 	
@@ -313,15 +299,11 @@ static void timeout_cb(uv_timer_t *timer)
 	uv_close((uv_handle_t *) timer, timeout_close_cb);
 }
 
-static void timeout_dispose_cb(async_deferred_awaitable *obj)
+ASYNC_CALLBACK timeout_dispose_cb(async_deferred_awaitable *obj)
 {
 	async_timeout_awaitable *awaitable;
 	
 	awaitable = (async_timeout_awaitable *) obj;
-	
-	if (uv_is_active((uv_handle_t *) &awaitable->timer)) {
-		uv_timer_stop(&awaitable->timer);
-	}
 	
 	if (!uv_is_closing((uv_handle_t *) &awaitable->timer)) {
 		ASYNC_ADDREF(&awaitable->base.base.std);
@@ -357,7 +339,7 @@ ZEND_METHOD(Timer, timeout)
 	
 	awaitable->timer.data = awaitable;
 	
-	if (context->background) {
+	if (async_context_is_background(context)) {
 		uv_unref((uv_handle_t *) &awaitable->timer);
 	}
 	
@@ -392,7 +374,7 @@ static const zend_function_entry async_timer_functions[] = {
 };
 
 
-static void sleep_cb(uv_timer_t *timer)
+ASYNC_CALLBACK sleep_cb(uv_timer_t *timer)
 {
 	async_op *op;
 
@@ -403,7 +385,7 @@ static void sleep_cb(uv_timer_t *timer)
 	ASYNC_FINISH_OP(op);
 }
 
-static void sleep_free_cb(uv_handle_t *handle)
+ASYNC_CALLBACK sleep_free_cb(uv_handle_t *handle)
 {
 	async_task_scheduler *scheduler;
 	
@@ -411,7 +393,7 @@ static void sleep_free_cb(uv_handle_t *handle)
 	
 	ZEND_ASSERT(scheduler != NULL);
 	
-	ASYNC_DELREF(&scheduler->std);
+	async_task_scheduler_unref(scheduler);
 	
 	efree(handle);
 }
@@ -423,22 +405,26 @@ static PHP_FUNCTION(asyncsleep)
 	zend_long num;
 
 	uv_timer_t *timer;
+	
+#ifndef PHP_WIN32
+	time_t started;
+	
+	started = time(NULL);
+#endif
 
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_LONG(num)
 	ZEND_PARSE_PARAMETERS_END_EX(RETURN_FALSE);
 
-	if (num < 0) {
+	if (UNEXPECTED(num < 0)) {
 		php_error_docref(NULL, E_WARNING, "Number of seconds must be greater than or equal to 0");
 		RETURN_FALSE;
 	}
 
-	scheduler = async_task_scheduler_get();
-	
-	ASYNC_ADDREF(&scheduler->std);
+	scheduler = async_task_scheduler_ref();
 
 	ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_op));
-	ASYNC_ENQUEUE_OP(&scheduler->operations, op);
+	ASYNC_APPEND_OP(&scheduler->operations, op);
 
 	timer = emalloc(sizeof(uv_timer_t));
 	timer->data = op;
@@ -446,11 +432,11 @@ static PHP_FUNCTION(asyncsleep)
 	uv_timer_init(&scheduler->loop, timer);
 	uv_timer_start(timer, sleep_cb, num * 1000, 0);
 
-	if (async_context_get()->background) {
+	if (async_context_is_background(async_context_get())) {
 		uv_unref((uv_handle_t *) timer);
 	}
 	
-	if (async_await_op(op) == FAILURE) {
+	if (UNEXPECTED(async_await_op(op) == FAILURE)) {
 		ASYNC_FORWARD_OP_ERROR(op);
 	}
 
@@ -461,8 +447,14 @@ static PHP_FUNCTION(asyncsleep)
 	uv_close((uv_handle_t *) timer, sleep_free_cb);
 
 #ifdef PHP_SLEEP_NON_VOID
-	if (EXPECTED(EG(exception) == NULL)) {
-		RETURN_LONG(num);
+	if (UNEXPECTED(EG(exception))) {
+		zend_clear_exception();
+		
+#ifdef PHP_WIN32
+		RETURN_LONG(WAIT_IO_COMPLETION);
+#else
+		RETURN_LONG((int) ceil((double) num - difftime(time(NULL), started)));
+#endif
 	}
 #endif
 }

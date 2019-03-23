@@ -17,193 +17,73 @@
 */
 
 #include "php_async.h"
-
-#include "ext/standard/info.h"
-#include "SAPI.h"
-
 #include "async_fiber.h"
-#include "async_task.h"
 #include "async_ssl.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
-ASYNC_API zend_bool async_cli;
-ASYNC_API char async_ssl_config_file[MAXPATHLEN];
+ASYNC_API zend_class_entry *async_awaitable_ce;
 
 static void async_execute_ex(zend_execute_data *exec);
 static void (*orig_execute_ex)(zend_execute_data *exec);
 
+static int implements_awaitable(zend_class_entry *entry, zend_class_entry *implementor)
+{
+	if (implementor == async_deferred_awaitable_ce) {
+		return SUCCESS;
+	}
+
+	if (implementor == async_task_ce) {
+		return SUCCESS;
+	}
+
+	zend_error_noreturn(
+		E_CORE_ERROR,
+		"Class %s must not implement interface %s, create an awaitable using %s instead",
+		ZSTR_VAL(implementor->name),
+		ZSTR_VAL(entry->name),
+		ZSTR_VAL(async_deferred_ce->name)
+	);
+
+	return FAILURE;
+}
+
+static const zend_function_entry empty_funcs[] = {
+	ZEND_FE_END
+};
+
+static void execute_root(zend_execute_data *exec)
+{
+	zend_object *error;
+	
+	error = NULL;
+
+	zend_try {
+		orig_execute_ex(exec);
+	} zend_catch {
+		ASYNC_G(exit) = 1;
+	} zend_end_try();
+	
+	error = EG(exception);
+	
+	if (UNEXPECTED(error != NULL)) {
+		ASYNC_ADDREF(error);
+		zend_clear_exception();
+	}
+	
+	async_task_scheduler_run();
+	
+	EG(exception) = error;
+}
+
 /* Custom executor being used to run the task scheduler before shutdown functions. */
 static void async_execute_ex(zend_execute_data *exec)
 {
-	async_fiber *fiber;
-	zend_object *error;
-
-	fiber = ASYNC_G(current_fiber);
-
-	if (orig_execute_ex) {
+	if (UNEXPECTED(exec->prev_execute_data == NULL && ASYNC_G(task) == NULL)) {
+		execute_root(exec);
+	} else {
 		orig_execute_ex(exec);
 	}
-
-	if (fiber == NULL && exec->prev_execute_data == NULL) {
-		error = EG(exception);
-		EG(exception) = NULL;
-
-		async_task_scheduler_run();
-
-		EG(exception) = error;
-	}
-}
-
-void async_init()
-{
-	if (ASYNC_G(fs_enabled)) {
-		async_filesystem_init();
-	}
-
-	if (ASYNC_G(dns_enabled)) {
-		async_dns_init();
-	}
-	
-	if (ASYNC_G(timer_enabled)) {
-		async_timer_init();
-	}
-	
-	async_tcp_socket_init();
-	async_udp_socket_init();
-}
-
-void async_shutdown()
-{
-	if (ASYNC_G(fs_enabled)) {
-		async_filesystem_shutdown();
-	}
-	
-	if (ASYNC_G(dns_enabled)) {
-		async_dns_shutdown();
-	}
-	
-	if (ASYNC_G(timer_enabled)) {
-		async_timer_shutdown();
-	}
-	
-	async_tcp_socket_shutdown();
-	async_udp_socket_shutdown();
-}
-
-char *async_status_label(zend_uchar status)
-{
-	if (status == ASYNC_OP_RESOLVED) {
-		return "RESOLVED";
-	}
-
-	if (status == ASYNC_OP_FAILED) {
-		return "FAILED";
-	}
-
-	return "PENDING";
-}
-
-ASYNC_API size_t async_ring_buffer_read_len(async_ring_buffer *buffer)
-{
-	if (buffer->len == 0) {
-		return 0;
-	}
-
-	if (buffer->wpos >= buffer->rpos) {
-		return buffer->len;
-	}
-	
-	return buffer->size - (buffer->rpos - buffer->base);
-}
-
-ASYNC_API size_t async_ring_buffer_write_len(async_ring_buffer *buffer)
-{
-	if (buffer->len == buffer->size) {
-		return 0;
-	}
-
-	if (buffer->wpos >= buffer->rpos) {
-		return buffer->size - (buffer->wpos - buffer->base);
-	}
-	
-	return buffer->rpos - buffer->wpos;
-}
-
-ASYNC_API size_t async_ring_buffer_read(async_ring_buffer *buffer, char *base, size_t len)
-{
-	size_t consumed;
-	size_t count;
-	
-	consumed = 0;
-	
-	while (len > 0 && buffer->len > 0) {
-		count = buffer->size - (buffer->rpos - buffer->base);
-		
-		if (count > buffer->len) {
-			count = MIN(len, buffer->len);
-		} else {
-			count = MIN(len, count);
-		}
-		
-		memcpy(base, buffer->rpos, count);
-		
-		buffer->rpos += count;
-		buffer->len -= count;
-		
-		if ((buffer->rpos - buffer->base) == buffer->size) {
-			buffer->rpos = buffer->base;
-		}
-		
-		len -= count;
-		base += count;
-		consumed += count;
-	}
-	
-	return consumed;
-}
-
-ASYNC_API size_t async_ring_buffer_read_string(async_ring_buffer *buffer, zend_string **str, size_t len)
-{
-	zend_string *tmp;
-	char *buf;
-	
-	len = MIN(buffer->len, len);
-	
-	if (len == 0) {
-		*str = NULL;
-	
-		return 0;
-	}
-	
-	tmp = zend_string_alloc(len, 0);
-	
-	buf = ZSTR_VAL(tmp);
-	buf[len] = '\0';
-	
-	async_ring_buffer_read(buffer, buf, len);
-		
-	*str = tmp;
-
-	return len;
-}
-
-ASYNC_API void async_ring_buffer_write_move(async_ring_buffer *buffer, size_t offset)
-{
-	ZEND_ASSERT(offset > 0);
-	ZEND_ASSERT(offset <= buffer->size);
-
-	buffer->wpos = buffer->base + ((buffer->wpos - buffer->base) + offset) % buffer->size;
-	buffer->len += offset;
-}
-
-ASYNC_API void async_ring_buffer_consume(async_ring_buffer *buffer, size_t len)
-{
-	ZEND_ASSERT(len > 0);
-	ZEND_ASSERT(len <= buffer->len);
-	
-	buffer->rpos = buffer->base + ((buffer->rpos - buffer->base) + len) % buffer->size;
-	buffer->len -= len;
 }
 
 static PHP_INI_MH(OnUpdateFiberStackSize)
@@ -217,12 +97,28 @@ static PHP_INI_MH(OnUpdateFiberStackSize)
 	return SUCCESS;
 }
 
+static PHP_INI_MH(OnUpdateThreadCount)
+{
+	OnUpdateLong(entry, new_value, mh_arg1, mh_arg2, mh_arg3, stage);
+
+	if (ASYNC_G(threads) < 4) {
+		ASYNC_G(threads) = 4;
+	}
+
+	if (ASYNC_G(threads) > 128) {
+		ASYNC_G(threads) = 128;
+	}
+
+	return SUCCESS;
+}
+
 PHP_INI_BEGIN()
 	STD_PHP_INI_ENTRY("async.dns", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, dns_enabled, zend_async_globals, async_globals)
 	STD_PHP_INI_ENTRY("async.filesystem", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, fs_enabled, zend_async_globals, async_globals)
-	STD_PHP_INI_ENTRY("async.stack_size", "0", PHP_INI_SYSTEM, OnUpdateFiberStackSize, stack_size, zend_async_globals, async_globals)
-	STD_PHP_INI_ENTRY("async.timer", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, timer_enabled, zend_async_globals, async_globals)
+	STD_PHP_INI_ENTRY("async.stack_size", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateFiberStackSize, stack_size, zend_async_globals, async_globals)
 	STD_PHP_INI_ENTRY("async.tcp", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, tcp_enabled, zend_async_globals, async_globals)
+	STD_PHP_INI_ENTRY("async.threads", "4", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateThreadCount, threads, zend_async_globals, async_globals)
+	STD_PHP_INI_ENTRY("async.timer", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, timer_enabled, zend_async_globals, async_globals)
 	STD_PHP_INI_ENTRY("async.udp", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, udp_enabled, zend_async_globals, async_globals)
 PHP_INI_END()
 
@@ -232,20 +128,16 @@ PHP_GINIT_FUNCTION(async)
 	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 
-	ZEND_SECURE_ZERO(async_globals, sizeof(zend_async_globals));
+	memset(async_globals, 0, sizeof(zend_async_globals));
 }
 
 PHP_MINIT_FUNCTION(async)
 {
-	if (0 == strcmp(sapi_module.name, "cli") || 0 == strcmp(sapi_module.name, "phpdbg")) {
-		async_cli = 1;
-	} else {
-		async_cli = 0;
-	}
+	zend_class_entry ce;
+
+	REGISTER_INI_ENTRIES();
 
 #ifdef HAVE_ASYNC_SSL
-	char *file;
-	
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined (LIBRESSL_VERSION_NUMBER)
 	SSL_library_init();
 	OPENSSL_config(NULL);
@@ -253,36 +145,25 @@ PHP_MINIT_FUNCTION(async)
 #else
 	OPENSSL_init_ssl(OPENSSL_INIT_LOAD_CONFIG, NULL);
 #endif
-
-	file = getenv("OPENSSL_CONF");
-
-	if (file == NULL) {
-		file = getenv("SSLEAY_CONF");
-	}
-
-	if (file == NULL) {
-		snprintf(async_ssl_config_file, sizeof(async_ssl_config_file), "%s/%s", X509_get_default_cert_area(), "openssl.cnf");
-	} else {
-		strlcpy(async_ssl_config_file, file, sizeof(async_ssl_config_file));
-	}
-
 #endif
+
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Awaitable", empty_funcs);
+	async_awaitable_ce = zend_register_internal_interface(&ce);
+	async_awaitable_ce->interface_gets_implemented = implements_awaitable;
 
 	async_stream_ce_register();
 	async_socket_ce_register();
 
-	async_awaitable_ce_register();
 	async_channel_ce_register();
+	async_console_ce_register();
 	async_context_ce_register();
 	async_deferred_ce_register();
 	async_dns_ce_register();
-	async_fiber_ce_register();
 	async_process_ce_register();
 	async_signal_watcher_ce_register();
 	async_ssl_ce_register();
 	async_stream_watcher_ce_register();
 	async_task_ce_register();
-	async_task_scheduler_ce_register();
 	async_tcp_ce_register();
 	async_timer_ce_register();
 	async_udp_socket_ce_register();
@@ -308,8 +189,6 @@ PHP_MINIT_FUNCTION(async)
 	REGISTER_LONG_CONSTANT("ASYNC_SSL_ALPN_SUPPORTED", 0, CONST_CS|CONST_PERSISTENT);
 #endif
 
-	REGISTER_INI_ENTRIES();
-
 	orig_execute_ex = zend_execute_ex;
 	zend_execute_ex = async_execute_ex;
 
@@ -319,12 +198,16 @@ PHP_MINIT_FUNCTION(async)
 
 PHP_MSHUTDOWN_FUNCTION(async)
 {
-	async_fiber_ce_unregister();
+	async_task_ce_unregister();
 
 	UNREGISTER_INI_ENTRIES();
 
 	zend_execute_ex = orig_execute_ex;
 
+	if (ASYNC_CLI) {
+		uv_tty_reset_mode();
+	}
+	
 	return SUCCESS;
 }
 
@@ -351,20 +234,41 @@ PHP_RINIT_FUNCTION(async)
 	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 
-	async_init();
+	async_context_init();
+	async_task_scheduler_init();
+
+	if (ASYNC_G(dns_enabled)) {
+		async_dns_init();
+	}
+	
+	if (ASYNC_G(timer_enabled)) {
+		async_timer_init();
+	}
+	
+	async_filesystem_init();
+	async_tcp_socket_init();
+	async_udp_socket_init();
 
 	return SUCCESS;
 }
 
 PHP_RSHUTDOWN_FUNCTION(async)
-{
-	async_shutdown();
+{	
+	if (ASYNC_G(dns_enabled)) {
+		async_dns_shutdown();
+	}
+	
+	if (ASYNC_G(timer_enabled)) {
+		async_timer_shutdown();
+	}
+	
+	async_filesystem_shutdown();
+	async_tcp_socket_shutdown();
+	async_udp_socket_shutdown();
 	
 	async_task_scheduler_shutdown();
-	
 	async_context_shutdown();
-	async_fiber_shutdown();
-
+	
 	return SUCCESS;
 }
 

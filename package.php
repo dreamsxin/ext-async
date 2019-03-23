@@ -138,6 +138,7 @@ foreach ($xpath->query('/p:package/p:contents') as $contents) {
     
     $files = array_merge($files, collect_files(__DIR__ . '/tests', [
         'phpt',
+        'php',
         'inc'
     ], 'test'));
 

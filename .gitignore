@@ -27,10 +27,6 @@
 /mkinstalldirs
 /run-*
 
-/tests/*
-!/tests/*.inc
-!/tests/*.phpt
-
 /composer.lock
 /local
 /vendor

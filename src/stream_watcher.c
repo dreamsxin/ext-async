@@ -18,8 +18,6 @@
 
 #include "php_async.h"
 
-#include "async_task.h"
-
 ASYNC_API zend_class_entry *async_stream_watcher_ce;
 
 static zend_object_handlers async_stream_watcher_handlers;
@@ -47,10 +45,10 @@ typedef struct {
 	async_task_scheduler *scheduler;
 
 	/* Queue of tasks wanting to be notified when the stream is readable. */
-	async_op_queue reads;
+	async_op_list reads;
 
 	/* Queue of tasks wanting to be notified when the stream is writable. */
-	async_op_queue writes;
+	async_op_list writes;
 
 	/* Number of pending referenced read / write operations. */
 	zend_uchar ref_count;
@@ -64,7 +62,7 @@ typedef struct {
 static int (*le_socket)(void);
 #endif
 
-static inline php_socket_t get_poll_fd(zval *val)
+static php_socket_t get_poll_fd(zval *val)
 {
 	php_socket_t fd;
 	php_stream *stream;
@@ -79,7 +77,7 @@ static inline php_socket_t get_poll_fd(zval *val)
 	}
 #endif
 
-	if (!stream) {
+	if (UNEXPECTED(!stream)) {
 		return -1;
 	}
 
@@ -91,11 +89,11 @@ static inline php_socket_t get_poll_fd(zval *val)
 		}
 	}
 
-	if (php_stream_cast(stream, PHP_STREAM_AS_FD_FOR_SELECT | PHP_STREAM_CAST_INTERNAL, (void *) &fd, 1) != SUCCESS) {
+	if (UNEXPECTED(php_stream_cast(stream, PHP_STREAM_AS_FD_FOR_SELECT | PHP_STREAM_CAST_INTERNAL, (void *) &fd, 1) != SUCCESS)) {
 		return -1;
 	}
 
-	if (fd < 1) {
+	if (UNEXPECTED(fd < 1)) {
 		return -1;
 	}
 
@@ -115,9 +113,9 @@ static inline php_socket_t get_poll_fd(zval *val)
 	return fd;
 }
 
-static inline void sync_poll(async_stream_watcher *watcher);
+static zend_always_inline void sync_poll(async_stream_watcher *watcher);
 
-static void trigger_poll(uv_poll_t *handle, int status, int events)
+ASYNC_CALLBACK trigger_poll(uv_poll_t *handle, int status, int events)
 {
 	async_stream_watcher *watcher;
 	async_op *op;
@@ -129,7 +127,7 @@ static void trigger_poll(uv_poll_t *handle, int status, int events)
 
 	ZEND_ASSERT(watcher != NULL);
 
-	if (Z_TYPE_P(&watcher->error) == IS_UNDEF) {
+	if (EXPECTED(Z_TYPE_P(&watcher->error) == IS_UNDEF)) {
 		read = watcher->reads.first;
 		write = watcher->writes.first;
 	
@@ -137,7 +135,7 @@ static void trigger_poll(uv_poll_t *handle, int status, int events)
 			cont = 1;
 		
 			while (cont && watcher->reads.first != NULL) {
-				ASYNC_DEQUEUE_OP(&watcher->reads, op);
+				ASYNC_NEXT_OP(&watcher->reads, op);
 				
 				cont = (op != read);
 				
@@ -149,7 +147,7 @@ static void trigger_poll(uv_poll_t *handle, int status, int events)
 			cont = 1;
 			
 			while (cont && watcher->writes.first != NULL) {
-				ASYNC_DEQUEUE_OP(&watcher->writes, op);
+				ASYNC_NEXT_OP(&watcher->writes, op);
 				
 				cont = (op != write);
 				
@@ -158,12 +156,12 @@ static void trigger_poll(uv_poll_t *handle, int status, int events)
 		}
 	} else {
 		while (watcher->reads.first != NULL) {
-			ASYNC_DEQUEUE_OP(&watcher->reads, op);
+			ASYNC_NEXT_OP(&watcher->reads, op);
 			ASYNC_FAIL_OP(op, &watcher->error);
 		}
 		
 		while (watcher->writes.first != NULL) {
-			ASYNC_DEQUEUE_OP(&watcher->writes, op);
+			ASYNC_NEXT_OP(&watcher->writes, op);
 			ASYNC_FAIL_OP(op, &watcher->error);
 		}
 	}
@@ -173,7 +171,7 @@ static void trigger_poll(uv_poll_t *handle, int status, int events)
 	}
 }
 
-static void close_poll(uv_handle_t *handle)
+ASYNC_CALLBACK close_poll(uv_handle_t *handle)
 {
 	async_stream_watcher *watcher;
 
@@ -184,7 +182,7 @@ static void close_poll(uv_handle_t *handle)
 	ASYNC_DELREF(&watcher->std);
 }
 
-static void shutdown_poll(void *obj, zval *error)
+ASYNC_CALLBACK shutdown_poll(void *obj, zval *error)
 {
 	async_stream_watcher *watcher;
 	async_op *op;
@@ -207,18 +205,18 @@ static void shutdown_poll(void *obj, zval *error)
 	
 	if (error != NULL) {
 		while (watcher->reads.first != NULL) {
-			ASYNC_DEQUEUE_OP(&watcher->reads, op);
+			ASYNC_NEXT_OP(&watcher->reads, op);
 			ASYNC_FAIL_OP(op, &watcher->error);
 		}
 		
 		while (watcher->writes.first != NULL) {
-			ASYNC_DEQUEUE_OP(&watcher->writes, op);
+			ASYNC_NEXT_OP(&watcher->writes, op);
 			ASYNC_FAIL_OP(op, &watcher->error);
 		}
 	}
 }
 
-static inline void sync_poll(async_stream_watcher *watcher)
+static zend_always_inline void sync_poll(async_stream_watcher *watcher)
 {
 	int events;
 	
@@ -243,7 +241,7 @@ static inline void sync_poll(async_stream_watcher *watcher)
 	}
 }
 
-static inline void suspend(async_stream_watcher *watcher, async_op_queue *q)
+static zend_always_inline void suspend(async_stream_watcher *watcher, async_op_list *q)
 {
 	async_context *context;
 	async_op *op;
@@ -251,13 +249,13 @@ static inline void suspend(async_stream_watcher *watcher, async_op_queue *q)
 	context = async_context_get();
 	
 	ASYNC_ALLOC_OP(op);
-	ASYNC_ENQUEUE_OP(q, op);
+	ASYNC_APPEND_OP(q, op);
 	
 	sync_poll(watcher);
 
 	ASYNC_UNREF_ENTER(context, watcher);
 
-	if (async_await_op(op) == FAILURE) {
+	if (UNEXPECTED(async_await_op(op) == FAILURE)) {
 		ASYNC_FORWARD_OP_ERROR(op);
 	}
 
@@ -270,15 +268,12 @@ static zend_object *async_stream_watcher_object_create(zend_class_entry *ce)
 {
 	async_stream_watcher *watcher;
 
-	watcher = emalloc(sizeof(async_stream_watcher));
-	ZEND_SECURE_ZERO(watcher, sizeof(async_stream_watcher));
+	watcher = ecalloc(1, sizeof(async_stream_watcher));
 
 	zend_object_std_init(&watcher->std, ce);
 	watcher->std.handlers = &async_stream_watcher_handlers;
 
-	watcher->scheduler = async_task_scheduler_get();
-	
-	ASYNC_ADDREF(&watcher->scheduler->std);
+	watcher->scheduler = async_task_scheduler_ref();
 
 	ZVAL_UNDEF(&watcher->error);
 	ZVAL_NULL(&watcher->resource);
@@ -296,7 +291,7 @@ static void async_stream_watcher_object_dtor(zend_object *object)
 	watcher = (async_stream_watcher *) object;
 
 	if (watcher->cancel.func != NULL) {
-		ASYNC_Q_DETACH(&watcher->scheduler->shutdown, &watcher->cancel);
+		ASYNC_LIST_REMOVE(&watcher->scheduler->shutdown, &watcher->cancel);
 	
 		watcher->cancel.func(watcher, NULL);
 	}
@@ -311,7 +306,7 @@ static void async_stream_watcher_object_destroy(zend_object *object)
 	zval_ptr_dtor(&watcher->error);
 	zval_ptr_dtor(&watcher->resource);
 	
-	ASYNC_DELREF(&watcher->scheduler->std);
+	async_task_scheduler_unref(watcher->scheduler);
 
 	zend_object_std_dtor(&watcher->std);
 }
@@ -347,7 +342,7 @@ ZEND_METHOD(StreamWatcher, __construct)
 
 	watcher->handle.data = watcher;
 	
-	ASYNC_Q_ENQUEUE(&watcher->scheduler->shutdown, &watcher->cancel);
+	ASYNC_LIST_APPEND(&watcher->scheduler->shutdown, &watcher->cancel);
 }
 
 ZEND_METHOD(StreamWatcher, close)
@@ -377,7 +372,7 @@ ZEND_METHOD(StreamWatcher, close)
 		GC_ADDREF(Z_OBJ_P(val));
 	}
 	
-	ASYNC_Q_DETACH(&watcher->scheduler->shutdown, &watcher->cancel);
+	ASYNC_LIST_REMOVE(&watcher->scheduler->shutdown, &watcher->cancel);
 	
 	watcher->cancel.func(watcher, &error);
 	
@@ -392,13 +387,8 @@ ZEND_METHOD(StreamWatcher, awaitReadable)
 
 	watcher = (async_stream_watcher *) Z_OBJ_P(getThis());
 
-	if (Z_TYPE_P(&watcher->error) != IS_UNDEF) {
-		Z_ADDREF_P(&watcher->error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&watcher->error);
-		execute_data->opline++;
-
+	if (UNEXPECTED(Z_TYPE_P(&watcher->error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&watcher->error);
 		return;
 	}
 
@@ -415,13 +405,8 @@ ZEND_METHOD(StreamWatcher, awaitWritable)
 
 	watcher = (async_stream_watcher *) Z_OBJ_P(getThis());
 
-	if (Z_TYPE_P(&watcher->error) != IS_UNDEF) {
-		Z_ADDREF_P(&watcher->error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&watcher->error);
-		execute_data->opline++;
-
+	if (UNEXPECTED(Z_TYPE_P(&watcher->error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&watcher->error);
 		return;
 	}
 

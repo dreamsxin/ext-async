@@ -19,11 +19,13 @@
 #include "php_async.h"
 #include "async_ssl.h"
 #include "async_stream.h"
-#include "async_task.h"
+#include "async_socket.h"
 #include "zend_inheritance.h"
 
 #ifdef ZEND_WIN32
 #include "win32/sockets.h"
+#else
+#include <sys/uio.h>
 #endif
 
 #define ASYNC_SOCKET_TCP_NODELAY 100
@@ -66,7 +68,7 @@ typedef struct {
 	zend_uchar ref_count;
 
 	/* Queue of tasks waiting to accept a socket connection. */
-	async_op_queue accepts;
+	async_op_list accepts;
 	
 	async_cancel_cb cancel;
 
@@ -155,41 +157,7 @@ typedef struct {
 } async_tcp_write;
 
 
-static inline void assemble_peer(uv_tcp_t *tcp, zend_bool remote, zend_string **address, uint16_t *port)
-{
-	struct sockaddr_storage addr;
-
-	char name[64];
-
-	int len;
-	int code;
-
-	len = sizeof(struct sockaddr_storage);
-
-	if (remote) {
-		code = uv_tcp_getpeername(tcp, (struct sockaddr *) &addr, &len);
-	} else {
-		code = uv_tcp_getsockname(tcp, (struct sockaddr *) &addr, &len);
-	}
-
-	ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to get peer name: %s", uv_strerror(code));
-
-	if (addr.ss_family == AF_INET) {
-		code = uv_ip4_name((const struct sockaddr_in *) &addr, name, len);
-		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
-
-		*port = ntohs(((struct sockaddr_in *) &addr)->sin_port);
-	} else {
-		code = uv_ip6_name((const struct sockaddr_in6 *) &addr, name, len);
-		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
-
-		*port = ntohs(((struct sockaddr_in6 *) &addr)->sin6_port);
-	}
-	
-	*address = zend_string_init(name, strlen(name), 0);
-}
-
-static void socket_disposed(uv_handle_t *handle)
+ASYNC_CALLBACK socket_disposed(uv_handle_t *handle)
 {
 	async_tcp_socket *socket;
 
@@ -200,16 +168,18 @@ static void socket_disposed(uv_handle_t *handle)
 	ASYNC_DELREF(&socket->std);
 }
 
-static void shutdown_socket(void *arg, zval *error)
+ASYNC_CALLBACK shutdown_socket(void *arg, zval *error)
 {
 	async_tcp_socket *socket;
 	
+	zval obj;
+
 	socket = (async_tcp_socket *) arg;
 	
 	ZEND_ASSERT(socket != NULL);
-	
+
 	socket->cancel.func = NULL;
-	
+
 	if (error != NULL) {
 		if (Z_TYPE_P(&socket->read_error) == IS_UNDEF) {
 			ZVAL_COPY(&socket->read_error, error);
@@ -225,13 +195,13 @@ static void shutdown_socket(void *arg, zval *error)
 			ASYNC_ADDREF(&socket->std);
 			
 			socket->handle.data = socket;
-			
+
 			uv_close((uv_handle_t *) &socket->handle, socket_disposed);
 		}
-	} else if (!(socket->stream->flags & ASYNC_STREAM_CLOSED)) {
-		ASYNC_ADDREF(&socket->std);
+	} else {
+		ZVAL_OBJ(&obj, &socket->std);
 		
-		async_stream_close(socket->stream, socket_disposed, socket);
+		async_stream_close(socket->stream, &obj);
 	}
 }
 
@@ -240,20 +210,17 @@ static async_tcp_socket *async_tcp_socket_object_create()
 {
 	async_tcp_socket *socket;
 
-	socket = emalloc(sizeof(async_tcp_socket));
-	ZEND_SECURE_ZERO(socket, sizeof(async_tcp_socket));
+	socket = ecalloc(1, sizeof(async_tcp_socket));
 
 	zend_object_std_init(&socket->std, async_tcp_socket_ce);
 	socket->std.handlers = &async_tcp_socket_handlers;
 	
-	socket->scheduler = async_task_scheduler_get();
-	
-	ASYNC_ADDREF(&socket->scheduler->std);
+	socket->scheduler = async_task_scheduler_ref();
 	
 	socket->cancel.object = socket;
 	socket->cancel.func = shutdown_socket;
 	
-	ASYNC_Q_ENQUEUE(&socket->scheduler->shutdown, &socket->cancel);
+	ASYNC_LIST_APPEND(&socket->scheduler->shutdown, &socket->cancel);
 
 	uv_tcp_init(&socket->scheduler->loop, &socket->handle);
 
@@ -269,7 +236,7 @@ static void async_tcp_socket_object_dtor(zend_object *object)
 	socket = (async_tcp_socket *) object;
 	
 	if (socket->cancel.func != NULL) {
-		ASYNC_Q_DETACH(&socket->scheduler->shutdown, &socket->cancel);
+		ASYNC_LIST_REMOVE(&socket->scheduler->shutdown, &socket->cancel);
 		
 		socket->cancel.func(socket, NULL);
 	}
@@ -299,7 +266,7 @@ static void async_tcp_socket_object_destroy(zend_object *object)
 		ASYNC_DELREF(&socket->server->std);
 	}
 	
-	ASYNC_DELREF(&socket->scheduler->std);
+	async_task_scheduler_unref(socket->scheduler);
 
 	zval_ptr_dtor(&socket->read_error);
 	zval_ptr_dtor(&socket->write_error);
@@ -319,7 +286,7 @@ static void async_tcp_socket_object_destroy(zend_object *object)
 	zend_object_std_dtor(&socket->std);
 }
 
-static void connect_cb(uv_connect_t *req, int status)
+ASYNC_CALLBACK connect_cb(uv_connect_t *req, int status)
 {
 	async_uv_op *op;
 
@@ -332,7 +299,7 @@ static void connect_cb(uv_connect_t *req, int status)
 	ASYNC_FINISH_OP(op);
 }
 
-ZEND_METHOD(TcpSocket, connect)
+static ZEND_METHOD(TcpSocket, connect)
 {
 	async_tcp_socket *socket;
 	async_context *context;
@@ -345,7 +312,8 @@ ZEND_METHOD(TcpSocket, connect)
 	zval obj;
 
 	uv_connect_t req;
-	struct sockaddr_in dest;
+	uv_os_fd_t sock;
+	php_sockaddr_storage dest;
 	int code;
 
 	tls = NULL;
@@ -356,12 +324,12 @@ ZEND_METHOD(TcpSocket, connect)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_ZVAL(tls)
 	ZEND_PARSE_PARAMETERS_END();
-	
-	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &dest, IPPROTO_TCP);
+		
+	code = async_dns_lookup_ip(ZSTR_VAL(name), &dest, IPPROTO_TCP);
 	
 	ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
-
-	dest.sin_port = htons(port);
+	
+	async_socket_set_port((struct sockaddr *) &dest, port);
 
 	socket = async_tcp_socket_object_create();
 	socket->name = zend_string_copy(name);
@@ -380,17 +348,17 @@ ZEND_METHOD(TcpSocket, connect)
 	
 	context = async_context_get();
 	
-	if (!context->background && 1 == ++socket->stream->ref_count) {
+	if (!async_context_is_background(context) && 1 == ++socket->stream->ref_count) {
 		uv_ref((uv_handle_t *) &socket->handle);
 	}
 	
 	code = async_await_op((async_op *) op);
 	
-	if (!context->background && 0 == --socket->stream->ref_count) {
+	if (!async_context_is_background(context) && 0 == --socket->stream->ref_count) {
 		uv_unref((uv_handle_t *) &socket->handle);
 	}
 	
-	if (code == FAILURE) {
+	if (UNEXPECTED(code == FAILURE)) {
 		ASYNC_DELREF(&socket->std);
 		ASYNC_FORWARD_OP_ERROR(op);
 		ASYNC_FREE_OP(op);
@@ -402,7 +370,7 @@ ZEND_METHOD(TcpSocket, connect)
 	
 	ASYNC_FREE_OP(op);
 	
-	if (code < 0) {
+	if (UNEXPECTED(code < 0)) {
 		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to connect socket: %s", uv_strerror(code));
 		ASYNC_DELREF(&socket->std);
 		
@@ -424,15 +392,17 @@ ZEND_METHOD(TcpSocket, connect)
 #endif
 	}
 	
-	assemble_peer(&socket->handle, 0, &socket->local_addr, &socket->local_port);
-	assemble_peer(&socket->handle, 1, &socket->remote_addr, &socket->remote_port);
+	if (EXPECTED(0 == uv_fileno((const uv_handle_t *) &socket->handle, &sock))) {
+		async_socket_get_local_peer((php_socket_t) sock, &socket->local_addr, &socket->local_port);
+		async_socket_get_remote_peer((php_socket_t) sock, &socket->remote_addr, &socket->remote_port);
+	}
 
 	ZVAL_OBJ(&obj, &socket->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(TcpSocket, pair)
+static ZEND_METHOD(TcpSocket, pair)
 {
 	async_tcp_socket *socket;
 
@@ -442,7 +412,7 @@ ZEND_METHOD(TcpSocket, pair)
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	if (!USED_RET()) {
+	if (UNEXPECTED(!USED_RET())) {
 		return;
 	}
 
@@ -466,15 +436,15 @@ ZEND_METHOD(TcpSocket, pair)
 		uv_tcp_open(&socket->handle, (uv_os_sock_t) tmp[i]);
 
 		ZVAL_OBJ(&sockets[i], &socket->std);
+		ASYNC_STR(socket->local_addr, "127.0.0.1");
+
+		socket->remote_addr = zend_string_copy(socket->local_addr);
 
 		zend_hash_index_update(Z_ARRVAL_P(return_value), i, &sockets[i]);
-		
-		socket->local_addr = zend_string_init("127.0.0.1", sizeof("127.0.0.1")-1, 0);
-		socket->remote_addr = zend_string_init("127.0.0.1", sizeof("127.0.0.1")-1, 0);
 	}
 }
 
-ZEND_METHOD(TcpSocket, close)
+static ZEND_METHOD(TcpSocket, close)
 {
 	async_tcp_socket *socket;
 
@@ -501,14 +471,30 @@ ZEND_METHOD(TcpSocket, close)
 		GC_ADDREF(Z_OBJ_P(val));
 	}
 
-	ASYNC_Q_DETACH(&socket->scheduler->shutdown, &socket->cancel);
+	ASYNC_LIST_REMOVE(&socket->scheduler->shutdown, &socket->cancel);
 	
 	socket->cancel.func(socket, &error);
 
 	zval_ptr_dtor(&error);
 }
 
-ZEND_METHOD(TcpSocket, getAddress)
+static ZEND_METHOD(TcpSocket, flush)
+{
+	async_tcp_socket *socket;
+	
+	ZEND_PARSE_PARAMETERS_NONE();
+	
+	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
+	
+	if (Z_TYPE_P(&socket->write_error) != IS_UNDEF) {
+		ASYNC_FORWARD_ERROR(&socket->write_error);
+		return;
+	}
+	
+	async_stream_flush(socket->stream);
+}
+
+static ZEND_METHOD(TcpSocket, getAddress)
 {
 	async_tcp_socket *socket;
 
@@ -519,7 +505,7 @@ ZEND_METHOD(TcpSocket, getAddress)
 	RETURN_STR_COPY(socket->local_addr);
 }
 
-ZEND_METHOD(TcpSocket, getPort)
+static ZEND_METHOD(TcpSocket, getPort)
 {
 	async_tcp_socket *socket;
 
@@ -530,7 +516,7 @@ ZEND_METHOD(TcpSocket, getPort)
 	RETURN_LONG(socket->local_port);
 }
 
-ZEND_METHOD(TcpSocket, getRemoteAddress)
+static ZEND_METHOD(TcpSocket, getRemoteAddress)
 {
 	async_tcp_socket *socket;
 
@@ -541,7 +527,7 @@ ZEND_METHOD(TcpSocket, getRemoteAddress)
 	RETURN_STR_COPY(socket->remote_addr);
 }
 
-ZEND_METHOD(TcpSocket, getRemotePort)
+static ZEND_METHOD(TcpSocket, getRemotePort)
 {
 	async_tcp_socket *socket;
 
@@ -552,7 +538,7 @@ ZEND_METHOD(TcpSocket, getRemotePort)
 	RETURN_LONG(socket->remote_port);
 }
 
-ZEND_METHOD(TcpSocket, setOption)
+static ZEND_METHOD(TcpSocket, setOption)
 {
 	async_tcp_socket *socket;
 
@@ -581,12 +567,12 @@ ZEND_METHOD(TcpSocket, setOption)
 	RETURN_BOOL((code < 0) ? 0 : 1);
 }
 
-static inline void call_read(async_tcp_socket *socket, zval *return_value, zend_execute_data *execute_data)
+static zend_always_inline void call_read(async_tcp_socket *socket, zval *return_value, zend_execute_data *execute_data)
 {
-	zend_string *str;
+	async_stream_read_req read;
+	
 	zval *hint;
 	size_t len;
-	int code;
 	
 	hint = NULL;
 	
@@ -604,36 +590,32 @@ static inline void call_read(async_tcp_socket *socket, zval *return_value, zend_
 		len = (size_t) Z_LVAL_P(hint);
 	}
 
-	if (Z_TYPE_P(&socket->read_error) != IS_UNDEF) {
-		Z_ADDREF_P(&socket->read_error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&socket->read_error);
-		execute_data->opline++;
-
-		return;
-	}
-
-	code = async_stream_read_string(socket->stream, &str, len, 0);
-	
-	if (UNEXPECTED(EG(exception))) {
+	if (UNEXPECTED(Z_TYPE_P(&socket->read_error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&socket->read_error);
 		return;
 	}
 	
-	if (code > 0) {
-		RETURN_STR(str);
+	read.in.len = len;
+	read.in.buffer = NULL;
+	read.in.timeout = 0;
+	
+	if (EXPECTED(SUCCESS == async_stream_read(socket->stream, &read))) {
+		if (EXPECTED(read.out.len)) {
+			RETURN_STR(read.out.str);
+		}
+		
+		return;
 	}
 	
-	ASYNC_CHECK_EXCEPTION(socket->stream->read.error != NULL, async_stream_exception_ce, "Reading from socket failed: %s", socket->stream->read.error);
-	ASYNC_CHECK_EXCEPTION(code < 0, async_stream_exception_ce, "Reading from socket failed: %s", uv_strerror(code));
+	forward_stream_read_error(&read);
 }
 
-ZEND_METHOD(TcpSocket, read)
+static ZEND_METHOD(TcpSocket, read)
 {
 	call_read((async_tcp_socket *) Z_OBJ_P(getThis()), return_value, execute_data);
 }
 
-ZEND_METHOD(TcpSocket, getReadableStream)
+static ZEND_METHOD(TcpSocket, getReadableStream)
 {
 	async_tcp_socket *socket;
 
@@ -648,46 +630,41 @@ ZEND_METHOD(TcpSocket, getReadableStream)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-static inline void call_write(async_tcp_socket *socket, zval *return_value, zend_execute_data *execute_data)
+static zend_always_inline void call_write(async_tcp_socket *socket, zval *return_value, zend_execute_data *execute_data)
 {
+	async_stream_write_req write;
+	
 	zend_string *data;
 	
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_STR(data)
 	ZEND_PARSE_PARAMETERS_END();
 
-	if (Z_TYPE_P(&socket->write_error) != IS_UNDEF) {
-		Z_ADDREF_P(&socket->write_error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&socket->write_error);
-		execute_data->opline++;
-
+	if (UNEXPECTED(Z_TYPE_P(&socket->write_error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&socket->write_error);
 		return;
 	}
 	
-	async_stream_write(socket->stream, ZSTR_VAL(data), ZSTR_LEN(data));
+	write.in.len = ZSTR_LEN(data);
+	write.in.buffer = ZSTR_VAL(data);
+	write.in.str = data;
+	write.in.ref = getThis();
+	write.in.flags = 0;
+	
+	if (UNEXPECTED(FAILURE == async_stream_write(socket->stream, &write))) {
+		forward_stream_write_error(&write);
+	}
 }
 
-ZEND_METHOD(TcpSocket, write)
+static ZEND_METHOD(TcpSocket, write)
 {
 	call_write((async_tcp_socket *) Z_OBJ_P(getThis()), return_value, execute_data);
 }
 
-static void write_async_cb(void *arg)
+static ZEND_METHOD(TcpSocket, writeAsync)
 {
 	async_tcp_socket *socket;
-	
-	socket = (async_tcp_socket *) arg;
-	
-	ZEND_ASSERT(socket != NULL);
-	
-	ASYNC_DELREF(&socket->std);
-}
-
-ZEND_METHOD(TcpSocket, writeAsync)
-{
-	async_tcp_socket *socket;
+	async_stream_write_req write;
 	
 	zend_string *data;
 	
@@ -697,28 +674,25 @@ ZEND_METHOD(TcpSocket, writeAsync)
 	
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 
-	if (Z_TYPE_P(&socket->write_error) != IS_UNDEF) {
-		Z_ADDREF_P(&socket->write_error);
-
-		execute_data->opline--;
-		zend_throw_exception_internal(&socket->write_error);
-		execute_data->opline++;
-
+	if (UNEXPECTED(Z_TYPE_P(&socket->write_error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&socket->write_error);
 		return;
 	}
 	
-	ASYNC_ADDREF(&socket->std);
+	write.in.len = ZSTR_LEN(data);
+	write.in.buffer = ZSTR_VAL(data);
+	write.in.str = data;
+	write.in.ref = getThis();
+	write.in.flags = ASYNC_STREAM_WRITE_REQ_FLAG_ASYNC;
 	
-	async_stream_async_write_string(socket->stream, data, write_async_cb, socket);
-	
-	if (EXPECTED(EG(exception) == NULL)) {		
-		RETURN_LONG(socket->handle.write_queue_size);
+	if (UNEXPECTED(FAILURE == async_stream_write(socket->stream, &write))) {
+		forward_stream_write_error(&write);
 	} else {
-		ASYNC_DELREF(&socket->std);
+		RETURN_LONG(socket->handle.write_queue_size);
 	}
 }
 
-ZEND_METHOD(TcpSocket, getWriteQueueSize)
+static ZEND_METHOD(TcpSocket, getWriteQueueSize)
 {
 	async_tcp_socket *socket;
 	
@@ -729,7 +703,7 @@ ZEND_METHOD(TcpSocket, getWriteQueueSize)
 	RETURN_LONG((Z_TYPE_P(&socket->write_error) == IS_UNDEF) ? socket->handle.write_queue_size : 0);
 }
 
-ZEND_METHOD(TcpSocket, getWritableStream)
+static ZEND_METHOD(TcpSocket, getWritableStream)
 {
 	async_tcp_socket *socket;
 
@@ -744,7 +718,7 @@ ZEND_METHOD(TcpSocket, getWritableStream)
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(TcpSocket, encrypt)
+static ZEND_METHOD(TcpSocket, encrypt)
 {
 #ifndef HAVE_ASYNC_SSL
 	zend_throw_exception_ex(async_socket_exception_ce, 0, "Async extension was not compiled with SSL support");
@@ -757,21 +731,25 @@ ZEND_METHOD(TcpSocket, encrypt)
 	
 	char *cafile;
 	char *capath;
+	
 	int code;
+	int options;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 	
-	ZEND_SECURE_ZERO(&handshake, sizeof(async_ssl_handshake_data));
+	memset(&handshake, 0, sizeof(async_ssl_handshake_data));
 	
 	if (socket->server == NULL) {
 		ASYNC_CHECK_ERROR(socket->encryption == NULL, "No encryption settings have been passed to TcpSocket::connect()");
 	
+		options = SSL_OP_SINGLE_DH_USE;
+	
 		cafile = (socket->encryption->cafile == NULL) ? NULL : ZSTR_VAL(socket->encryption->cafile);
 		capath = (socket->encryption->capath == NULL) ? NULL : ZSTR_VAL(socket->encryption->capath);
 	
-		socket->stream->ssl.ctx = async_ssl_create_context(SSL_OP_SINGLE_DH_USE, cafile, capath);
+		socket->stream->ssl.ctx = async_ssl_create_context(options, cafile, capath);
 		
 		async_ssl_setup_verify_callback(socket->stream->ssl.ctx, &socket->encryption->settings);
 		
@@ -796,7 +774,7 @@ ZEND_METHOD(TcpSocket, encrypt)
 
 	uv_tcp_nodelay(&socket->handle, 0);
 	
-	if (code == FAILURE) {
+	if (UNEXPECTED(code == FAILURE)) {
 		if (handshake.error != NULL) {
 			zend_throw_exception_ex(async_socket_exception_ce, 0, "SSL handshake failed: %s", ZSTR_VAL(handshake.error));
 			zend_string_release(handshake.error);
@@ -814,7 +792,7 @@ ZEND_METHOD(TcpSocket, encrypt)
 		}
 	}
 	
-	if (handshake.error != NULL) {
+	if (UNEXPECTED(handshake.error != NULL)) {
 		zend_string_release(handshake.error);
 	}
 	
@@ -833,66 +811,25 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_pair, 0, 0, IS_ARRAY, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_close, 0, 0, IS_VOID, 0)
-	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_address, 0, 0, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_port, 0, 0, IS_LONG, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_remote_address, 0, 0, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_remote_port, 0, 0, IS_LONG, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_set_option, 0, 2, _IS_BOOL, 0)
-	ZEND_ARG_TYPE_INFO(0, option, IS_LONG, 0)
-	ZEND_ARG_INFO(0, value)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_read, 0, 0, IS_STRING, 1)
-	ZEND_ARG_TYPE_INFO(0, length, IS_LONG, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_get_readable_stream, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_write, 0, 1, IS_VOID, 0)
-	ZEND_ARG_TYPE_INFO(0, data, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_write_async, 0, 1, IS_LONG, 0)
-	ZEND_ARG_TYPE_INFO(0, data, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_get_write_queue_size, 0, 0, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_get_writable_stream, 0, 0, Concurrent\\Stream\\WritableStream, 0)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_encrypt, 0, 0, Concurrent\\Network\\TlsInfo, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_tcp_socket_functions[] = {
 	ZEND_ME(TcpSocket, connect, arginfo_tcp_socket_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(TcpSocket, pair, arginfo_tcp_socket_pair, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(TcpSocket, close, arginfo_tcp_socket_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getAddress, arginfo_tcp_socket_get_address, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getPort, arginfo_tcp_socket_get_port, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, setOption, arginfo_tcp_socket_set_option, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getRemoteAddress, arginfo_tcp_socket_get_remote_address, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getRemotePort, arginfo_tcp_socket_get_remote_port, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, read, arginfo_tcp_socket_read, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getReadableStream, arginfo_tcp_socket_get_readable_stream, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, write, arginfo_tcp_socket_write, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, writeAsync, arginfo_tcp_socket_write_async, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getWriteQueueSize, arginfo_tcp_socket_get_write_queue_size, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getWritableStream, arginfo_tcp_socket_get_writable_stream, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, flush, arginfo_socket_flush, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getAddress, arginfo_socket_get_address, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getPort, arginfo_socket_get_port, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getRemoteAddress, arginfo_socket_stream_get_remote_address, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getRemotePort, arginfo_socket_stream_get_remote_port, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getReadableStream, arginfo_duplex_stream_get_readable_stream, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, writeAsync, arginfo_socket_stream_write_async, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getWriteQueueSize, arginfo_socket_get_write_queue_size, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, getWritableStream, arginfo_duplex_stream_get_writable_stream, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, encrypt, arginfo_tcp_socket_encrypt, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
@@ -902,8 +839,7 @@ static async_tcp_socket_reader *async_tcp_socket_reader_object_create(async_tcp_
 {
 	async_tcp_socket_reader *reader;
 
-	reader = emalloc(sizeof(async_tcp_socket_reader));
-	ZEND_SECURE_ZERO(reader, sizeof(async_tcp_socket_reader));
+	reader = ecalloc(1, sizeof(async_tcp_socket_reader));
 
 	zend_object_std_init(&reader->std, async_tcp_socket_reader_ce);
 	reader->std.handlers = &async_tcp_socket_reader_handlers;
@@ -926,7 +862,7 @@ static void async_tcp_socket_reader_object_destroy(zend_object *object)
 	zend_object_std_dtor(&reader->std);
 }
 
-ZEND_METHOD(TcpSocketReader, close)
+static ZEND_METHOD(TcpSocketReader, close)
 {
 	async_tcp_socket_reader *reader;
 	async_tcp_socket *socket;
@@ -954,17 +890,17 @@ ZEND_METHOD(TcpSocketReader, close)
 		GC_ADDREF(Z_OBJ_P(val));
 	}
 	
-	async_stream_shutdown(socket->stream, ASYNC_STREAM_SHUT_RD);
+	async_stream_shutdown(socket->stream, ASYNC_STREAM_SHUT_RD, getThis());
 }
 
-ZEND_METHOD(TcpSocketReader, read)
+static ZEND_METHOD(TcpSocketReader, read)
 {
 	call_read(((async_tcp_socket_reader *) Z_OBJ_P(getThis()))->socket, return_value, execute_data);
 }
 
 static const zend_function_entry async_tcp_socket_reader_functions[] = {
-	ZEND_ME(TcpSocketReader, close, arginfo_tcp_socket_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocketReader, read, arginfo_tcp_socket_read, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocketReader, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocketReader, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -973,8 +909,7 @@ static async_tcp_socket_writer *async_tcp_socket_writer_object_create(async_tcp_
 {
 	async_tcp_socket_writer *writer;
 
-	writer = emalloc(sizeof(async_tcp_socket_writer));
-	ZEND_SECURE_ZERO(writer, sizeof(async_tcp_socket_writer));
+	writer = ecalloc(1, sizeof(async_tcp_socket_writer));
 
 	zend_object_std_init(&writer->std, async_tcp_socket_writer_ce);
 	writer->std.handlers = &async_tcp_socket_writer_handlers;
@@ -986,7 +921,7 @@ static async_tcp_socket_writer *async_tcp_socket_writer_object_create(async_tcp_
 	return writer;
 }
 
-static void async_tcp_socket_writer_object_destroy(zend_object *object)
+ASYNC_CALLBACK async_tcp_socket_writer_object_destroy(zend_object *object)
 {
 	async_tcp_socket_writer *writer;
 
@@ -997,7 +932,7 @@ static void async_tcp_socket_writer_object_destroy(zend_object *object)
 	zend_object_std_dtor(&writer->std);
 }
 
-ZEND_METHOD(TcpSocketWriter, close)
+static ZEND_METHOD(TcpSocketWriter, close)
 {
 	async_tcp_socket_writer *writer;
 	async_tcp_socket *socket;
@@ -1025,22 +960,22 @@ ZEND_METHOD(TcpSocketWriter, close)
 		GC_ADDREF(Z_OBJ_P(val));
 	}
 	
-	async_stream_shutdown(socket->stream, ASYNC_STREAM_SHUT_WR);
+	async_stream_shutdown(socket->stream, ASYNC_STREAM_SHUT_WR, getThis());
 }
 
-ZEND_METHOD(TcpSocketWriter, write)
+static ZEND_METHOD(TcpSocketWriter, write)
 {
 	call_write(((async_tcp_socket_writer *) Z_OBJ_P(getThis()))->socket, return_value, execute_data);
 }
 
 static const zend_function_entry async_tcp_socket_writer_functions[] = {
-	ZEND_ME(TcpSocketWriter, close, arginfo_tcp_socket_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocketWriter, write, arginfo_tcp_socket_write, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocketWriter, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocketWriter, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
 
-static void server_disposed(uv_handle_t *handle)
+ASYNC_CALLBACK server_disposed(uv_handle_t *handle)
 {
 	async_tcp_server *server;
 
@@ -1051,7 +986,7 @@ static void server_disposed(uv_handle_t *handle)
 	ASYNC_DELREF(&server->std);
 }
 
-static void shutdown_server(void *obj, zval *error)
+ASYNC_CALLBACK shutdown_server(void *obj, zval *error)
 {
 	async_tcp_server *server;
 	async_uv_op *op;
@@ -1067,7 +1002,7 @@ static void shutdown_server(void *obj, zval *error)
 	}
 	
 	while (server->accepts.first != NULL) {
-		ASYNC_DEQUEUE_CUSTOM_OP(&server->accepts, op, async_uv_op);
+		ASYNC_NEXT_CUSTOM_OP(&server->accepts, op, async_uv_op);
 		
 		if (Z_TYPE_P(&server->error) != IS_UNDEF) {
 			ASYNC_FAIL_OP(op, &server->error);
@@ -1089,20 +1024,17 @@ static async_tcp_server *async_tcp_server_object_create()
 {
 	async_tcp_server *server;
 
-	server = emalloc(sizeof(async_tcp_server));
-	ZEND_SECURE_ZERO(server, sizeof(async_tcp_server));
+	server = ecalloc(1, sizeof(async_tcp_server));
 
 	zend_object_std_init(&server->std, async_tcp_server_ce);
 	server->std.handlers = &async_tcp_server_handlers;
 	
-	server->scheduler = async_task_scheduler_get();
-	
-	ASYNC_ADDREF(&server->scheduler->std);
+	server->scheduler = async_task_scheduler_ref();
 	
 	server->cancel.object = server;
 	server->cancel.func = shutdown_server;
 	
-	ASYNC_Q_ENQUEUE(&server->scheduler->shutdown, &server->cancel);
+	ASYNC_LIST_APPEND(&server->scheduler->shutdown, &server->cancel);
 
 	uv_tcp_init(&server->scheduler->loop, &server->handle);
 
@@ -1122,7 +1054,7 @@ static void async_tcp_server_object_dtor(zend_object *object)
 	server = (async_tcp_server *) object;
 
 	if (server->cancel.func != NULL) {
-		ASYNC_Q_DETACH(&server->scheduler->shutdown, &server->cancel);
+		ASYNC_LIST_REMOVE(&server->scheduler->shutdown, &server->cancel);
 	
 		server->cancel.func(server, NULL);
 	}
@@ -1144,7 +1076,7 @@ static void async_tcp_server_object_destroy(zend_object *object)
 	}
 #endif
 
-	ASYNC_DELREF(&server->scheduler->std);
+	async_task_scheduler_unref(server->scheduler);
 	
 	zval_ptr_dtor(&server->error);
 	
@@ -1159,7 +1091,7 @@ static void async_tcp_server_object_destroy(zend_object *object)
 	zend_object_std_dtor(&server->std);
 }
 
-static void server_connected(uv_stream_t *stream, int status)
+ASYNC_CALLBACK server_connected(uv_stream_t *stream, int status)
 {
 	async_tcp_server *server;
 	async_uv_op *op;
@@ -1171,7 +1103,7 @@ static void server_connected(uv_stream_t *stream, int status)
 	if (server->accepts.first == NULL) {
 		server->pending++;
 	} else {
-		ASYNC_DEQUEUE_CUSTOM_OP(&server->accepts, op, async_uv_op);
+		ASYNC_NEXT_CUSTOM_OP(&server->accepts, op, async_uv_op);
 		
 		op->code = status;
 				
@@ -1179,7 +1111,7 @@ static void server_connected(uv_stream_t *stream, int status)
 	}
 }
 
-ZEND_METHOD(TcpServer, listen)
+static ZEND_METHOD(TcpServer, listen)
 {
 	async_tcp_server *server;
 
@@ -1189,10 +1121,12 @@ ZEND_METHOD(TcpServer, listen)
 	zval *tls;
 	zval obj;
 
-	struct sockaddr_in bind;
+	php_sockaddr_storage addr;
+	uv_os_fd_t sock;
 	int code;
 	
 #ifdef HAVE_ASYNC_SSL
+	int options;
 	char *cafile;
 	char *capath;
 #endif
@@ -1206,17 +1140,17 @@ ZEND_METHOD(TcpServer, listen)
 		Z_PARAM_ZVAL(tls)
 	ZEND_PARSE_PARAMETERS_END();
 
-	code = async_dns_lookup_ipv4(ZSTR_VAL(name), &bind, IPPROTO_TCP);
+	code = async_dns_lookup_ip(ZSTR_VAL(name), &addr, IPPROTO_TCP);
 	
 	ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 	
-	bind.sin_port = htons(port);
+	async_socket_set_port((struct sockaddr *) &addr, port);
 
 	server = async_tcp_server_object_create();
 	server->name = zend_string_copy(name);
 	server->port = (uint16_t) port;
 
-	code = uv_tcp_bind(&server->handle, (const struct sockaddr *) &bind, 0);
+	code = uv_tcp_bind(&server->handle, (const struct sockaddr *) &addr, 0);
 
 	if (UNEXPECTED(code != 0)) {
 		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to bind server: %s", uv_strerror(code));
@@ -1240,10 +1174,12 @@ ZEND_METHOD(TcpServer, listen)
 
 		ASYNC_ADDREF(&server->encryption->std);
 		
+		options = SSL_OP_SINGLE_DH_USE | SSL_OP_CIPHER_SERVER_PREFERENCE;
+		
 		cafile = (server->encryption->cafile == NULL) ? NULL : ZSTR_VAL(server->encryption->cafile);
 		capath = (server->encryption->capath == NULL) ? NULL : ZSTR_VAL(server->encryption->capath);
-
-		server->ctx = async_ssl_create_context(SSL_OP_SINGLE_DH_USE | SSL_OP_CIPHER_SERVER_PREFERENCE, cafile, capath);
+		
+		server->ctx = async_ssl_create_context(options, cafile, capath);
 
 		SSL_CTX_set_default_passwd_cb_userdata(server->ctx, &server->encryption->cert);
 
@@ -1259,14 +1195,16 @@ ZEND_METHOD(TcpServer, listen)
 #endif
 	}
 	
-	assemble_peer(&server->handle, 0, &server->addr, &server->port);
+	if (EXPECTED(0 == uv_fileno((const uv_handle_t *) &server->handle, &sock))) {
+		async_socket_get_local_peer((php_socket_t) sock, &server->addr, &server->port);
+	}
 
 	ZVAL_OBJ(&obj, &server->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-ZEND_METHOD(TcpServer, close)
+static ZEND_METHOD(TcpServer, close)
 {
 	async_tcp_server *server;
 
@@ -1293,14 +1231,14 @@ ZEND_METHOD(TcpServer, close)
 		GC_ADDREF(Z_OBJ_P(val));
 	}
 	
-	ASYNC_Q_DETACH(&server->scheduler->shutdown, &server->cancel);
+	ASYNC_LIST_REMOVE(&server->scheduler->shutdown, &server->cancel);
 	
 	server->cancel.func(server, &error);
 
 	zval_ptr_dtor(&error);
 }
 
-ZEND_METHOD(TcpServer, getAddress)
+static ZEND_METHOD(TcpServer, getAddress)
 {
 	async_tcp_server *server;
 
@@ -1311,7 +1249,7 @@ ZEND_METHOD(TcpServer, getAddress)
 	RETURN_STR_COPY(server->name);
 }
 
-ZEND_METHOD(TcpServer, getPort)
+static ZEND_METHOD(TcpServer, getPort)
 {
 	async_tcp_server *server;
 
@@ -1322,7 +1260,7 @@ ZEND_METHOD(TcpServer, getPort)
 	RETURN_LONG(server->port);
 }
 
-ZEND_METHOD(TcpServer, setOption)
+static ZEND_METHOD(TcpServer, setOption)
 {
 	async_tcp_server *server;
 
@@ -1348,12 +1286,14 @@ ZEND_METHOD(TcpServer, setOption)
 	RETURN_BOOL((code < 0) ? 0 : 1);
 }
 
-ZEND_METHOD(TcpServer, accept)
+static ZEND_METHOD(TcpServer, accept)
 {
 	async_tcp_server *server;
 	async_tcp_socket *socket;
 	async_context *context;
+	
 	async_uv_op *op;
+	uv_os_fd_t sock;
 
 	zval obj;
 	int code;
@@ -1363,18 +1303,13 @@ ZEND_METHOD(TcpServer, accept)
 	server = (async_tcp_server *) Z_OBJ_P(getThis());
 
 	if (server->pending == 0) {
-		if (Z_TYPE_P(&server->error) != IS_UNDEF) {
-			Z_ADDREF_P(&server->error);
-
-			execute_data->opline--;
-			zend_throw_exception_internal(&server->error);
-			execute_data->opline++;
-
+		if (UNEXPECTED(Z_TYPE_P(&server->error) != IS_UNDEF)) {
+			ASYNC_FORWARD_ERROR(&server->error);
 			return;
 		}
 		
 		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op));
-		ASYNC_ENQUEUE_OP(&server->accepts, op);
+		ASYNC_APPEND_OP(&server->accepts, op);
 		
 		context = async_context_get();
 		
@@ -1382,7 +1317,7 @@ ZEND_METHOD(TcpServer, accept)
 		code = async_await_op((async_op *) op);
 		ASYNC_UNREF_EXIT(context, server);
 		
-		if (code == FAILURE) {
+		if (UNEXPECTED(code == FAILURE)) {
 			ASYNC_FORWARD_OP_ERROR(op);
 			ASYNC_FREE_OP(op);
 			
@@ -1405,13 +1340,16 @@ ZEND_METHOD(TcpServer, accept)
 	if (UNEXPECTED(code != 0)) {
 		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to accept socket connection: %s", uv_strerror(code));
 		ASYNC_DELREF(&socket->std);
+		
 		return;
 	}
 
 	socket->server = server;
 	
-	assemble_peer(&socket->handle, 0, &socket->local_addr, &socket->local_port);
-	assemble_peer(&socket->handle, 1, &socket->remote_addr, &socket->remote_port);
+	if (EXPECTED(0 == uv_fileno((const uv_handle_t *) &socket->handle, &sock))) {
+		async_socket_get_local_peer((php_socket_t) sock, &socket->local_addr, &socket->local_port);
+		async_socket_get_remote_peer((php_socket_t) sock, &socket->remote_addr, &socket->remote_port);
+	}
 
 	ASYNC_ADDREF(&server->std);
 
@@ -1426,30 +1364,15 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_listen, 0, 2, Concurre
 	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_close, 0, 0, IS_VOID, 0)
-	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_get_address, 0, 0, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_get_port, 0, 0, IS_LONG, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_set_option, 0, 2, _IS_BOOL, 0)
-	ZEND_ARG_TYPE_INFO(0, option, IS_LONG, 0)
-	ZEND_ARG_INFO(0, value)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_accept, 0, 0, Concurrent\\Network\\SocketStream, 0)
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_tcp_server_functions[] = {
 	ZEND_ME(TcpServer, listen, arginfo_tcp_server_listen, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(TcpServer, close, arginfo_tcp_server_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpServer, getAddress, arginfo_tcp_server_get_address, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpServer, getPort, arginfo_tcp_server_get_port, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpServer, setOption, arginfo_tcp_server_set_option, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpServer, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpServer, getAddress, arginfo_socket_get_address, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpServer, getPort, arginfo_socket_get_port, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpServer, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpServer, accept, arginfo_tcp_server_accept, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };

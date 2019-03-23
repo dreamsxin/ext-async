@@ -2,12 +2,12 @@
 
 namespace Concurrent;
 
-var_dump(Fiber::backend());
-
 $result = TaskScheduler::run(function () {
     $t = Task::async(function (): int {
         return max(123, Task::await(Deferred::value()));
     });
+    
+    printf("LAUNCHED TASK: [%s]\nin %s:%u\n\n", $t->status, $t->file, $t->line);
     
     print_r($t);
     

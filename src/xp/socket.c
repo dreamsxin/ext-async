@@ -21,6 +21,8 @@
 #include "async_xp.h"
 
 
+#define ASYNC_XP_SOCKET_EOF(data) ((data)->astream ? ((data)->astream->flags & ASYNC_STREAM_EOF && (data)->astream->buffer.len == 0) : 0)
+
 async_xp_socket_ssl *async_xp_socket_create_ssl(int options, char *cafile, char *capath)
 {
 	async_xp_socket_ssl *ssl;
@@ -100,6 +102,9 @@ char *async_xp_parse_ip(const char *str, size_t str_len, int *portno, int get_er
 static size_t async_xp_socket_write(php_stream *stream, const char *buf, size_t count)
 {
 	async_xp_socket_data *data;
+	async_stream_write_req write;
+	
+	zval ref;
 
 	data = (async_xp_socket_data *) stream->abstract;
 	
@@ -107,7 +112,17 @@ static size_t async_xp_socket_write(php_stream *stream, const char *buf, size_t 
 		return data->write(stream, data, buf, count);
 	}
 	
-	async_stream_write(data->astream, (char *) buf, count);
+	ZVAL_RES(&ref, stream->res);
+	
+	write.in.len = count;
+	write.in.buffer = (char *) buf;
+	write.in.str = NULL;
+	write.in.ref = &ref;
+	write.in.flags = 0;
+	
+	if (UNEXPECTED(FAILURE == async_stream_write(data->astream, &write))) {
+		return 0;
+	}
 	
 	return count;
 }
@@ -115,6 +130,7 @@ static size_t async_xp_socket_write(php_stream *stream, const char *buf, size_t 
 static size_t async_xp_socket_read(php_stream *stream, char *buf, size_t count)
 {
 	async_xp_socket_data *data;
+	async_stream_read_req read;
 	
 	int code;
 	
@@ -126,24 +142,45 @@ static size_t async_xp_socket_read(php_stream *stream, char *buf, size_t count)
 	
 	data->flags &= ~ASYNC_XP_SOCKET_FLAG_TIMED_OUT;
 	
-	code = async_stream_read(data->astream, buf, count, data->timeout);
+	read.in.len = count;
+	read.in.buffer = buf;
+	read.in.timeout = data->timeout;
 	
-	if (code < 0) {
-		if (code == UV_ETIMEDOUT) {
-			data->flags |= ASYNC_XP_SOCKET_FLAG_TIMED_OUT;
-		} else if (data->astream->read.error != NULL) {
-			php_error_docref(NULL, E_WARNING, "Socket read failed: %s", data->astream->read.error);
-		} else {
-			php_error_docref(NULL, E_WARNING, "Socket read failed: %s", uv_strerror(code));
-		}
-		
+	code = async_stream_read(data->astream, &read);
+	
+	if (ASYNC_XP_SOCKET_EOF(data)) {
+		stream->eof = 1;
+	}
+	
+	if (EXPECTED(code == SUCCESS)) {
+		return read.out.len;
+	}
+	
+	if (UNEXPECTED(EG(exception))) {
 		return 0;
 	}
+	
+#ifdef HAVE_ASYNC_SSL
+	if (read.out.ssl_error) {
+		return 0;
+	}
+#endif
 
-	return code;
+	switch (read.out.error) {
+	case UV_ETIMEDOUT:
+		data->flags |= ASYNC_XP_SOCKET_FLAG_TIMED_OUT;
+		break;
+	case UV_EOF:
+		stream->eof = 1;
+		break;
+	default:
+		php_error_docref(NULL, E_WARNING, "Read operation failed: %s", uv_strerror(read.out.error));
+	}
+	
+	return 0;
 }
 
-static void dispose_timer(uv_handle_t *handle)
+ASYNC_CALLBACK dispose_timer(uv_handle_t *handle)
 {
 	async_xp_socket_data *data;
 	
@@ -151,7 +188,7 @@ static void dispose_timer(uv_handle_t *handle)
 	
 	ZEND_ASSERT(data != NULL);
 	
-	ASYNC_DELREF(&data->scheduler->std);
+	async_task_scheduler_unref(data->scheduler);
 	
 	if (data->ssl != NULL) {
 		async_xp_socket_release_ssl(data->ssl);
@@ -160,7 +197,7 @@ static void dispose_timer(uv_handle_t *handle)
 	efree(data);
 }
 
-static void close_cb(uv_handle_t *handle)
+ASYNC_CALLBACK close_cb(uv_handle_t *handle)
 {
 	async_xp_socket_data *data;
 	
@@ -182,7 +219,7 @@ static void close_cb(uv_handle_t *handle)
 	}
 	
 	if (uv_is_closing((uv_handle_t *) &data->timer)) {
-		ASYNC_DELREF(&data->scheduler->std);
+		async_task_scheduler_unref(data->scheduler);
 		
 		if (data->ssl != NULL) {
 			async_xp_socket_release_ssl(data->ssl);
@@ -194,7 +231,7 @@ static void close_cb(uv_handle_t *handle)
 	}
 }
 
-static void close_dgram_cb(uv_handle_t *handle)
+ASYNC_CALLBACK close_dgram_cb(uv_handle_t *handle)
 {
 	async_xp_socket_data *data;
 	
@@ -208,7 +245,7 @@ static void close_dgram_cb(uv_handle_t *handle)
 	}
 	
 	if (uv_is_closing((uv_handle_t *) &data->timer)) {
-		ASYNC_DELREF(&data->scheduler->std);
+		async_task_scheduler_unref(data->scheduler);
 		
 		if (data->ssl != NULL) {
 			async_xp_socket_release_ssl(data->ssl);
@@ -223,7 +260,7 @@ static void close_dgram_cb(uv_handle_t *handle)
 static int async_xp_socket_close(php_stream *stream, int close_handle)
 {
 	async_xp_socket_data *data;
-	
+
 	data = (async_xp_socket_data *) stream->abstract;
 	
 	if (data->astream == NULL) {
@@ -232,13 +269,13 @@ static int async_xp_socket_close(php_stream *stream, int close_handle)
 				zend_string_release(data->peer);
 				data->peer = NULL;
 			}
-		
+
 			uv_close((uv_handle_t *) &data->timer, dispose_timer);
 		} else {
 			uv_close(&data->handle, close_dgram_cb);
 		}
 	} else {
-		async_stream_close(data->astream, close_cb, data);
+		async_stream_close_cb(data->astream, close_cb, data);
 	}
 	
 	return 0;
@@ -251,6 +288,25 @@ static int async_xp_socket_flush(php_stream *stream)
 
 static int async_xp_socket_cast(php_stream *stream, int castas, void **ret)
 {
+	async_xp_socket_data *data;
+	php_socket_t fd;
+	
+	data = (async_xp_socket_data *) stream->abstract;
+	
+	switch (castas) {
+	case PHP_STREAM_AS_FD_FOR_SELECT:
+	case PHP_STREAM_AS_FD:
+		if (0 != uv_fileno((const uv_handle_t *) &data->handle, (uv_os_fd_t *) &fd)) {
+			return FAILURE;
+		}
+		
+		if (ret) {
+			*(php_socket_t *)ret = fd;
+		}
+	
+		return SUCCESS;
+	}
+	
 	return FAILURE;
 }
 
@@ -271,11 +327,9 @@ static zend_string *create_alpn_proto_list(zend_string *alpn)
 		
 	unsigned int len;
 	unsigned char j;
-	int i;
+	unsigned int i;
 	
-	len = ZSTR_LEN(alpn);
-	
-	
+	len = (unsigned int) ZSTR_LEN(alpn);
 	pos = buffer;
 	
 	for (c = ZSTR_VAL(alpn), j = 0, i = 0; i < len; i++) {
@@ -339,20 +393,24 @@ static int setup_server_encryption(php_stream *stream, async_xp_socket_data *dat
 	
 	data->ssl = async_xp_socket_create_ssl(options, cafile, capath);
 	
-	if (VCWD_REALPATH(ZSTR_VAL(Z_STR_P(cert)), path)) {
-		data->ssl->encryption->cert.file = zend_string_init(path, strlen(path), 0);
+	if (!VCWD_REALPATH(ZSTR_VAL(Z_STR_P(cert)), path)) {
+		php_error_docref(NULL, E_WARNING, "Unable to find local cert file `%s'", ZSTR_VAL(Z_STR_P(cert)));
 		
-		if (ASYNC_XP_SOCKET_SSL_OPT(stream, "local_pk", val)) {
-			if (VCWD_REALPATH(ZSTR_VAL(Z_STR_P(val)), path)) {
-				data->ssl->encryption->cert.key = zend_string_init(path, strlen(path), 0);
-			}
-		} else {
-			data->ssl->encryption->cert.key = zend_string_copy(data->ssl->encryption->cert.file);
+		return FAILURE;
+	}
+	
+	data->ssl->encryption->cert.file = zend_string_init(path, strlen(path), 0);
+	
+	if (ASYNC_XP_SOCKET_SSL_OPT(stream, "local_pk", val)) {
+		if (VCWD_REALPATH(ZSTR_VAL(Z_STR_P(val)), path)) {
+			data->ssl->encryption->cert.key = zend_string_init(path, strlen(path), 0);
 		}
-		
-		if (ASYNC_XP_SOCKET_SSL_OPT(stream, "passphrase", val)) {
-			data->ssl->encryption->cert.passphrase = zend_string_copy(Z_STR_P(val));
-		}
+	} else {
+		data->ssl->encryption->cert.key = zend_string_copy(data->ssl->encryption->cert.file);
+	}
+	
+	if (ASYNC_XP_SOCKET_SSL_OPT(stream, "passphrase", val)) {
+		data->ssl->encryption->cert.passphrase = zend_string_copy(Z_STR_P(val));
 	}
 	
 	SSL_CTX_set_default_passwd_cb_userdata(data->ssl->ctx, &data->ssl->encryption->cert);
@@ -390,7 +448,7 @@ static int setup_server_encryption(php_stream *stream, async_xp_socket_data *dat
 
 #endif
 
-static inline int async_xp_socket_xport_api(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam STREAMS_DC)
+static int async_xp_socket_xport_api(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam STREAMS_DC)
 {
 	switch (xparam->op) {
 	case STREAM_XPORT_OP_ACCEPT:
@@ -437,7 +495,7 @@ static inline int async_xp_socket_xport_api(php_stream *stream, async_xp_socket_
 		xparam->outputs.returncode = (data->send == NULL) ? FAILURE : data->send(stream, data, xparam);
 		break;
 	case STREAM_XPORT_OP_SHUTDOWN:
-		xparam->outputs.returncode = (data->shutdown == NULL) ? SUCCESS : data->shutdown(data, xparam->how);
+		xparam->outputs.returncode = (data->shutdown == NULL) ? SUCCESS : data->shutdown(stream, data, xparam->how);
 		break;
 	}
 	
@@ -458,7 +516,7 @@ static int cert_passphrase_cb(char *buf, int size, int rwflag, void *obj)
 	
 	strncpy(buf, ZSTR_VAL(key), ZSTR_LEN(key));
 	
-	return ZSTR_LEN(key);
+	return (int) ZSTR_LEN(key);
 }
 
 static char *cipher_get_version(const SSL_CIPHER *c, char *buffer, size_t max_len)
@@ -485,6 +543,8 @@ static int setup_ssl(php_stream *stream, async_xp_socket_data *data, php_stream_
 	
 	char *cafile;
 	char *capath;
+	
+	int options;
 		
 	if (data->ssl != NULL) {
 		data->astream->ssl.ctx = data->ssl->ctx;
@@ -492,13 +552,15 @@ static int setup_ssl(php_stream *stream, async_xp_socket_data *data, php_stream_
 		return SUCCESS;
 	}
 	
+	options = SSL_OP_SINGLE_DH_USE;
+	
 	cafile = NULL;
 	capath = NULL;
 	
 	ASYNC_XP_SOCKET_SSL_OPT_STRING(stream, "cafile", cafile);
 	ASYNC_XP_SOCKET_SSL_OPT_STRING(stream, "capath", capath);
 	
-	data->astream->ssl.ctx = async_ssl_create_context(SSL_OP_SINGLE_DH_USE, cafile, capath);
+	data->astream->ssl.ctx = async_ssl_create_context(options, cafile, capath);
 	
 	SSL_CTX_set_default_passwd_cb(data->astream->ssl.ctx, cert_passphrase_cb);
 	
@@ -541,7 +603,7 @@ static int toggle_ssl(php_stream *stream, async_xp_socket_data *data, php_stream
 	
 	int code;
 	
-	ZEND_SECURE_ZERO(&handshake, sizeof(async_ssl_handshake_data));
+	memset(&handshake, 0, sizeof(async_ssl_handshake_data));
 		
 	if (data->flags & ASYNC_XP_SOCKET_FLAG_ACCEPTED) {
 		data->astream->ssl.settings.mode = ASYNC_SSL_MODE_SERVER;
@@ -614,12 +676,7 @@ static int async_xp_socket_set_option(php_stream *stream, int option, int value,
 	case PHP_STREAM_OPTION_META_DATA_API:
 		add_assoc_bool((zval *) ptrparam, "timed_out", (data->flags & ASYNC_XP_SOCKET_FLAG_TIMED_OUT) ? 1 : 0);
 		add_assoc_bool((zval *) ptrparam, "blocked", (data->flags & ASYNC_XP_SOCKET_FLAG_BLOCKING) ? 1 : 0);
-		
-		if (data->astream == NULL) {
-			add_assoc_bool((zval *) ptrparam, "eof", 0);
-		} else {
-			add_assoc_bool((zval *) ptrparam, "eof", (data->astream->flags & ASYNC_STREAM_EOF && data->astream->buffer.len == 0) ? 1 : 0);
-		}
+		add_assoc_bool((zval *) ptrparam, "eof", ASYNC_XP_SOCKET_EOF(data));
 		
 #ifdef HAVE_ASYNC_SSL
 		if (data->astream != NULL && data->astream->ssl.ssl != NULL) {
@@ -675,6 +732,12 @@ static int async_xp_socket_set_option(php_stream *stream, int option, int value,
 		}
 
 		return PHP_STREAM_OPTION_RETURN_OK;
+	case PHP_STREAM_OPTION_CHECK_LIVENESS:
+		if (ASYNC_XP_SOCKET_EOF(data)) {
+			return PHP_STREAM_OPTION_RETURN_ERR;
+		}
+		
+		return uv_is_readable((const uv_stream_t *) &data->handle) ? PHP_STREAM_OPTION_RETURN_OK : PHP_STREAM_OPTION_RETURN_ERR;
 	}
 
 	return PHP_STREAM_OPTION_RETURN_NOTIMPL;
@@ -704,7 +767,7 @@ php_stream *async_xp_socket_create(async_xp_socket_data *data, php_stream_ops *o
 		return NULL;
 	}
 	
-	scheduler = async_task_scheduler_get();
+	scheduler = async_task_scheduler_ref();
 	
 	data->scheduler = scheduler;
 	data->stream = stream;
@@ -713,8 +776,6 @@ php_stream *async_xp_socket_create(async_xp_socket_data *data, php_stream_ops *o
 	data->timer.data = data;
 	
 	uv_timer_init(&data->scheduler->loop, &data->timer);
-	
-	ASYNC_ADDREF(&scheduler->std);
  	
 	return stream;
 }

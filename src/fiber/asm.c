@@ -43,176 +43,219 @@ extern fcontext_t ASM_CALLDECL make_fcontext(void *sp, size_t size, void (*fn)(t
 extern transfer_t ASM_CALLDECL jump_fcontext(fcontext_t to, void *vp);
 
 static int counter = 0;
+static size_t record_size = 0;
 
-typedef struct async_fiber_context_asm_ async_fiber_context_asm;
-
-struct async_fiber_context_asm_ {
+typedef struct {
+	async_fiber base;
 	fcontext_t ctx;
 	async_fiber_stack stack;
-	async_fiber_context_asm *caller;
 	int id;
 	zend_bool initialized;
 	zend_bool root;
-};
+} async_fiber_asm;
 
 typedef struct {
-	async_fiber_context_asm *context;
-	async_fiber_func func;
+	async_fiber_asm *fiber;
+	async_fiber_cb func;
+	void *arg;
 } async_fiber_record_asm;
 
-/* Perform a fiber switch and ensure the correct fcontext is stored within the fiber context. */
-static inline void switch_context(async_fiber_context_asm *from, fcontext_t to)
-{
-	async_fiber_context_asm *context;
-	transfer_t trans;
 
-	trans = jump_fcontext(to, from);
-	context = (async_fiber_context_asm *) trans.data;
-
-	context->ctx = trans.ctx;
-}
-
-
-char *async_fiber_backend_info()
+const char *async_fiber_backend_info()
 {
 	return "asm (boost.context v1.69.0)";
 }
 
-static void async_fiber_asm_start(transfer_t trans)
+async_fiber *async_fiber_create_root()
+{
+	async_fiber_asm *fiber;
+
+	fiber = ecalloc(1, sizeof(async_fiber_asm));
+
+	fiber->initialized = 1;
+	fiber->root = 1;
+	
+	return (async_fiber *) fiber;
+}
+
+async_fiber *async_fiber_create()
+{
+	async_fiber_asm *fiber;
+
+	fiber = ecalloc(1, sizeof(async_fiber_asm));
+
+	fiber->id = ++counter;
+
+	return (async_fiber *) fiber;
+}
+
+static void async_fiber_asm_run(transfer_t trans)
 {
 	async_fiber_record_asm *record;
-
+	
 	record = (async_fiber_record_asm *) trans.data;
 
 	ZEND_ASSERT(record != NULL);
+	
+	trans = jump_fcontext(trans.ctx, record->fiber);
 
-	switch_context(record->context, trans.ctx);
+	((async_fiber_asm *) trans.data)->ctx = trans.ctx;
 
-	record->func();
+	record->func(record->arg);
 }
 
-async_fiber_context async_fiber_create_root_context()
+zend_bool async_fiber_init(async_fiber *fiber, async_context *context, async_fiber_cb func, void *arg, size_t stack_size)
 {
-	async_fiber_context_asm *context;
-
-	context = emalloc(sizeof(async_fiber_context_asm));
-	ZEND_SECURE_ZERO(context, sizeof(async_fiber_context_asm));
-
-	context->initialized = 1;
-	context->root = 1;
-
-	return (async_fiber_context) context;
-}
-
-async_fiber_context async_fiber_create_context()
-{
-	async_fiber_context_asm *context;
-
-	context = emalloc(sizeof(async_fiber_context_asm));
-	ZEND_SECURE_ZERO(context, sizeof(async_fiber_context_asm));
-
-	context->id = ++counter;
-
-	return (async_fiber_context) context;
-}
-
-zend_bool async_fiber_create(async_fiber_context ctx, async_fiber_func func, size_t stack_size)
-{
-	static __thread size_t record_size;
-
-	async_fiber_context_asm *context;
+	async_fiber_asm *impl;
 	async_fiber_record_asm *record;
+	
+	void *sp;
 
-	context = (async_fiber_context_asm *) ctx;
+	impl = (async_fiber_asm *) fiber;
 
-	if (UNEXPECTED(context->initialized == 1)) {
+	ZEND_ASSERT(impl->initialized == 0);
+
+	if (UNEXPECTED(!async_fiber_stack_allocate(&impl->stack, stack_size))) {
 		return 0;
 	}
 
-	if (!async_fiber_stack_allocate(&context->stack, stack_size)) {
-		return 0;
-	}
-
-	if (!record_size) {
+	if (UNEXPECTED(!record_size)) {
 		record_size = (size_t) ceil((double) sizeof(async_fiber_record_asm) / 64) * 64;
 	}
 
-	void *sp = (void *) (context->stack.size - record_size + (char *) context->stack.pointer);
+	sp = (void *) (impl->stack.size - record_size + (char *) impl->stack.pointer);
 
 	record = (async_fiber_record_asm *) sp;
-	record->context = context;
+	record->fiber = impl;
 	record->func = func;
+	record->arg = arg;
 
 	sp -= 64;
 
-	context->ctx = make_fcontext(sp, sp - (void *) context->stack.pointer, &async_fiber_asm_start);
-	context->ctx = jump_fcontext(context->ctx, record).ctx;
-
-	context->initialized = 1;
+	impl->ctx = make_fcontext(sp, sp - (void *) impl->stack.pointer, async_fiber_asm_run);
+	impl->ctx = jump_fcontext(impl->ctx, record).ctx;
+	
+	impl->initialized = 1;
+	
+	fiber->context = context;
 
 	return 1;
 }
 
-void async_fiber_destroy(async_fiber_context ctx)
+void async_fiber_destroy(async_fiber *fiber)
 {
-	async_fiber_context_asm *context;
+	async_fiber_asm *impl;
 
-	context = (async_fiber_context_asm *) ctx;
+	impl = (async_fiber_asm *) fiber;
 
-	if (context != NULL) {
-		if (!context->root && context->initialized) {
-			async_fiber_stack_free(&context->stack);
+	if (EXPECTED(impl != NULL)) {
+		if (EXPECTED(!impl->root && impl->initialized)) {
+			async_fiber_stack_free(&impl->stack);
 		}
 
-		efree(context);
-		context = NULL;
+		efree(impl);
 	}
 }
 
-zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next, zend_bool yieldable)
+void async_fiber_suspend(async_task_scheduler *scheduler)
 {
-	async_fiber_context_asm *from;
-	async_fiber_context_asm *to;
-
-	if (UNEXPECTED(current == NULL) || UNEXPECTED(next == NULL)) {
-		return 0;
+	async_fiber *current;
+	async_fiber *next;
+	
+	async_fiber_asm *from;
+	async_fiber_asm *to;
+	
+	transfer_t trans;
+	
+	current = ASYNC_G(fiber);
+	
+	ZEND_ASSERT(scheduler != NULL);
+	ZEND_ASSERT(current != NULL);
+	
+	if (scheduler->fibers.first == NULL) {
+		next = scheduler->runner;
+	} else {
+		ASYNC_LIST_EXTRACT_FIRST(&scheduler->fibers, next);
+		
+		next->flags &= ~ASYNC_FIBER_FLAG_QUEUED;
 	}
-
-	from = (async_fiber_context_asm *) current;
-	to = (async_fiber_context_asm *) next;
-
-	if (UNEXPECTED(from->initialized == 0) || UNEXPECTED(to->initialized == 0)) {
-		return 0;
+	
+	if (UNEXPECTED(current == next)) {
+		return;
 	}
+	
+	from = (async_fiber_asm *) current;
+	to = (async_fiber_asm *) next;
+	
+	ZEND_ASSERT(next != NULL);
+	ZEND_ASSERT(from->initialized);
+	ZEND_ASSERT(to->initialized);
+	
+	// ASYNC_DEBUG_LOG("SUSPEND: %d -> %d\n", from->id, to->id);
+	
+	async_fiber_capture_state(current);
+	ASYNC_G(fiber) = next;
 
-	if (yieldable) {
-		to->caller = from;
-	}
-
-	ASYNC_DEBUG_LOG("FIBER SWITCH: %d -> %d\n", from->id, to->id);
-
-	switch_context(from, to->ctx);
-
-	return 1;
+	trans = jump_fcontext(to->ctx, from);
+	
+	((async_fiber_asm *) trans.data)->ctx = trans.ctx;
+	
+	async_fiber_restore_state(current);
 }
 
-zend_bool async_fiber_yield(async_fiber_context current)
+void async_fiber_switch(async_task_scheduler *scheduler, async_fiber *next, async_fiber_suspend_type suspend)
 {
-	async_fiber_context_asm *fiber;
+	async_fiber *current;
+	
+	async_fiber_asm *from;
+	async_fiber_asm *to;
+	
+	transfer_t trans;
+	
+	ZEND_ASSERT(scheduler != NULL);
+	ZEND_ASSERT(next != NULL);
+	
+	current = ASYNC_G(fiber);
+	
+	if (current == NULL) {
+		current = ASYNC_G(root);
+	}
+	
+	ZEND_ASSERT(current != NULL);
 
-	if (UNEXPECTED(current == NULL)) {
-		return 0;
+	if (UNEXPECTED(current == next)) {
+		return;
 	}
 
-	fiber = (async_fiber_context_asm *) current;
+	from = (async_fiber_asm *) current;
+	to = (async_fiber_asm *) next;
 
-	if (UNEXPECTED(fiber->initialized == 0)) {
-		return 0;
+	ZEND_ASSERT(from->initialized);
+	ZEND_ASSERT(to->initialized);
+	
+	if (EXPECTED(!(current->flags & ASYNC_FIBER_FLAG_QUEUED))) {
+		switch (suspend) {
+		case ASYNC_FIBER_SUSPEND_PREPEND:
+			ASYNC_LIST_PREPEND(&scheduler->fibers, current);
+			current->flags |= ASYNC_FIBER_FLAG_QUEUED;
+			break;
+		case ASYNC_FIBER_SUSPEND_APPEND:
+			ASYNC_LIST_APPEND(&scheduler->fibers, current);
+			current->flags |= ASYNC_FIBER_FLAG_QUEUED;
+			break;
+		case ASYNC_FIBER_SUSPEND_NONE:
+			break;
+		}
 	}
-
-	ASYNC_DEBUG_LOG("FIBER YIELD: %d -> %d\n", fiber->id, fiber->caller->id);
-
-	switch_context(fiber, fiber->caller->ctx);
-
-	return 1;
+	
+	// ASYNC_DEBUG_LOG("SWITCH: %d -> %d\n", from->id, to->id);
+	
+	async_fiber_capture_state(current);	
+	ASYNC_G(fiber) = next;
+	
+	trans = jump_fcontext(to->ctx, from);
+	
+	((async_fiber_asm *) trans.data)->ctx = trans.ctx;
+	
+	async_fiber_restore_state(current);
 }

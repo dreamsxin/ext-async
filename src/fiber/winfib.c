@@ -17,144 +17,192 @@
 */
 
 #include "php_async.h"
-
 #include "async_fiber.h"
+
+#define ASYNC_FIBER_WINFIB_FLAG_ROOT 1
+#define ASYNC_FIBER_WINFIB_FLAG_INITIALIZED 2
+#define ASYNC_FIBER_WINFIB_FLAG_WAS_FIBER 4
 
 static int counter = 0;
 
-typedef struct async_fiber_context_win32_ async_fiber_context_win32;
-
-struct async_fiber_context_win32_ {
+typedef struct {
+	async_fiber base;
 	void *fiber;
-	async_fiber_context_win32 *caller;
 	int id;
-	zend_bool root;
-	zend_bool initialized;
-};
+	uint8_t flags;
+} async_fiber_win32;
 
-char *async_fiber_backend_info()
+
+const char *async_fiber_backend_info()
 {
 	return "winfib (Windows Fiber API)";
 }
 
-async_fiber_context async_fiber_create_root_context()
+async_fiber *async_fiber_create_root()
 {
-	async_fiber_context_win32 *context;
+	async_fiber_win32 *fiber;
 
-	context = emalloc(sizeof(async_fiber_context_win32));
-	ZEND_SECURE_ZERO(context, sizeof(async_fiber_context_win32));
+	fiber = ecalloc(1, sizeof(async_fiber_win32));
 
-	context->root = 1;
-	context->initialized = 1;
+	fiber->flags = ASYNC_FIBER_WINFIB_FLAG_ROOT | ASYNC_FIBER_WINFIB_FLAG_INITIALIZED;
 
-	if (IsThreadAFiber()) {
-		context->fiber = GetCurrentFiber();
+	if (UNEXPECTED(IsThreadAFiber())) {
+		fiber->fiber = GetCurrentFiber();
+		fiber->flags |= ASYNC_FIBER_WINFIB_FLAG_WAS_FIBER;
 	} else {
-		context->fiber = ConvertThreadToFiberEx(0, FIBER_FLAG_FLOAT_SWITCH);
+		fiber->fiber = ConvertThreadToFiberEx(0, FIBER_FLAG_FLOAT_SWITCH);
 	}
 
-	if (context->fiber == NULL) {
+	if (UNEXPECTED(fiber->fiber == NULL)) {
 		return NULL;
 	}
 
-	return (async_fiber_context)context;
+	return (async_fiber *) fiber;
 }
 
-async_fiber_context async_fiber_create_context()
+async_fiber *async_fiber_create()
 {
-	async_fiber_context_win32 *context;
+	async_fiber_win32 *fiber;
 
-	context = emalloc(sizeof(async_fiber_context_win32));
-	ZEND_SECURE_ZERO(context, sizeof(async_fiber_context_win32));
+	fiber = ecalloc(1, sizeof(async_fiber_win32));
 
-	context->id = ++counter;
+	fiber->id = ++counter;
 
-	return (async_fiber_context) context;
+	return (async_fiber *) fiber;
 }
 
-zend_bool async_fiber_create(async_fiber_context ctx, async_fiber_func func, size_t stack_size)
+zend_bool async_fiber_init(async_fiber *fiber, async_context *context, async_fiber_cb func, void *arg, size_t stack_size)
 {
-	async_fiber_context_win32 *context;
+	async_fiber_win32 *impl;
 
-	context = (async_fiber_context_win32 *) ctx;
+	impl = (async_fiber_win32 *) fiber;
 
-	if (UNEXPECTED(context->initialized == 1)) {
+	ZEND_ASSERT(!(impl->flags & ASYNC_FIBER_WINFIB_FLAG_INITIALIZED));
+
+	impl->fiber = CreateFiberEx(stack_size, stack_size, FIBER_FLAG_FLOAT_SWITCH, func, (LPVOID) arg);
+
+	if (UNEXPECTED(impl->fiber == NULL)) {
 		return 0;
 	}
 
-	context->fiber = CreateFiberEx(stack_size, stack_size, FIBER_FLAG_FLOAT_SWITCH, (void (*)(void *))func, context);
-
-	if (context->fiber == NULL) {
-		return 0;
-	}
-
-	context->initialized = 1;
+	impl->flags |= ASYNC_FIBER_WINFIB_FLAG_INITIALIZED;
+	
+	fiber->context = context;
 
 	return 1;
 }
 
-void async_fiber_destroy(async_fiber_context ctx)
+void async_fiber_destroy(async_fiber *fiber)
 {
-	async_fiber_context_win32 *context;
+	async_fiber_win32 *impl;
 
-	context = (async_fiber_context_win32 *) ctx;
+	impl = (async_fiber_win32 *) fiber;
 
-	if (context != NULL) {
-		if (context->root) {
-			ConvertFiberToThread();
-		} else if (context->initialized) {
-			DeleteFiber(context->fiber);
+	if (EXPECTED(impl != NULL)) {
+		if (UNEXPECTED(impl->flags & ASYNC_FIBER_WINFIB_FLAG_ROOT)) {
+			if (!(impl->flags & ASYNC_FIBER_WINFIB_FLAG_WAS_FIBER)) {
+				ConvertFiberToThread();
+			}
+		} else if (impl->flags & ASYNC_FIBER_WINFIB_FLAG_INITIALIZED) {
+			DeleteFiber(impl->fiber);
 		}
 
-		efree(context);
-		context = NULL;
+		efree(impl);
 	}
 }
 
-zend_bool async_fiber_switch_context(async_fiber_context current, async_fiber_context next, zend_bool yieldable)
+void async_fiber_suspend(async_task_scheduler *scheduler)
 {
-	async_fiber_context_win32 *from;
-	async_fiber_context_win32 *to;
-
-	if (UNEXPECTED(current == NULL) || UNEXPECTED(next == NULL)) {
-		return 0;
+	async_fiber *current;
+	async_fiber *next;
+	
+	async_fiber_win32 *from;
+	async_fiber_win32 *to;
+	
+	current = ASYNC_G(fiber);
+	
+	ZEND_ASSERT(scheduler != NULL);
+	ZEND_ASSERT(current != NULL);
+	
+	if (scheduler->fibers.first == NULL) {
+		next = scheduler->runner;
+	} else {
+		ASYNC_LIST_EXTRACT_FIRST(&scheduler->fibers, next);
+		
+		next->flags &= ~ASYNC_FIBER_FLAG_QUEUED;
+	}
+	
+	if (UNEXPECTED(current == next)) {
+		return;
 	}
 
-	from = (async_fiber_context_win32 *) current;
-	to = (async_fiber_context_win32 *) next;
-
-	if (UNEXPECTED(from->initialized == 0) || UNEXPECTED(to->initialized == 0)) {
-		return 0;
-	}
-
-	if (yieldable) {
-		to->caller = from;
-	}
-
-	ASYNC_DEBUG_LOG("FIBER SWITCH: %d -> %d\n", from->id, to->id);
-
+	from = (async_fiber_win32 *) current;
+	to = (async_fiber_win32 *) next;
+	
+	ZEND_ASSERT(next != NULL);
+	ZEND_ASSERT(from->flags & ASYNC_FIBER_WINFIB_FLAG_INITIALIZED);
+	ZEND_ASSERT(to->flags & ASYNC_FIBER_WINFIB_FLAG_INITIALIZED);
+	
+	// ASYNC_DEBUG_LOG("SUSPEND: %d -> %d\n", from->id, to->id);
+	
+	async_fiber_capture_state(current);	
+	ASYNC_G(fiber) = next;
+	
 	SwitchToFiber(to->fiber);
-
-	return 1;
+	
+	async_fiber_restore_state(current);
 }
 
-zend_bool async_fiber_yield(async_fiber_context current)
+void async_fiber_switch(async_task_scheduler *scheduler, async_fiber *next, async_fiber_suspend_type suspend)
 {
-	async_fiber_context_win32 *fiber;
-
-	if (UNEXPECTED(current == NULL)) {
-		return 0;
+	async_fiber *current;
+	
+	async_fiber_win32 *from;
+	async_fiber_win32 *to;
+	
+	ZEND_ASSERT(scheduler != NULL);
+	ZEND_ASSERT(next != NULL);
+	
+	current = ASYNC_G(fiber);
+	
+	if (current == NULL) {
+		current = ASYNC_G(root);
+	}
+	
+	ZEND_ASSERT(current != NULL);
+	
+	if (UNEXPECTED(current == next)) {
+		return;
 	}
 
-	fiber = (async_fiber_context_win32 *) current;
+	from = (async_fiber_win32 *) current;
+	to = (async_fiber_win32 *) next;
 
-	if (UNEXPECTED(fiber->initialized == 0)) {
-		return 0;
+	ZEND_ASSERT(from->flags & ASYNC_FIBER_WINFIB_FLAG_INITIALIZED);
+	ZEND_ASSERT(to->flags & ASYNC_FIBER_WINFIB_FLAG_INITIALIZED);
+	ZEND_ASSERT(current != next);
+	
+	if (EXPECTED(!(current->flags & ASYNC_FIBER_FLAG_QUEUED))) {
+		switch (suspend) {
+		case ASYNC_FIBER_SUSPEND_PREPEND:
+			ASYNC_LIST_PREPEND(&scheduler->fibers, current);
+			current->flags |= ASYNC_FIBER_FLAG_QUEUED;
+			break;
+		case ASYNC_FIBER_SUSPEND_APPEND:
+			ASYNC_LIST_APPEND(&scheduler->fibers, current);
+			current->flags |= ASYNC_FIBER_FLAG_QUEUED;
+			break;
+		case ASYNC_FIBER_SUSPEND_NONE:
+			break;
+		}
 	}
-
-	ASYNC_DEBUG_LOG("FIBER YIELD: %d -> %d\n", fiber->id, fiber->caller->id);
-
-	SwitchToFiber(fiber->caller->fiber);
-
-	return 1;
+	
+	// ASYNC_DEBUG_LOG("SWITCH: %d -> %d\n", from->id, to->id);
+	
+	async_fiber_capture_state(current);	
+	ASYNC_G(fiber) = next;
+	
+	SwitchToFiber(to->fiber);
+	
+	async_fiber_restore_state(current);
 }

@@ -31,21 +31,15 @@
 
 zend_bool async_fiber_stack_allocate(async_fiber_stack *stack, unsigned int size)
 {
-	static __thread size_t page_size;
-
-	if (!page_size) {
-		page_size = ASYNC_STACK_PAGESIZE;
-	}
-
 	size_t msize;
 
-	stack->size = ((size_t) size + page_size - 1) / page_size * page_size;
+	stack->size = ((size_t) size + ASYNC_STACK_PAGESIZE - 1) / ASYNC_STACK_PAGESIZE * ASYNC_STACK_PAGESIZE;
 
 #ifdef HAVE_MMAP
 
 	void *pointer;
 
-	msize = stack->size + ASYNC_FIBER_GUARDPAGES * page_size;
+	msize = stack->size + ASYNC_FIBER_GUARDPAGES * ASYNC_STACK_PAGESIZE;
 	pointer = mmap(0, msize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
 	if (pointer == (void *) -1) {
@@ -57,16 +51,16 @@ zend_bool async_fiber_stack_allocate(async_fiber_stack *stack, unsigned int size
 	}
 
 #if ASYNC_FIBER_GUARDPAGES
-	mprotect(pointer, ASYNC_FIBER_GUARDPAGES * page_size, PROT_NONE);
+	mprotect(pointer, ASYNC_FIBER_GUARDPAGES * ASYNC_STACK_PAGESIZE, PROT_NONE);
 #endif
 
-	stack->pointer = (void *)((char *) pointer + ASYNC_FIBER_GUARDPAGES * page_size);
+	stack->pointer = (void *)((char *) pointer + ASYNC_FIBER_GUARDPAGES * ASYNC_STACK_PAGESIZE);
 #else
-	stack->pointer = emalloc_large(stack->size);
+	stack->pointer = emalloc(stack->size);
 	msize = stack->size;
 #endif
 
-	if (!stack->pointer) {
+	if (UNEXPECTED(!stack->pointer)) {
 		return 0;
 	}
 
@@ -74,7 +68,7 @@ zend_bool async_fiber_stack_allocate(async_fiber_stack *stack, unsigned int size
 	char * base;
 
 	base = (char *) stack->pointer;
-	stack->valgrind = VALGRIND_STACK_REGISTER(base, base + msize - ASYNC_FIBER_GUARDPAGES * page_size);
+	stack->valgrind = VALGRIND_STACK_REGISTER(base, base + msize - ASYNC_FIBER_GUARDPAGES * ASYNC_STACK_PAGESIZE);
 #endif
 
 	return 1;
@@ -82,12 +76,6 @@ zend_bool async_fiber_stack_allocate(async_fiber_stack *stack, unsigned int size
 
 void async_fiber_stack_free(async_fiber_stack *stack)
 {
-	static __thread size_t page_size;
-
-	if (!page_size) {
-		page_size = ASYNC_STACK_PAGESIZE;
-	}
-
 	if (stack->pointer != NULL) {
 #ifdef VALGRIND_STACK_DEREGISTER
 		VALGRIND_STACK_DEREGISTER(stack->valgrind);
@@ -98,8 +86,8 @@ void async_fiber_stack_free(async_fiber_stack *stack)
 		void *address;
 		size_t len;
 
-		address = (void *)((char *) stack->pointer - ASYNC_FIBER_GUARDPAGES * page_size);
-		len = stack->size + ASYNC_FIBER_GUARDPAGES * page_size;
+		address = (void *)((char *) stack->pointer - ASYNC_FIBER_GUARDPAGES * ASYNC_STACK_PAGESIZE);
+		len = stack->size + ASYNC_FIBER_GUARDPAGES * ASYNC_STACK_PAGESIZE;
 
 		munmap(address, len);
 #else

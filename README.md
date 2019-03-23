@@ -2,12 +2,11 @@
 
 [![Build Status](https://travis-ci.org/concurrent-php/ext-async.svg?branch=master)](https://travis-ci.org/concurrent-php/ext-async)
 [![Coverage Status](https://coveralls.io/repos/github/concurrent-php/ext-async/badge.svg)](https://coveralls.io/github/concurrent-php/ext-async)
+[![Minimum PHP Version](https://img.shields.io/badge/PHP-7.3-8892BF.svg)](https://github.com/concurrent-php/ext-async)
 
 Provides concurrent Zend VM executions using native C fibers in PHP.
 
 ## Installation
-
-**At least `PHP 7.3.0 RC5` is required to compile and use the extension with async file IO support!**
 
 The `async` extension is not published as `pecl` extension (yet).
 
@@ -39,6 +38,12 @@ These are the options supported by `configure`:
 | **--with-openssl-dir=DIR** | Allows you to specify the directory where `libssl-dev` is installed. |
 | **--with-valgrind[=DIR]** | Can be used to enable Valgrind support and (optional) specify the valgrind directory. |
 
+You can use `make` to run all test cases (or test from a specific directory only):
+```shell
+make test
+make test TESTS=test/{DIR}/
+```
+
 ### Windows
 
 You can [download a pre-compiled DLL](https://github.com/martinschroeder/ext-async-win32/raw/master/php_async.dll) working with PHP 7.3+ (VC15 x64 Thread Safe only). Just drop the DLL file in your `ext` directory and add `extension=php_async.dll` in your `php.ini` file.
@@ -58,6 +63,7 @@ You can leave out `=shared` to compile the extension into PHP (faster compilatio
 | `async.dns` | Replaces some internal function (`gethostbyname()` and `gethostbynamel()`) with async implementations. |
 | `async.filesystem` | Replaces PHP's `file` stream wrapper with an async implementation. |
 | `async.tcp` | (**experimental**) Replaces PHP's `tcp` and `tls` stream wrappers with async implementations. |
+| `async.threads` | Sets the maximum number of threads to be used by libuv to run blocking operations without blocking the main thread. The default value is 4 the maximum value is 128. |
 | `async.timer` | Replaces PHP's `sleep()` function with an async implementation. |
 | `async.udp` | (**experimental**) Replaces PHP's `udp` stream wrapper with an async implementation. |
 
@@ -66,6 +72,8 @@ You can leave out `=shared` to compile the extension into PHP (faster compilatio
 The async extension exposes a public API that can be used to create, run and interact with fiber-based async executions. You can obtain the API stub files for code completion in your IDE by installing `concurrent-php/async-api` via Composer.
 
 ### Stream Wrappers
+
+Async access to the filesystem is provided via the `async-file` URL scheme. You can (and should) set INI setting `async.filesystem` to `1` to have (most) file operations by async by default (there are a few exception like `touch()` and `chmod()` which could be fixed in PHP someday).
 
 The async extension provides `async-tcp`, `async-tls` and `async-udp` stream wrappers that can be used to create async PHP stream resources. Use `async-tcp://{server}:{port}/` with `stream_socket_client()` to establish a PHP stream that is backed by `ext-async` and does non-blocking IO (this is not related to `stream_set_blocking()`). You can also use INI settings `async.tcp` and `async.udp` to replace PHP's default stream implementations with their async counterpart which eliminates the need to prefix protocol names with `async-`.
 
@@ -143,9 +151,13 @@ Calling `Task::await()` will suspend the current task and await resolution of th
 namespace Concurrent;
 
 final class Task implements Awaitable
-{   
-    public static function isRunning(): bool { }
+{
+    public readonly string $status;
     
+    public readonly string $file;
+    
+    public readonly int $file;
+
     /* Should be replaced with async keyword if merged into PHP core. */
     public static function async(callable $callback, ...$args): Task { }
     
@@ -203,9 +215,11 @@ final class Channel implements \IteratorAggregate
 
 ### ChannelGroup
 
-Working with multiple channels at once can be done by using a `ChannelGroup`. The group provides the very useful `select()` call that allows to read from multiple channels concurrently, it will return once a message has been received from any channel that is part of the group. You can use the `$timeout` parameter to specify a maximum wait time (in milliseconds). If no message has been received `select()` will return `NULL`. Whenever a message has been received `select()` will return the index of the channel in the wrapped `$channel` array. You have to pass a variable by reference to `select()` if you want to receive the message payload (this is not necessary if you just want to know the origin of the message but you do not care about the actual payload).
+Working with multiple channels at once can be done by using a `ChannelGroup`. The group provides the very useful `select()` call that allows to read from multiple channels concurrently, it will return once a message has been received from any channel that is part of the group. You can use the constructor's `$timeout` parameter to specify a maximum wait time (in milliseconds). If no message has been received `select()` will return `NULL`. Whenever a message has been received `select()` will return the index of the channel in the wrapped `$channel` array. You have to pass a variable by reference to `select()` if you want to receive the message payload (this is not necessary if you just want to know the origin of the message but you do not care about the actual payload).
 
 The constructor accepts a `$channels` array that must contain eighter `Channel` objects or objects that implement `IteratorAggregate` and return a `ChannelIterator` object when `getIterator()` is called. You can call `count()` to check how many of the wrapped channels are still open and therefore considered to be readable. Keep in mind that you need to call `select()` before checking the count because channels can only be checked for closed state during `select()` (consider using a `do / while` loop and check `count()` as the loop condition). Closed channels are silently removed from the group if they are not closed with an error. If any of the input channels is closed with an error it will be forwarded exactly once by `select()` after that the closed channel will be removed!
+
+You can use `send()` to deliver a message to any of the grouped channels. The first channels that is (or becomes) ready will receive the message. A call to `send()` will return the key of the target channel within the wrapped `$channel` array to let you know which channel received the message. A return value of `NULL` indicates that no channel received a message, this can happen when the timeout is exceeded or no more open channels remain within the group (use `count()` to verify this after(!) a call to `send()`).
 
 ```php
 namespace Concurrent;
@@ -214,7 +228,9 @@ final class ChannelGroup implements \Countable
 {
     public function __construct(array $channels, ?int $timeout = null, bool $shuffle = false) { }
     
-    public function select(& $value = null) { }
+    public function select(& $message = null): mixed { }
+    
+    public function send($message): mixed { }
 }
 ```
 
@@ -230,6 +246,8 @@ final class Context
     public readonly bool $cancelled;
 
     public function with(ContextVar $var, $value): Context { }
+    
+    public function withIsolatedOutput(): Context { }
     
     public function withTimeout(int $milliseconds): Context { }
     
@@ -393,6 +411,38 @@ interface DuplexStream extends ReadableStream, WritableStream
 }
 ```
 
+### ReadablePipe
+
+Provides non-blocking access to `STDIN` pipe of the PHP process.
+
+```php
+namespace Concurrent\Stream;
+
+final class ReadablePipe implements ReadableStream
+{
+    public static function getStdin(): ReadablePipe { }
+       
+    public function isTerminal(): bool { }
+}
+```
+
+### WritablePipe
+
+Provides non-blocking access to `STDOUT` and `STDERR` pipes of the PHP process.
+
+```php
+namespace Concurrent\Stream;
+
+final class WritablePipe implements WritableStream
+{
+    public static function getStdout(): WritablePipe { }
+    
+    public static function getStderr(): WritablePipe { }
+    
+    public function isTerminal(): bool { }
+}
+```
+
 ## Network API
 
 The network API provides access to stream and datagram sockets.
@@ -407,6 +457,8 @@ namespace Concurrent\Network;
 interface Socket
 {
     public function close(?\Throwable $e = null): void;
+    
+    public function flush(): void;
 
     public function getAddress(): string;
 
@@ -666,39 +718,6 @@ final class Process
     public function signal(int $signum): void { }
     
     public function join(): int { }
-}
-```
-
-## Fiber
-
-A lower-level API for concurrent callback execution is available through the `Fiber` API. The underlying stack-switching is the same as in the `Task` implementation but fibers do not come with a scheduler or a higher level abstraction of continuations. A fiber must be started and resumed by the caller in PHP userland. Calling `Fiber::yield()` will suspend the fiber and return the yielded value to `start()`, `resume()` or `throw()`. The `status()` method is needed to check if the fiber has been run to completion yet.
-
-```php
-namespace Concurrent;
-
-final class Fiber
-{
-    public const STATUS_INIT;
-    public const STATUS_SUSPENDED;
-    public const STATUS_RUNNING;
-    public const STATUS_FINISHED;
-    public const STATUS_FAILED;
-    
-    public readonly int $status;
-    
-    public function __construct(callable $callback, ?int $stack_size = null) { }
-    
-    public function start(...$args): mixed { }
-    
-    public function resume($val = null): mixed { }
-    
-    public function throw(\Throwable $e): mixed { }
-    
-    public static function yield($val = null): mixed { }
-    
-    public static function isRunning(): bool { }
-    
-    public static function backend(): string { }
 }
 ```
 

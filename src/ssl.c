@@ -29,6 +29,8 @@ static zend_object_handlers async_tls_info_handlers;
 
 #ifdef HAVE_ASYNC_SSL
 
+static int async_index;
+
 #ifdef PHP_WIN32
 #include "win32/winutil.h"
 #include "win32/time.h"
@@ -44,78 +46,76 @@ static zend_object_handlers async_tls_info_handlers;
 	return 0; \
 } while (0);
 
-#define ASYNC_PROPAGATE_ERROR(engine, code) do { \
-	const char *tmp; \
-	(engine)->error = SSL_get_error((engine)->ssl, code); \
-	if ((engine)->message != NULL) { \
-		efree((engine)->message); \
-	} \
-	tmp = ERR_reason_error_string((engine)->error); \
-	if (tmp && tmp != NULL) { \
-		(engine)->message = emalloc(4096); \
-		strcpy((engine)->message, tmp); \
-	} \
-} while (0)
-
-#define ASYNC_PROPAGATE_UV_ERROR(engine, code) do { \
-	(engine)->error = code; \
-	if ((engine)->message != NULL) { \
-		efree((engine)->message); \
-		(engine)->message = NULL; \
-	} \
-	(engine)->message = emalloc(4096); \
-	strcpy((engine)->message, uv_strerror(code)); \
-} while (0)
-
-static int async_index;
-
 static int ssl_cert_passphrase_cb(char *buf, int size, int rwflag, void *obj)
 {
 	async_tls_cert *cert;
 
 	cert = (async_tls_cert *) obj;
 
-	if (cert == NULL || cert->passphrase == NULL) {
+	if (UNEXPECTED(cert == NULL || cert->passphrase == NULL)) {
 		return 0;
 	}
 	
 	strcpy(buf, ZSTR_VAL(cert->passphrase));
 
-	return ZSTR_LEN(cert->passphrase);
+	return (int) ZSTR_LEN(cert->passphrase);
 }
 
 static int ssl_servername_cb(SSL *ssl, int *ad, void *arg)
 {
-	async_tls_cert_queue *q;
+	async_tls_cert_list *q;
 	async_tls_cert *cert;
 	zend_string *key;
 
 	const char *name;
 
-	if (ssl == NULL) {
+	if (UNEXPECTED(ssl == NULL)) {
 		return SSL_TLSEXT_ERR_NOACK;
 	}
 
 	name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
 
-	if (name == NULL || name[0] == '\0') {
+	if (UNEXPECTED(name == NULL || name[0] == '\0')) {
 		return SSL_TLSEXT_ERR_NOACK;
 	}
 
-	q = (async_tls_cert_queue *) arg;
+	q = (async_tls_cert_list *) arg;
 	key = zend_string_init(name, strlen(name), 0);
-
+	
 	cert = q->first;
 
 	while (cert != NULL) {
 		if (zend_string_equals(key, cert->host)) {
 			SSL_set_SSL_CTX(ssl, cert->ctx);
-			break;
+			zend_string_release(key);
+			
+			return SSL_TLSEXT_ERR_OK;
 		}
 
 		cert = cert->next;
 	}
 
+	if (0 != strcmp(ZSTR_VAL(key), "127.0.0.1") && 0 != strcmp(ZSTR_VAL(key), "::")) {
+		zend_string_release(key);
+		
+		return SSL_TLSEXT_ERR_OK;
+	}
+
+	zend_string_release(key);
+
+	ASYNC_STR(key, "localhost");
+	
+	while (cert != NULL) {
+		if (zend_string_equals(key, cert->host)) {
+			SSL_set_SSL_CTX(ssl, cert->ctx);
+			zend_string_release(key);
+			
+			return SSL_TLSEXT_ERR_OK;
+		}
+
+		cert = cert->next;
+	}
+	
 	zend_string_release(key);
 
 	return SSL_TLSEXT_ERR_OK;
@@ -168,7 +168,7 @@ static int async_ssl_check_san_names(zend_string *peer_name, X509 *cert, X509_ST
 	for (count = sk_GENERAL_NAME_num(names), i = 0; i < count; i++) {
 		entry = sk_GENERAL_NAME_value(names, i);
 
-		if (entry == NULL || GEN_DNS != entry->type) {
+		if (UNEXPECTED(entry == NULL || GEN_DNS != entry->type)) {
 			continue;
 		}
 
@@ -237,15 +237,15 @@ static int ssl_verify_callback(int preverify, X509_STORE_CTX *ctx)
 			return preverify;
 		}
 
-		if ((i = X509_NAME_get_index_by_NID(X509_get_subject_name((X509 *) cert), NID_commonName, -1)) < 0) {
+		if (UNEXPECTED((i = X509_NAME_get_index_by_NID(X509_get_subject_name((X509 *) cert), NID_commonName, -1)) < 0)) {
 			ASYNC_SSL_RETURN_VERIFY_ERROR(ctx);
 		}
 
-		if (NULL == (entry = X509_NAME_get_entry(X509_get_subject_name((X509 *) cert), i))) {
+		if (UNEXPECTED(NULL == (entry = X509_NAME_get_entry(X509_get_subject_name((X509 *) cert), i)))) {
 			ASYNC_SSL_RETURN_VERIFY_ERROR(ctx);
 		}
 
-		if (NULL == (str = X509_NAME_ENTRY_get_data(entry))) {
+		if (UNEXPECTED(NULL == (str = X509_NAME_ENTRY_get_data(entry)))) {
 			ASYNC_SSL_RETURN_VERIFY_ERROR(ctx);
 		}
 
@@ -273,28 +273,23 @@ SSL_CTX *async_ssl_create_context(int options, char *cafile, char *capath)
 
 	int mask;
 
-	mask = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3;
-	
-#ifdef SSL_OP_NO_TLSv1_3
-	mask |= SSL_OP_NO_TLSv1_3;
-#endif
-	
+	mask = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3;	
 	mask |= SSL_OP_NO_COMPRESSION | SSL_OP_NO_TICKET;
 	mask &= ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS;
 
 	ctx = SSL_CTX_new(SSLv23_method());
 
-	SSL_CTX_set_options(ctx, mask);
+	SSL_CTX_set_options(ctx, options | mask);
 	SSL_CTX_set_cipher_list(ctx, "HIGH:!SSLv2:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!RC4:!ADH");
 
-	if (cafile == NULL) {
+	if (EXPECTED(cafile == NULL)) {
 		cafile = zend_ini_string("openssl.cafile", sizeof("openssl.cafile")-1, 0);
-		cafile = strlen(cafile) ? cafile : NULL;
+		cafile = (cafile && strlen(cafile)) ? cafile : NULL;
 	}
 	
-	if (capath == NULL) {
+	if (EXPECTED(capath == NULL)) {
 		capath = zend_ini_string("openssl.capath", sizeof("openssl.capath")-1, 0);
-		capath = strlen(capath) ? capath : NULL;
+		capath = (capath && strlen(capath)) ? capath : NULL;
 	}
 
 	if (cafile || capath) {
@@ -308,13 +303,10 @@ SSL_CTX *async_ssl_create_context(int options, char *cafile, char *capath)
 	return ctx;
 }
 
-static int configure_engine(SSL_CTX *ctx, SSL *ssl, BIO *rbio, BIO *wbio)
+static zend_always_inline int configure_engine(SSL_CTX *ctx, SSL *ssl, BIO *rbio, BIO *wbio)
 {
-	BIO_set_mem_eof_return(rbio, -1);
-	BIO_set_mem_eof_return(wbio, -1);
-
 	SSL_set_bio(ssl, rbio, wbio);
-	SSL_set_mode(ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
+	SSL_set_mode(ssl, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
 #ifdef SSL_MODE_RELEASE_BUFFERS
 	SSL_set_mode(ssl, SSL_get_mode(ssl) | SSL_MODE_RELEASE_BUFFERS);
@@ -330,6 +322,18 @@ int async_ssl_create_engine(async_ssl_engine *engine)
 	engine->ssl = SSL_new(engine->ctx);
 	engine->rbio = BIO_new(BIO_s_mem());
 	engine->wbio = BIO_new(BIO_s_mem());
+	
+	BIO_set_mem_eof_return(engine->rbio, -1);
+	BIO_set_mem_eof_return(engine->wbio, -1);
+	
+	return configure_engine(engine->ctx, engine->ssl, engine->rbio, engine->wbio);
+}
+
+int async_ssl_create_socket_engine(async_ssl_engine *engine, php_socket_t sock)
+{
+	engine->ssl = SSL_new(engine->ctx);
+	engine->rbio = BIO_new_socket((int) sock, BIO_NOCLOSE);
+	engine->wbio = engine->rbio;
 	
 	return configure_engine(engine->ctx, engine->ssl, engine->rbio, engine->wbio);
 }
@@ -619,7 +623,7 @@ void async_ssl_setup_server_alpn(SSL_CTX *ctx, async_tls_server_encryption *encr
 
 #endif
 
-static zend_string *create_alpn_proto_list(zval *protos, uint32_t count)
+static zend_always_inline zend_string *create_alpn_proto_list(zval *protos, uint32_t count)
 {
 	zend_string *tmp;
 	
@@ -661,7 +665,7 @@ static zend_string *create_alpn_proto_list(zval *protos, uint32_t count)
 	return zend_string_init(buffer, size, 0);
 }
 
-static void dispose_cert(async_tls_cert *cert)
+static zend_always_inline void dispose_cert(async_tls_cert *cert)
 {
 	if (cert->host != NULL) {
 		zend_string_release(cert->host);
@@ -696,8 +700,7 @@ static zend_object *async_tls_client_encryption_object_create(zend_class_entry *
 {
 	async_tls_client_encryption *encryption;
 
-	encryption = emalloc(sizeof(async_tls_client_encryption));
-	ZEND_SECURE_ZERO(encryption, sizeof(async_tls_client_encryption));
+	encryption = ecalloc(1, sizeof(async_tls_client_encryption));
 
 	zend_object_std_init(&encryption->std, ce);
 	encryption->std.handlers = &async_tls_client_encryption_handlers;
@@ -941,8 +944,7 @@ static zend_object *async_tls_server_encryption_object_create(zend_class_entry *
 {
 	async_tls_server_encryption *encryption;
 
-	encryption = emalloc(sizeof(async_tls_server_encryption));
-	ZEND_SECURE_ZERO(encryption, sizeof(async_tls_server_encryption));
+	encryption = ecalloc(1, sizeof(async_tls_server_encryption));
 
 	zend_object_std_init(&encryption->std, ce);
 	encryption->std.handlers = &async_tls_server_encryption_handlers;
@@ -1095,8 +1097,7 @@ ZEND_METHOD(TlsServerEncryption, withCertificate)
 
 	encryption = clone_server_encryption((async_tls_server_encryption *) Z_OBJ_P(getThis()));
 
-	cert = emalloc(sizeof(async_tls_cert));
-	ZEND_SECURE_ZERO(cert, sizeof(async_tls_cert));
+	cert = ecalloc(1, sizeof(async_tls_cert));
 
 	cert->host = zend_string_copy(host);
 	cert->file = zend_string_init(path, strlen(path), 0);
@@ -1136,14 +1137,14 @@ ZEND_METHOD(TlsServerEncryption, withCertificate)
 
 	while (current != NULL) {
 		if (zend_string_equals(current->host, cert->host)) {
-			ASYNC_Q_DETACH(&encryption->certs, current);
+			ASYNC_LIST_REMOVE(&encryption->certs, current);
 			break;
 		}
 
 		current = current->next;
 	}
 
-	ASYNC_Q_ENQUEUE(&encryption->certs, cert);
+	ASYNC_LIST_APPEND(&encryption->certs, cert);
 
 	ZVAL_OBJ(&obj, &encryption->std);
 
@@ -1266,8 +1267,7 @@ async_tls_info *async_tls_info_object_create(SSL *ssl)
 	
 	const SSL_CIPHER *cipher;
 
-	info = emalloc(sizeof(async_tls_info));
-	ZEND_SECURE_ZERO(info, sizeof(async_tls_info));
+	info = ecalloc(1, sizeof(async_tls_info));
 
 	zend_object_std_init(&info->std, async_tls_info_ce);
 	info->std.handlers = &async_tls_info_handlers;
