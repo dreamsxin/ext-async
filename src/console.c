@@ -131,8 +131,6 @@ ASYNC_CALLBACK readable_pipe_shutdown(void *object, zval *error)
 		req = emalloc(sizeof(uv_fs_t));
 		req->data = pipe;
 
-		async_configure_threadpool();
-
 		uv_fs_close(&pipe->scheduler->loop, req, pipe->handle.file.file, read_close_file_cb);
 	} else if (pipe->flags & ASYNC_CONSOLE_FLAG_TTY) {
 		ZVAL_OBJ(&obj, &pipe->std);
@@ -237,7 +235,7 @@ static ZEND_METHOD(ReadablePipe, getStdin)
 	
 	ZEND_PARSE_PARAMETERS_NONE();
 	
-	ASYNC_CHECK_ERROR(!ASYNC_CLI, "Cannot access STDIN when not running in cli mode");
+	ASYNC_CHECK_ERROR(!ASYNC_G(cli), "Cannot access STDIN when not running in cli mode");
 
 	file = (uv_file) STDIN_FILENO;
 	type = uv_guess_handle(file);
@@ -365,8 +363,6 @@ static ZEND_METHOD(ReadablePipe, read)
 		
 			req.data = &pipe->handle.file.op;
 
-			async_configure_threadpool();
-
 			uv_fs_read(&pipe->scheduler->loop, &req, pipe->handle.file.file, bufs, 1, -1, read_fs_cb);
 			
 			if (UNEXPECTED(async_await_op(&pipe->handle.file.op) == FAILURE)) {
@@ -477,8 +473,6 @@ ASYNC_CALLBACK writable_pipe_shutdown(void *object, zval *error)
 		req = emalloc(sizeof(uv_fs_t));
 		req->data = pipe;
 
-		async_configure_threadpool();
-
 		uv_fs_close(&pipe->scheduler->loop, req, pipe->handle.file.file, write_close_file_cb);
 	} else if (pipe->flags & ASYNC_CONSOLE_FLAG_TTY) {
 		ZVAL_OBJ(&obj, &pipe->std);
@@ -578,7 +572,7 @@ static ZEND_METHOD(WritablePipe, getStdout)
 	
 	ZEND_PARSE_PARAMETERS_NONE();
 	
-	ASYNC_CHECK_ERROR(!ASYNC_CLI, "Cannot access STDOUT when not running in cli mode");
+	ASYNC_CHECK_ERROR(!ASYNC_G(cli), "Cannot access STDOUT when not running in cli mode");
 
 	file = (uv_file) STDOUT_FILENO;
 	type = uv_guess_handle(file);
@@ -606,7 +600,7 @@ static ZEND_METHOD(WritablePipe, getStderr)
 	
 	ZEND_PARSE_PARAMETERS_NONE();
 	
-	ASYNC_CHECK_ERROR(!ASYNC_CLI, "Cannot access STDERR when not running in cli mode");
+	ASYNC_CHECK_ERROR(!ASYNC_G(cli), "Cannot access STDERR when not running in cli mode");
 
 	file = (uv_file) STDERR_FILENO;
 	type = uv_guess_handle(file);
@@ -709,8 +703,6 @@ static ZEND_METHOD(WritablePipe, write)
 		ASYNC_ALLOC_OP(op);
 		
 		req.data = op;
-		
-		async_configure_threadpool();
 
 		code = uv_fs_write(&pipe->scheduler->loop, &req, pipe->handle.file.file, bufs, 1, -1, write_fs_cb);
 		

@@ -69,6 +69,12 @@ extern zend_module_entry async_module_entry;
 #include "TSRM.h"
 #endif
 
+#ifdef PHP_WIN32
+typedef ULONG uv_buf_size_t;
+#else
+typedef size_t uv_buf_size_t;
+#endif
+
 #ifdef __GNUC__
 #define ASYNC_VA_ARGS(...) , ##__VA_ARGS__
 #else
@@ -168,14 +174,14 @@ ASYNC_API extern zend_class_entry *async_socket_exception_ce;
 ASYNC_API extern zend_class_entry *async_socket_stream_ce;
 ASYNC_API extern zend_class_entry *async_stream_closed_exception_ce;
 ASYNC_API extern zend_class_entry *async_stream_exception_ce;
+ASYNC_API extern zend_class_entry *async_stream_reader_ce;
+ASYNC_API extern zend_class_entry *async_stream_writer_ce;
 ASYNC_API extern zend_class_entry *async_signal_watcher_ce;
 ASYNC_API extern zend_class_entry *async_stream_watcher_ce;
 ASYNC_API extern zend_class_entry *async_task_ce;
 ASYNC_API extern zend_class_entry *async_task_scheduler_ce;
 ASYNC_API extern zend_class_entry *async_tcp_server_ce;
 ASYNC_API extern zend_class_entry *async_tcp_socket_ce;
-ASYNC_API extern zend_class_entry *async_tcp_socket_reader_ce;
-ASYNC_API extern zend_class_entry *async_tcp_socket_writer_ce;
 ASYNC_API extern zend_class_entry *async_tls_client_encryption_ce;
 ASYNC_API extern zend_class_entry *async_tls_info_ce;
 ASYNC_API extern zend_class_entry *async_tls_server_encryption_ce;
@@ -571,6 +577,9 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 	/* Root context for all background contexts. */
 	async_context *background;
 	
+	/* Is set when the SAPI is cli. */
+	zend_bool cli;
+
 	/* Will be populated when bailout is requested. */
 	zend_bool exit;
 	
@@ -636,17 +645,6 @@ ZEND_TSRMLS_CACHE_EXTERN()
 		ASYNC_DELREF((fci).object); \
 	} \
 	zval_ptr_dtor(&(fci).function_name); \
-} while (0)
-
-#define ASYNC_CLI (strncmp(sapi_module.name, "cli", sizeof("cli")-1) == SUCCESS)
-
-#define async_configure_threadpool() do { \
-	if (ASYNC_G(threads)) { \
-		char entry[4]; \
-		sprintf(entry, "%d", (int) MAX(4, MIN(128, ASYNC_G(threads)))); \
-		uv_os_setenv("UV_THREADPOOL_SIZE", (const char *) entry); \
-		ASYNC_G(threads) = 0; \
-	} \
 } while (0)
 
 static zend_always_inline char *async_status_label(zend_uchar status)

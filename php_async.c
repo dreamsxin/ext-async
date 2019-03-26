@@ -131,11 +131,36 @@ PHP_GINIT_FUNCTION(async)
 	memset(async_globals, 0, sizeof(zend_async_globals));
 }
 
+ASYNC_CALLBACK init_threads(uv_work_t *req) { }
+
+ASYNC_CALLBACK after_init_threads(uv_work_t *req, int status)
+{
+	ASYNC_G(threads) = 0;
+
+	free(req);
+}
+
 PHP_MINIT_FUNCTION(async)
 {
 	zend_class_entry ce;
+	uv_work_t *req;
+
+	char entry[4];
+
+	ASYNC_G(cli) = (strncmp(sapi_module.name, "cli", sizeof("cli")-1) == SUCCESS);
 
 	REGISTER_INI_ENTRIES();
+
+	if (ASYNC_G(cli)) {
+		req = malloc(sizeof(uv_work_t));
+
+		sprintf(entry, "%d", (int) MAX(4, MIN(128, ASYNC_G(threads))));
+		uv_os_setenv("UV_THREADPOOL_SIZE", (const char *) entry);
+
+		uv_queue_work(uv_default_loop(), req, init_threads, after_init_threads);
+		uv_cancel((uv_req_t *) req);
+		uv_run(uv_default_loop(), UV_RUN_DEFAULT);
+	}
 
 #ifdef HAVE_ASYNC_SSL
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined (LIBRESSL_VERSION_NUMBER)
@@ -204,7 +229,7 @@ PHP_MSHUTDOWN_FUNCTION(async)
 
 	zend_execute_ex = orig_execute_ex;
 
-	if (ASYNC_CLI) {
+	if (ASYNC_G(cli)) {
 		uv_tty_reset_mode();
 	}
 	

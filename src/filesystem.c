@@ -44,7 +44,6 @@
 	if (EXPECTED((data)->async)) { \
 		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op)); \
 		(req)->data = op; \
-		async_configure_threadpool(); \
 	} \
 	code = (func)(&(data)->scheduler->loop, req, __VA_ARGS__, (data)->async ? dummy_cb : NULL); \
 	if (EXPECTED(code >= 0)) { \
@@ -79,7 +78,6 @@
 	if (EXPECTED(async && !disposed)) { \
 		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op)); \
 		(req)->data = op; \
-		async_configure_threadpool(); \
 	} \
 	code = (func)(async_loop_get(), req, __VA_ARGS__, (async && !disposed) ? dummy_cb : NULL); \
 	if (EXPECTED(code >= 0)) { \
@@ -674,7 +672,7 @@ int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 		return NULL;
 	}
 
-	async = ((options & STREAM_OPEN_FOR_INCLUDE) == 0) && ASYNC_CLI;
+	async = ((options & STREAM_OPEN_FOR_INCLUDE) == 0) && ASYNC_G(cli);
 
 	if (options & STREAM_ASSUME_REALPATH) {
 		strlcpy(realpath, path, MAXPATHLEN);
@@ -763,7 +761,7 @@ int options, zend_string **opened_path, php_stream_context *context STREAMS_DC)
 		}
 	}
 
-	ASYNC_FS_CALLW(ASYNC_CLI, &req, uv_fs_scandir, realpath, 0);
+	ASYNC_FS_CALLW(ASYNC_G(cli), &req, uv_fs_scandir, realpath, 0);
 	
 	if (UNEXPECTED(req.result < 0)) {
 		if (options & REPORT_ERRORS) {
@@ -838,9 +836,9 @@ static int async_filestream_wrapper_url_stat(php_stream_wrapper *wrapper, const 
 	}
 	
 	if (flags & PHP_STREAM_URL_STAT_LINK) {
-		ASYNC_FS_CALLW(ASYNC_CLI, &req, uv_fs_lstat, realpath);
+		ASYNC_FS_CALLW(ASYNC_G(cli), &req, uv_fs_lstat, realpath);
 	} else {
-		ASYNC_FS_CALLW(ASYNC_CLI, &req, uv_fs_stat, realpath);
+		ASYNC_FS_CALLW(ASYNC_G(cli), &req, uv_fs_stat, realpath);
 	}
 	
 	uv_fs_req_cleanup(&req);
@@ -874,7 +872,7 @@ static int async_filestream_wrapper_unlink(php_stream_wrapper *wrapper, const ch
 		return 0;
 	}
 	
-	ASYNC_FS_CALLW(ASYNC_CLI, &req, uv_fs_unlink, realpath);
+	ASYNC_FS_CALLW(ASYNC_G(cli), &req, uv_fs_unlink, realpath);
 	
 	uv_fs_req_cleanup(&req);
 	
@@ -906,7 +904,7 @@ static int async_filestream_wrapper_rename(php_stream_wrapper *wrapper, const ch
 		return 0;
 	}
 	
-	ASYNC_FS_CALLW(ASYNC_CLI, &req, uv_fs_rename, url_from, url_to);
+	ASYNC_FS_CALLW(ASYNC_G(cli), &req, uv_fs_rename, url_from, url_to);
 	
 	uv_fs_req_cleanup(&req);
 	
@@ -927,7 +925,7 @@ static zend_always_inline int async_mkdir(const char *url, int mode)
 {
 	uv_fs_t req;
 	
-	ASYNC_FS_CALLW(ASYNC_CLI, &req, uv_fs_mkdir, url, mode);
+	ASYNC_FS_CALLW(ASYNC_G(cli), &req, uv_fs_mkdir, url, mode);
 	
 	uv_fs_req_cleanup(&req);
 	
@@ -1028,7 +1026,7 @@ static int async_filestream_wrapper_rmdir(php_stream_wrapper *wrapper, const cha
 		return 0;
 	}
 	
-	ASYNC_FS_CALLW(ASYNC_CLI, &req, uv_fs_rmdir, realpath);
+	ASYNC_FS_CALLW(ASYNC_G(cli), &req, uv_fs_rmdir, realpath);
 	
 	uv_fs_req_cleanup(&req);
 	
@@ -1049,7 +1047,7 @@ static zend_always_inline int async_chmod(const char *url, int mode)
 {
 	uv_fs_t req;
 	
-	ASYNC_FS_CALLW(ASYNC_CLI, &req, uv_fs_chmod, url, mode);
+	ASYNC_FS_CALLW(ASYNC_G(cli), &req, uv_fs_chmod, url, mode);
 	
 	if (UNEXPECTED(req.result < 0)) {
 		php_error_docref1(NULL, url, E_WARNING, "Operation failed: %s", uv_strerror((int) req.result));
@@ -1064,7 +1062,7 @@ static zend_always_inline int async_touch(const char *url, struct utimbuf *time)
 {
 	uv_fs_t req;
 	
-	ASYNC_FS_CALLW(ASYNC_CLI, &req, uv_fs_utime, url, (double) time->actime, (double) time->modtime);
+	ASYNC_FS_CALLW(ASYNC_G(cli), &req, uv_fs_utime, url, (double) time->actime, (double) time->modtime);
 	
 	uv_fs_req_cleanup(&req);
 	
@@ -1087,7 +1085,7 @@ static zend_always_inline int async_touch_create(const char *url)
 	uv_fs_t close;
 	uv_file file;
 	
-	ASYNC_FS_CALLW(ASYNC_CLI, &req, uv_fs_open, url, UV_FS_O_CREAT | UV_FS_O_APPEND, 0);
+	ASYNC_FS_CALLW(ASYNC_G(cli), &req, uv_fs_open, url, UV_FS_O_CREAT | UV_FS_O_APPEND, 0);
 	
 	uv_fs_req_cleanup(&req);
 	
@@ -1099,7 +1097,7 @@ static zend_always_inline int async_touch_create(const char *url)
 	
 	file = (uv_file) req.result;
 
-	ASYNC_FS_CALLW(ASYNC_CLI, &close, uv_fs_close, file);
+	ASYNC_FS_CALLW(ASYNC_G(cli), &close, uv_fs_close, file);
 	
 	uv_fs_req_cleanup(&close);
 	
@@ -1171,7 +1169,7 @@ static php_stream_wrapper async_filestream_wrapper = {
 
 void async_filesystem_init()
 {
-	if (ASYNC_CLI) {
+	if (ASYNC_G(cli)) {
 		php_register_url_stream_wrapper("async-file", &async_filestream_wrapper);
 	
 		if (ASYNC_G(fs_enabled)) {
@@ -1183,7 +1181,7 @@ void async_filesystem_init()
 
 void async_filesystem_shutdown()
 {
-	if (ASYNC_CLI) {
+	if (ASYNC_G(cli)) {
 		if (ASYNC_G(fs_enabled)) {
 			php_plain_files_wrapper = orig_file_wrapper;
 		}

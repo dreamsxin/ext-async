@@ -197,11 +197,11 @@ ASYNC_CALLBACK dispose_timer(uv_handle_t *handle)
 	efree(data);
 }
 
-ASYNC_CALLBACK close_cb(uv_handle_t *handle)
+ASYNC_CALLBACK close_cb(void *arg)
 {
 	async_xp_socket_data *data;
 	
-	data = (async_xp_socket_data *) handle->data;
+	data = (async_xp_socket_data *) arg;
 	
 	ZEND_ASSERT(data != NULL);
 	
@@ -615,7 +615,7 @@ static int toggle_ssl(php_stream *stream, async_xp_socket_data *data, php_stream
 	
 	handshake.settings = &data->astream->ssl.settings;
 	
-	async_ssl_create_engine(&data->astream->ssl);
+	async_ssl_create_buffer_engine(&data->astream->ssl, data->astream->buffer.size);
 	async_ssl_setup_encryption(data->astream->ssl.ssl, handshake.settings);
 	
 	code = async_stream_ssl_handshake(data->astream, &handshake);

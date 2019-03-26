@@ -97,6 +97,7 @@ if test "$PHP_ASYNC" != "no"; then
     src/signal_watcher.c \
     src/socket.c \
     src/ssl.c \
+    src/ssl/bio.c \
     src/stream.c \
     src/stream_watcher.c \
     src/task.c \

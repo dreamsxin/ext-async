@@ -230,7 +230,7 @@ ASYNC_CALLBACK udp_socket_receive_alloc(uv_handle_t *handle, size_t suggested_si
 	ZEND_ASSERT(op != NULL);
 	
 	buf->base = op->buf;
-	buf->len = ASYNC_STREAM_UV_BUF_SIZE(op->len);
+	buf->len = (uv_buf_size_t) op->len;
 }
 
 static int udp_socket_receive(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam)

@@ -177,7 +177,7 @@ ZEND_METHOD(SignalWatcher, __construct)
 	    Z_PARAM_LONG(signum)
 	ZEND_PARSE_PARAMETERS_END();
 
-	ASYNC_CHECK_ERROR(!ASYNC_CLI, "Signal watchers require PHP running in CLI mode");
+	ASYNC_CHECK_ERROR(!ASYNC_G(cli), "Signal watchers require PHP running in CLI mode");
 
 	watcher = (async_signal_watcher *) Z_OBJ_P(getThis());
 
@@ -270,7 +270,7 @@ ZEND_METHOD(SignalWatcher, isSupported)
 		Z_PARAM_LONG(tmp)
 	ZEND_PARSE_PARAMETERS_END();
 
-	if (!ASYNC_CLI) {
+	if (!ASYNC_G(cli)) {
 		RETURN_FALSE;
 	}
 

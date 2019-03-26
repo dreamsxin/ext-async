@@ -52,7 +52,7 @@ static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, int proto)
 	
 	op = NULL;
 	
-	if (ASYNC_CLI) {
+	if (ASYNC_G(cli)) {
 		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op));
 		
 		req->data = op;
@@ -64,12 +64,10 @@ static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, int proto)
 		hints.ai_protocol = proto;
 	}
 
-	async_configure_threadpool();
-
-	code = uv_getaddrinfo(async_loop_get(), req, ASYNC_CLI ? dns_gethostbyname_cb : NULL, name, NULL, &hints);
+	code = uv_getaddrinfo(async_loop_get(), req, ASYNC_G(cli) ? dns_gethostbyname_cb : NULL, name, NULL, &hints);
 	
 	if (UNEXPECTED(code < 0)) {
-		if (ASYNC_CLI) {
+		if (ASYNC_G(cli)) {
 			ASYNC_FREE_OP(op);
 		}
 	
@@ -78,7 +76,7 @@ static int dns_gethostbyname(uv_getaddrinfo_t *req, char *name, int proto)
 		return code;
 	}
 	
-	if (ASYNC_CLI) {
+	if (ASYNC_G(cli)) {
 		if (async_await_op((async_op *) op) == FAILURE) {
 			ASYNC_FORWARD_OP_ERROR(op);
 			

@@ -19,6 +19,8 @@
 #ifndef ASYNC_SSL_H
 #define ASYNC_SSL_H
 
+#include "async_buffer.h"
+
 #define ASYNC_SSL_MODE_SERVER 0
 #define ASYNC_SSL_MODE_CLIENT 1
 
@@ -29,6 +31,61 @@
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
 #define ASYNC_TLS_ALPN 1
 #endif
+#endif
+
+#ifdef HAVE_ASYNC_SSL
+
+#define BIO_TYPE_PHP (98 | BIO_TYPE_SOURCE_SINK)
+#define ASYNC_SSL_BIO_OVERHEAD (2 * sizeof(size_t))
+
+typedef struct {
+	size_t size;
+	size_t len;
+	char buf[1];
+} async_ssl_bio_php;
+
+ASYNC_API BIO_METHOD *BIO_s_php();
+ASYNC_API BIO *BIO_new_php(size_t size);
+
+void async_ssl_bio_init();
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+
+BIO_METHOD *BIO_meth_new(int type, const char *name);
+
+#define BIO_meth_set_write(b, f) (b)->bwrite = (f)
+#define BIO_meth_set_read(b, f) (b)->bread = (f)
+#define BIO_meth_set_ctrl(b, f) (b)->ctrl = (f)
+#define BIO_meth_set_create(b, f) (b)->create = (f)
+#define BIO_meth_set_destroy(b, f) (b)->destroy = (f)
+
+#define BIO_set_init(b, val) (b)->init = (val)
+#define BIO_set_data(b, val) (b)->ptr = (val)
+#define BIO_set_shutdown(b, val) (b)->shutdown = (val)
+#define BIO_get_init(b) (b)->init
+#define BIO_get_data(b) (b)->ptr
+#define BIO_get_shutdown(b) (b)->shutdown
+
+#endif
+
+static zend_always_inline void async_ssl_bio_increment(BIO *b, int count)
+{
+	async_ssl_bio_php *impl;
+	
+	impl = (async_ssl_bio_php *) BIO_get_data(b);
+	impl->len += count;
+}
+
+static zend_always_inline void async_ssl_bio_expose_buffer(BIO *b, char **buf, uv_buf_size_t *len)
+{
+	async_ssl_bio_php *impl;
+	
+	impl = (async_ssl_bio_php *) BIO_get_data(b);
+	
+	*buf = impl->buf + impl->len;
+	*len = (uv_buf_size_t) (impl->size - impl->len);
+}
+
 #endif
 
 typedef struct {
@@ -149,6 +206,7 @@ typedef struct {
 
 SSL_CTX *async_ssl_create_context();
 int async_ssl_create_engine(async_ssl_engine *engine);
+int async_ssl_create_buffer_engine(async_ssl_engine *engine, size_t size);
 int async_ssl_create_socket_engine(async_ssl_engine *engine, php_socket_t sock);
 void async_ssl_dispose_engine(async_ssl_engine *engine, zend_bool ctx);
 

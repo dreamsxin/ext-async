@@ -26,7 +26,12 @@ ASYNC_API zend_class_entry *async_pending_read_exception_ce;
 ASYNC_API zend_class_entry *async_readable_stream_ce;
 ASYNC_API zend_class_entry *async_stream_closed_exception_ce;
 ASYNC_API zend_class_entry *async_stream_exception_ce;
+ASYNC_API zend_class_entry *async_stream_reader_ce;
+ASYNC_API zend_class_entry *async_stream_writer_ce;
 ASYNC_API zend_class_entry *async_writable_stream_ce;
+
+static zend_object_handlers async_stream_reader_handlers;
+static zend_object_handlers async_stream_writer_handlers;
 
 #define ASYNC_STREAM_SHOULD_READ(stream) (((stream)->buffer.size - (stream)->buffer.len) >= 4096)
 
@@ -209,7 +214,9 @@ ASYNC_CALLBACK close_stream_cb(uv_handle_t *handle)
 
 	ZEND_ASSERT(stream != NULL);
 
-	zval_ptr_dtor(&stream->ref);
+	if (stream->dispose) {
+		stream->dispose(stream->arg);
+	}
 }
 
 ASYNC_CALLBACK dispose_read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
@@ -228,12 +235,12 @@ ASYNC_CALLBACK dispose_read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_
 	if (stream->ssl.ssl != NULL && nread > 0 && !(stream->flags & ASYNC_STREAM_SSL_FATAL)) {
 		ERR_clear_error();
 		BIO_read(stream->ssl.rbio, buf->base, buf->len);
-		
+
 		ERR_clear_error();
 		code = SSL_shutdown(stream->ssl.ssl);
 		
 		if (code == 1) {
-			uv_close((uv_handle_t *) handle, close_stream_cb);
+			nread = UV_EPROTO;
 		} else if (UNEXPECTED(code < 0)) {
 			code = SSL_get_error(stream->ssl.ssl, code);
 			
@@ -242,13 +249,13 @@ ASYNC_CALLBACK dispose_read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_
 			case SSL_ERROR_WANT_READ:
 				break;
 			default:
-				uv_close((uv_handle_t *) handle, close_stream_cb);
+				nread = UV_EPROTO;
 			}
 		}
 	}
 #endif
 	
-	if (nread < 0) {
+	if (nread < 0 && !uv_is_closing((uv_handle_t *) handle)) {
 		uv_close((uv_handle_t *) handle, close_stream_cb);
 	}
 	
@@ -261,88 +268,115 @@ ASYNC_CALLBACK dispose_alloc_cb(uv_handle_t *handle, size_t suggested_size, uv_b
 	buf->base = emalloc(buf->len);
 }
 
-#ifdef HAVE_ASYNC_SSL
-static void shutdown_ssl(async_stream *stream, zend_bool async)
-{
-	async_stream_ssl_sync *sync;
-	
-	uv_buf_t bufs[1];
-	int code;
-	
-	size_t len;
-	
-	if (stream->ssl.ssl != NULL && !(stream->flags & ASYNC_STREAM_SSL_FATAL)) {
-		if (!(SSL_get_shutdown(stream->ssl.ssl) & SSL_RECEIVED_SHUTDOWN)) {
-			ERR_clear_error();
-			SSL_shutdown(stream->ssl.ssl);
-	
-			if ((len = BIO_ctrl_pending(stream->ssl.wbio)) > 0) {
-				bufs[0] = uv_buf_init(emalloc(len), (unsigned int) len);
-	
-				ERR_clear_error();
-				
-				if ((code = BIO_read(stream->ssl.wbio, bufs[0].base, bufs[0].len)) > 0) {
-					if (async) {
-						sync = emalloc(sizeof(async_stream_ssl_sync));
-						
-						sync->buf = uv_buf_init(bufs[0].base, bufs[0].len);
-						sync->req.data = sync;
-					
-						uv_write(&sync->req, stream->handle, &sync->buf, 1, ssl_sync_cb);
-					} else {			
-						uv_try_write(stream->handle, bufs, 1);
-						
-						efree(bufs[0].base);
-					}
-				} else {
-					efree(bufs[0].base);
-				}
-			}
-		}
-	}
-}
-#endif
-
-void async_stream_close_cb(async_stream *stream, uv_close_cb callback, void *data)
-{
-	if (!(stream->flags & ASYNC_STREAM_CLOSED)) {
-		stream->flags |= ASYNC_STREAM_CLOSED | ASYNC_STREAM_EOF | ASYNC_STREAM_SHUT_RDWR;
-
-		if (stream->flags & ASYNC_STREAM_READING) {
-			uv_read_stop(stream->handle);
-
-			stream->flags &= ~ASYNC_STREAM_READING;
-		}
-		
-		if (stream->read.base.status == ASYNC_STATUS_RUNNING) {
-			stream->read.req->out.error = UV_ECANCELED;
-
-			ASYNC_FINISH_OP(&stream->read);
-		}
-		
-#ifdef HAVE_ASYNC_SSL
-		shutdown_ssl(stream, 0);
-#endif
-	}
-	
-	if (!uv_is_closing((uv_handle_t *) &stream->timer)) {
-		uv_close((uv_handle_t *) &stream->timer, NULL);
-	}
-	
-	stream->handle->data = data;
-
-	if (!uv_is_closing((uv_handle_t *) stream->handle)) {
-		uv_close((uv_handle_t *) stream->handle, callback);
-	} else {
-		callback((uv_handle_t *) stream->handle);
-	}
-}
-
-ASYNC_CALLBACK close_cb(uv_handle_t *handle)
+ASYNC_CALLBACK dispose_timer_cb(uv_timer_t *handle)
 {
 	async_stream *stream;
 	
 	stream = (async_stream *) handle->data;
+	
+	ZEND_ASSERT(stream != NULL);
+	
+	if (!uv_is_closing((uv_handle_t *) stream->handle)) {
+		uv_close((uv_handle_t *) stream->handle, close_stream_cb);
+	}
+}
+
+#ifdef HAVE_ASYNC_SSL
+static void shutdown_ssl(async_stream *stream)
+{
+	async_stream_ssl_sync *sync;
+	
+	int code;
+	
+	char *buf;
+	size_t len;
+	
+	if (stream->ssl.ssl == NULL || stream->flags & ASYNC_STREAM_SSL_FATAL) {
+		return;
+	}
+	
+	ERR_clear_error();
+	code = SSL_shutdown(stream->ssl.ssl);
+	
+	if ((len = BIO_ctrl_pending(stream->ssl.wbio)) > 0) {
+		buf = emalloc(len);
+
+		ERR_clear_error();
+
+		if ((code = BIO_read(stream->ssl.wbio, buf, (int) len)) > 0) {
+			sync = emalloc(sizeof(async_stream_ssl_sync));
+			
+			sync->req.data = sync;
+			sync->buf = uv_buf_init(buf, (uv_buf_size_t) len);
+			
+			if (0 == uv_write(&sync->req, stream->handle, &sync->buf, 1, ssl_sync_cb)) {
+				return;
+			}
+		}
+
+		efree(buf);
+	}
+}
+#endif
+
+void async_stream_close_cb(async_stream *stream, async_stream_dispose_cb callback, void *data)
+{
+	if (stream->flags & ASYNC_STREAM_CLOSED) {
+		return;
+	}
+	
+	stream->flags |= ASYNC_STREAM_CLOSED | ASYNC_STREAM_EOF | ASYNC_STREAM_SHUT_RDWR;
+	
+	stream->dispose = callback;
+	stream->arg = data;
+
+	if (!uv_is_closing((uv_handle_t *) &stream->timer)) {
+		uv_close((uv_handle_t *) &stream->timer, NULL);
+	}
+
+	if (stream->flags & ASYNC_STREAM_READING) {
+		uv_read_stop(stream->handle);
+
+		stream->flags &= ~ASYNC_STREAM_READING;
+	}
+	
+	if (stream->read.base.status == ASYNC_STATUS_RUNNING) {
+		stream->read.req->out.error = UV_ECANCELED;
+
+		ASYNC_FINISH_OP(&stream->read);
+	}
+
+#ifdef HAVE_ASYNC_SSL
+	if (stream->ssl.ssl && stream->writes.first == NULL) {
+		shutdown_ssl(stream);
+		
+		if (!(stream->flags & ASYNC_STREAM_SSL_FATAL)) {
+			if (!(SSL_get_shutdown(stream->ssl.ssl) & SSL_RECEIVED_SHUTDOWN)) {
+				stream->ref_count++;
+				
+				uv_ref((uv_handle_t *) stream->handle);
+				
+				uv_read_start(stream->handle, dispose_alloc_cb, dispose_read_cb);
+				uv_timer_start(&stream->timer, dispose_timer_cb, 5000, 0);
+				
+				return;
+			}
+		}
+	}
+#endif
+	
+	if (uv_is_closing((uv_handle_t *) stream->handle)) {
+		callback(data);
+	} else {
+		uv_close((uv_handle_t *) stream->handle, close_stream_cb);
+	}
+}
+
+ASYNC_CALLBACK close_cb(void *arg)
+{
+	async_stream *stream;
+	
+	stream = (async_stream *) arg;
 	
 	ZEND_ASSERT(stream != NULL);
 	
@@ -386,7 +420,7 @@ static int trigger_shutdown_wr(async_stream *stream)
 	int code;
 	
 #ifdef HAVE_ASYNC_SSL
-	shutdown_ssl(stream, 1);
+	shutdown_ssl(stream);
 #endif
 
 	code = uv_shutdown(&stream->shutdown.req, stream->handle, shutdown_cb);
@@ -424,10 +458,9 @@ void async_stream_shutdown(async_stream *stream, int how, zval *ref)
 #ifdef HAVE_ASYNC_SSL
 		if (stream->ssl.ssl != NULL && !(SSL_get_shutdown(stream->ssl.ssl) & SSL_RECEIVED_SHUTDOWN)) {
 			if (!(stream->flags & ASYNC_STREAM_SHUT_WR) && !(how & ASYNC_STREAM_SHUT_WR)) {
-				if (!uv_is_closing((uv_handle_t *) &stream->timer)) {
-					uv_close((uv_handle_t *) &stream->timer, NULL);
-				}
+				stream->ref_count++;
 				
+				uv_ref((uv_handle_t *) stream->handle);				
 				uv_read_start(stream->handle, dispose_alloc_cb, dispose_read_cb);
 				
 				ZVAL_COPY(&stream->ref, ref);
@@ -506,21 +539,14 @@ static int process_input_bytes(async_stream *stream, int count)
 	int code;
 	
 	size_t wlen;
-
+	
 	if (stream->ssl.ssl == NULL) {
 		async_ring_buffer_write_move(&stream->buffer, count);
-		
+	
 		return SUCCESS;
 	}
-	
-	if (count > 0) {
-		ERR_clear_error();
-		len = BIO_write(stream->ssl.rbio, stream->buffer.wpos, count);
-		
-		if (UNEXPECTED(len < 1)) {
-			return (int) ERR_get_error();
-		}
-	}
+
+	async_ssl_bio_increment(stream->ssl.rbio, count);
 	
 	if (UNEXPECTED(!SSL_is_init_finished(stream->ssl.ssl))) {
 		return SUCCESS;
@@ -531,14 +557,14 @@ static int process_input_bytes(async_stream *stream, int count)
 	while (1) {
 		do {
 			ERR_clear_error();
-			
+
 			len = SSL_read(stream->ssl.ssl, stream->buffer.wpos, (int) async_ring_buffer_write_len(&stream->buffer));
 			code = SSL_get_error(stream->ssl.ssl, len);
 			
 			if (UNEXPECTED(len < 1)) {
 				switch (code) {
 				case SSL_ERROR_ZERO_RETURN:
-					stream->flags |= ASYNC_STREAM_EOF;
+					stream->flags |= ASYNC_STREAM_EOF;					
 				case SSL_ERROR_WANT_READ:
 				case SSL_ERROR_WANT_WRITE:
 					break;
@@ -580,7 +606,7 @@ static int process_input_bytes(async_stream *stream, int count)
 	
 	if (UNEXPECTED(stream->flags & ASYNC_STREAM_WANT_READ)) {
 		stream->flags &= ~ASYNC_STREAM_WANT_READ;
-	
+
 		if (stream->writes.first != NULL) {
 			write_cb(&((async_stream_write_op *) stream->writes.first)->req, 0);
 		}
@@ -681,6 +707,12 @@ ASYNC_CALLBACK read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 	}
 	
 	if (UNEXPECTED(nread == UV_EOF || stream->flags & ASYNC_STREAM_EOF)) {
+#ifdef HAVE_ASYNC_SSL
+		if (stream->ssl.ssl) {
+			shutdown_ssl(stream);
+		}
+#endif
+	
 		uv_read_stop(handle);
 		
 		stream->flags &= ~ASYNC_STREAM_READING;
@@ -702,13 +734,28 @@ ASYNC_CALLBACK read_cb(uv_stream_t *handle, ssize_t nread, const uv_buf_t *buf)
 ASYNC_CALLBACK read_alloc_cb(uv_handle_t *handle, size_t suggested, uv_buf_t *buf)
 {
 	async_stream *stream;
+	uv_buf_size_t len;
 	
 	stream = (async_stream *) handle->data;
 	
 	ZEND_ASSERT(stream != NULL);
 	
+	len = (uv_buf_size_t) async_ring_buffer_write_len(&stream->buffer);
+	
+#ifdef HAVE_ASYNC_SSL
+	if (stream->ssl.ssl) {
+		async_ssl_bio_expose_buffer(stream->ssl.rbio, &buf->base, &buf->len);
+		
+		if (buf->len > len) {
+			buf->len = len;
+		}
+		
+		return;
+	}
+#endif
+	
 	buf->base = stream->buffer.wpos;
-	buf->len = ASYNC_STREAM_UV_BUF_SIZE(async_ring_buffer_write_len(&stream->buffer));
+	buf->len = len;
 }
 
 ASYNC_CALLBACK timeout_read(uv_timer_t *timer)
@@ -954,7 +1001,7 @@ int async_stream_write(async_stream *stream, async_stream_write_req *req)
 		if (UNEXPECTED(code == 0)) {
 			stream->flags |= ASYNC_STREAM_WANT_READ;
 		} else {
-			do {
+			do {break;
 				bufs[0] = uv_buf_init(op->out.data + op->out.offset, (unsigned int) (op->out.size - op->out.offset));
 				
 				code = uv_try_write(stream->handle, bufs, 1);
@@ -979,13 +1026,13 @@ int async_stream_write(async_stream *stream, async_stream_write_req *req)
 					return SUCCESS;
 				}
 			} while (1);
-			
-			bufs[0] = uv_buf_init(op->out.data + op->out.offset, (unsigned int) (op->out.size - op->out.offset));
-			
-			uv_write(&op->req, stream->handle, bufs, 1, write_cb);
-			
-			op->flags |= ASYNC_STREAM_WRITE_OP_FLAG_STARTED;
 		}
+		
+		bufs[0] = uv_buf_init(op->out.data + op->out.offset, (unsigned int) (op->out.size - op->out.offset));
+			
+		uv_write(&op->req, stream->handle, bufs, 1, write_cb);
+		
+		op->flags |= ASYNC_STREAM_WRITE_OP_FLAG_STARTED;
 	}
 	
 	ASYNC_APPEND_OP(&stream->writes, op);
@@ -1058,25 +1105,13 @@ ASYNC_CALLBACK receive_handshake_bytes_cb(uv_stream_t *handle, ssize_t nread, co
 	ASYNC_FINISH_OP(op);
 }
 
-ASYNC_CALLBACK receive_handshake_bytes_alloc_cb(uv_handle_t *handle, size_t suggested, uv_buf_t *buf)
-{
-	async_stream *stream;
-	
-	stream = (async_stream *) handle->data;
-	
-	ZEND_ASSERT(stream != NULL);
-	
-	buf->base = stream->buffer.wpos;
-	buf->len = ASYNC_STREAM_UV_BUF_SIZE(async_ring_buffer_write_len(&stream->buffer));
-}
-
 static int receive_handshake_bytes(async_stream *stream, async_ssl_handshake_data *data)
 {
 	async_ssl_op *op;
 	
 	int code;
 	
-	code = uv_read_start(stream->handle, receive_handshake_bytes_alloc_cb, receive_handshake_bytes_cb);
+	code = uv_read_start(stream->handle, read_alloc_cb, receive_handshake_bytes_cb);
 	
 	if (UNEXPECTED(code < 0)) {
 		data->uv_error = code;
@@ -1351,10 +1386,157 @@ static const zend_function_entry async_duplex_stream_functions[] = {
 };
 
 
-static const zend_function_entry empty_funcs[] = {
+async_stream_reader *async_stream_reader_create(async_stream *stream, zend_object *ref, zval *error)
+{
+	async_stream_reader *reader;
+
+	reader = ecalloc(1, sizeof(async_stream_reader));
+
+	zend_object_std_init(&reader->std, async_stream_reader_ce);
+	reader->std.handlers = &async_stream_reader_handlers;
+
+	reader->stream = stream;
+	reader->ref = ref;
+	reader->error = error;
+
+	ASYNC_ADDREF(ref);
+
+	return reader;
+}
+
+static void async_stream_reader_object_destroy(zend_object *object)
+{
+	async_stream_reader *reader;
+
+	reader = (async_stream_reader *) object;
+
+	ASYNC_DELREF(reader->ref);
+
+	zend_object_std_dtor(&reader->std);
+}
+
+static ZEND_METHOD(StreamReader, close)
+{
+	async_stream_reader *reader;
+
+	zval *val;
+
+	val = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(val)
+	ZEND_PARSE_PARAMETERS_END();
+
+	reader = (async_stream_reader *) Z_OBJ_P(getThis());
+
+	if (Z_TYPE_P(reader->error) != IS_UNDEF) {
+		return;
+	}
+
+	ASYNC_PREPARE_EXCEPTION(reader->error, async_stream_closed_exception_ce, "Stream has been closed");
+
+	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
+		zend_exception_set_previous(Z_OBJ_P(reader->error), Z_OBJ_P(val));
+		GC_ADDREF(Z_OBJ_P(val));
+	}
+
+	async_stream_shutdown(reader->stream, ASYNC_STREAM_SHUT_RD, getThis());
+}
+
+static ZEND_METHOD(StreamReader, read)
+{
+	async_stream_reader *reader;
+
+	reader = (async_stream_reader *) Z_OBJ_P(getThis());
+
+	async_stream_call_read(reader->stream, reader->error, return_value, execute_data);
+}
+
+static const zend_function_entry async_stream_reader_functions[] = {
+	ZEND_ME(StreamReader, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(StreamReader, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
+
+async_stream_writer *async_stream_writer_create(async_stream *stream, zend_object *ref, zval *error)
+{
+	async_stream_writer *writer;
+
+	writer = ecalloc(1, sizeof(async_stream_writer));
+
+	zend_object_std_init(&writer->std, async_stream_writer_ce);
+	writer->std.handlers = &async_stream_writer_handlers;
+
+	writer->stream = stream;
+	writer->ref = ref;
+	writer->error = error;
+
+	ASYNC_ADDREF(ref);
+
+	return writer;
+}
+
+ASYNC_CALLBACK async_stream_writer_object_destroy(zend_object *object)
+{
+	async_stream_writer *writer;
+
+	writer = (async_stream_writer *) object;
+
+	ASYNC_DELREF(writer->ref);
+
+	zend_object_std_dtor(&writer->std);
+}
+
+static ZEND_METHOD(StreamWriter, close)
+{
+	async_stream_writer *writer;
+
+	zval *val;
+
+	val = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(val)
+	ZEND_PARSE_PARAMETERS_END();
+
+	writer = (async_stream_writer *) Z_OBJ_P(getThis());
+
+	if (Z_TYPE_P(writer->error) != IS_UNDEF) {
+		return;
+	}
+
+	ASYNC_PREPARE_EXCEPTION(writer->error, async_stream_closed_exception_ce, "Stream has been closed");
+
+	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
+		zend_exception_set_previous(Z_OBJ_P(writer->error), Z_OBJ_P(val));
+		GC_ADDREF(Z_OBJ_P(val));
+	}
+
+	async_stream_shutdown(writer->stream, ASYNC_STREAM_SHUT_WR, getThis());
+}
+
+static ZEND_METHOD(StreamWriter, write)
+{
+	async_stream_writer *writer;
+
+	writer = (async_stream_writer *) Z_OBJ_P(getThis());
+
+	async_stream_call_write(writer->stream, writer->error, return_value, execute_data);
+}
+
+static const zend_function_entry async_stream_writer_functions[] = {
+	ZEND_ME(StreamWriter, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	ZEND_ME(StreamWriter, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry empty_funcs[] = {
+	ZEND_FE_END
+};
 
 void async_stream_ce_register()
 {
@@ -1385,4 +1567,28 @@ void async_stream_ce_register()
 	async_pending_read_exception_ce = zend_register_internal_class(&ce);
 
 	zend_do_inheritance(async_pending_read_exception_ce, async_stream_exception_ce);
+
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Stream\\StreamReader", async_stream_reader_functions);
+	async_stream_reader_ce = zend_register_internal_class(&ce);
+	async_stream_reader_ce->ce_flags |= ZEND_ACC_FINAL;
+	async_stream_reader_ce->serialize = zend_class_serialize_deny;
+	async_stream_reader_ce->unserialize = zend_class_unserialize_deny;
+
+	zend_class_implements(async_stream_reader_ce, 1, async_readable_stream_ce);
+
+	memcpy(&async_stream_reader_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_stream_reader_handlers.free_obj = async_stream_reader_object_destroy;
+	async_stream_reader_handlers.clone_obj = NULL;
+
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Stream\\StreamWriter", async_stream_writer_functions);
+	async_stream_writer_ce = zend_register_internal_class(&ce);
+	async_stream_writer_ce->ce_flags |= ZEND_ACC_FINAL;
+	async_stream_writer_ce->serialize = zend_class_serialize_deny;
+	async_stream_writer_ce->unserialize = zend_class_unserialize_deny;
+
+	zend_class_implements(async_stream_writer_ce, 1, async_writable_stream_ce);
+
+	memcpy(&async_stream_writer_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_stream_writer_handlers.free_obj = async_stream_writer_object_destroy;
+	async_stream_writer_handlers.clone_obj = NULL;
 }

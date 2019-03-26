@@ -33,13 +33,9 @@
 #define ASYNC_SOCKET_TCP_SIMULTANEOUS_ACCEPTS 150
 
 ASYNC_API zend_class_entry *async_tcp_socket_ce;
-ASYNC_API zend_class_entry *async_tcp_socket_reader_ce;
-ASYNC_API zend_class_entry *async_tcp_socket_writer_ce;
 ASYNC_API zend_class_entry *async_tcp_server_ce;
 
 static zend_object_handlers async_tcp_socket_handlers;
-static zend_object_handlers async_tcp_socket_reader_handlers;
-static zend_object_handlers async_tcp_socket_writer_handlers;
 static zend_object_handlers async_tcp_server_handlers;
 
 typedef struct {
@@ -121,25 +117,7 @@ typedef struct {
 #endif
 } async_tcp_socket;
 
-typedef struct {
-	/* PHP object handle. */
-	zend_object std;
-
-	/* Socket being used to delegate reads. */
-	async_tcp_socket *socket;
-} async_tcp_socket_reader;
-
-typedef struct {
-	/* PHP object handle. */
-	zend_object std;
-
-	/* Socket being used to delegate writes. */
-	async_tcp_socket *socket;
-} async_tcp_socket_writer;
-
 static async_tcp_socket *async_tcp_socket_object_create();
-static async_tcp_socket_reader *async_tcp_socket_reader_object_create(async_tcp_socket *socket);
-static async_tcp_socket_writer *async_tcp_socket_writer_object_create(async_tcp_socket *socket);
 
 #define ASYNC_TCP_SOCKET_CONST(name, value) \
 	zend_declare_class_constant_long(async_tcp_socket_ce, name, sizeof(name)-1, (zend_long)value);
@@ -177,7 +155,7 @@ ASYNC_CALLBACK shutdown_socket(void *arg, zval *error)
 	socket = (async_tcp_socket *) arg;
 	
 	ZEND_ASSERT(socket != NULL);
-
+	
 	socket->cancel.func = NULL;
 
 	if (error != NULL) {
@@ -567,98 +545,39 @@ static ZEND_METHOD(TcpSocket, setOption)
 	RETURN_BOOL((code < 0) ? 0 : 1);
 }
 
-static zend_always_inline void call_read(async_tcp_socket *socket, zval *return_value, zend_execute_data *execute_data)
-{
-	async_stream_read_req read;
-	
-	zval *hint;
-	size_t len;
-	
-	hint = NULL;
-	
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(hint)
-	ZEND_PARSE_PARAMETERS_END();
-	
-	if (hint == NULL || Z_TYPE_P(hint) == IS_NULL) {
-		len = socket->stream->buffer.size;
-	} else if (Z_LVAL_P(hint) < 1) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Invalid read length: %d", (int) Z_LVAL_P(hint));
-		return;
-	} else {
-		len = (size_t) Z_LVAL_P(hint);
-	}
-
-	if (UNEXPECTED(Z_TYPE_P(&socket->read_error) != IS_UNDEF)) {
-		ASYNC_FORWARD_ERROR(&socket->read_error);
-		return;
-	}
-	
-	read.in.len = len;
-	read.in.buffer = NULL;
-	read.in.timeout = 0;
-	
-	if (EXPECTED(SUCCESS == async_stream_read(socket->stream, &read))) {
-		if (EXPECTED(read.out.len)) {
-			RETURN_STR(read.out.str);
-		}
-		
-		return;
-	}
-	
-	forward_stream_read_error(&read);
-}
-
 static ZEND_METHOD(TcpSocket, read)
 {
-	call_read((async_tcp_socket *) Z_OBJ_P(getThis()), return_value, execute_data);
+	async_tcp_socket *socket;
+
+	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
+
+	async_stream_call_read(socket->stream, &socket->read_error, return_value, execute_data);
 }
 
 static ZEND_METHOD(TcpSocket, getReadableStream)
 {
 	async_tcp_socket *socket;
+	async_stream_reader *reader;
 
 	zval obj;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
+	reader = async_stream_reader_create(socket->stream, &socket->std, &socket->read_error);
 
-	ZVAL_OBJ(&obj, &async_tcp_socket_reader_object_create(socket)->std);
+	ZVAL_OBJ(&obj, &reader->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
 
-static zend_always_inline void call_write(async_tcp_socket *socket, zval *return_value, zend_execute_data *execute_data)
-{
-	async_stream_write_req write;
-	
-	zend_string *data;
-	
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_STR(data)
-	ZEND_PARSE_PARAMETERS_END();
-
-	if (UNEXPECTED(Z_TYPE_P(&socket->write_error) != IS_UNDEF)) {
-		ASYNC_FORWARD_ERROR(&socket->write_error);
-		return;
-	}
-	
-	write.in.len = ZSTR_LEN(data);
-	write.in.buffer = ZSTR_VAL(data);
-	write.in.str = data;
-	write.in.ref = getThis();
-	write.in.flags = 0;
-	
-	if (UNEXPECTED(FAILURE == async_stream_write(socket->stream, &write))) {
-		forward_stream_write_error(&write);
-	}
-}
-
 static ZEND_METHOD(TcpSocket, write)
 {
-	call_write((async_tcp_socket *) Z_OBJ_P(getThis()), return_value, execute_data);
+	async_tcp_socket *socket;
+
+	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
+
+	async_stream_call_write(socket->stream, &socket->write_error, return_value, execute_data);
 }
 
 static ZEND_METHOD(TcpSocket, writeAsync)
@@ -706,14 +625,16 @@ static ZEND_METHOD(TcpSocket, getWriteQueueSize)
 static ZEND_METHOD(TcpSocket, getWritableStream)
 {
 	async_tcp_socket *socket;
+	async_stream_writer *writer;
 
 	zval obj;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
+	writer = async_stream_writer_create(socket->stream, &socket->std, &socket->write_error);
 
-	ZVAL_OBJ(&obj, &async_tcp_socket_writer_object_create(socket)->std);
+	ZVAL_OBJ(&obj, &writer->std);
 
 	RETURN_ZVAL(&obj, 1, 1);
 }
@@ -765,7 +686,7 @@ static ZEND_METHOD(TcpSocket, encrypt)
 		handshake.settings = &socket->server->settings;
 	}
 	
-	async_ssl_create_engine(&socket->stream->ssl);
+	async_ssl_create_buffer_engine(&socket->stream->ssl, socket->stream->buffer.size);
 	async_ssl_setup_encryption(socket->stream->ssl.ssl, handshake.settings);
 	
 	uv_tcp_nodelay(&socket->handle, 1);
@@ -831,146 +752,6 @@ static const zend_function_entry async_tcp_socket_functions[] = {
 	ZEND_ME(TcpSocket, getWriteQueueSize, arginfo_socket_get_write_queue_size, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, getWritableStream, arginfo_duplex_stream_get_writable_stream, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, encrypt, arginfo_tcp_socket_encrypt, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
-};
-
-
-static async_tcp_socket_reader *async_tcp_socket_reader_object_create(async_tcp_socket *socket)
-{
-	async_tcp_socket_reader *reader;
-
-	reader = ecalloc(1, sizeof(async_tcp_socket_reader));
-
-	zend_object_std_init(&reader->std, async_tcp_socket_reader_ce);
-	reader->std.handlers = &async_tcp_socket_reader_handlers;
-
-	reader->socket = socket;
-
-	ASYNC_ADDREF(&socket->std);
-
-	return reader;
-}
-
-static void async_tcp_socket_reader_object_destroy(zend_object *object)
-{
-	async_tcp_socket_reader *reader;
-
-	reader = (async_tcp_socket_reader *) object;
-
-	ASYNC_DELREF(&reader->socket->std);
-
-	zend_object_std_dtor(&reader->std);
-}
-
-static ZEND_METHOD(TcpSocketReader, close)
-{
-	async_tcp_socket_reader *reader;
-	async_tcp_socket *socket;
-
-	zval *val;
-
-	val = NULL;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
-	ZEND_PARSE_PARAMETERS_END();
-
-	reader = (async_tcp_socket_reader *) Z_OBJ_P(getThis());
-	socket = reader->socket;
-
-	if (Z_TYPE_P(&socket->read_error) != IS_UNDEF) {
-		return;
-	}
-
-	ASYNC_PREPARE_EXCEPTION(&socket->read_error, async_stream_closed_exception_ce, "Socket has been closed");
-
-	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
-		zend_exception_set_previous(Z_OBJ_P(&socket->read_error), Z_OBJ_P(val));
-		GC_ADDREF(Z_OBJ_P(val));
-	}
-	
-	async_stream_shutdown(socket->stream, ASYNC_STREAM_SHUT_RD, getThis());
-}
-
-static ZEND_METHOD(TcpSocketReader, read)
-{
-	call_read(((async_tcp_socket_reader *) Z_OBJ_P(getThis()))->socket, return_value, execute_data);
-}
-
-static const zend_function_entry async_tcp_socket_reader_functions[] = {
-	ZEND_ME(TcpSocketReader, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocketReader, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
-};
-
-
-static async_tcp_socket_writer *async_tcp_socket_writer_object_create(async_tcp_socket *socket)
-{
-	async_tcp_socket_writer *writer;
-
-	writer = ecalloc(1, sizeof(async_tcp_socket_writer));
-
-	zend_object_std_init(&writer->std, async_tcp_socket_writer_ce);
-	writer->std.handlers = &async_tcp_socket_writer_handlers;
-
-	writer->socket = socket;
-
-	ASYNC_ADDREF(&socket->std);
-
-	return writer;
-}
-
-ASYNC_CALLBACK async_tcp_socket_writer_object_destroy(zend_object *object)
-{
-	async_tcp_socket_writer *writer;
-
-	writer = (async_tcp_socket_writer *) object;
-
-	ASYNC_DELREF(&writer->socket->std);
-
-	zend_object_std_dtor(&writer->std);
-}
-
-static ZEND_METHOD(TcpSocketWriter, close)
-{
-	async_tcp_socket_writer *writer;
-	async_tcp_socket *socket;
-
-	zval *val;
-
-	val = NULL;
-
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
-	ZEND_PARSE_PARAMETERS_END();
-
-	writer = (async_tcp_socket_writer *) Z_OBJ_P(getThis());
-	socket = writer->socket;
-
-	if (Z_TYPE_P(&socket->write_error) != IS_UNDEF) {
-		return;
-	}
-
-	ASYNC_PREPARE_EXCEPTION(&socket->write_error, async_stream_closed_exception_ce, "Socket has been closed");
-
-	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
-		zend_exception_set_previous(Z_OBJ_P(&socket->write_error), Z_OBJ_P(val));
-		GC_ADDREF(Z_OBJ_P(val));
-	}
-	
-	async_stream_shutdown(socket->stream, ASYNC_STREAM_SHUT_WR, getThis());
-}
-
-static ZEND_METHOD(TcpSocketWriter, write)
-{
-	call_write(((async_tcp_socket_writer *) Z_OBJ_P(getThis()))->socket, return_value, execute_data);
-}
-
-static const zend_function_entry async_tcp_socket_writer_functions[] = {
-	ZEND_ME(TcpSocketWriter, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocketWriter, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -1397,30 +1178,6 @@ void async_tcp_ce_register()
 
 	ASYNC_TCP_SOCKET_CONST("NODELAY", ASYNC_SOCKET_TCP_NODELAY);
 	ASYNC_TCP_SOCKET_CONST("KEEPALIVE", ASYNC_SOCKET_TCP_KEEPALIVE);
-
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\TcpSocketReader", async_tcp_socket_reader_functions);
-	async_tcp_socket_reader_ce = zend_register_internal_class(&ce);
-	async_tcp_socket_reader_ce->ce_flags |= ZEND_ACC_FINAL;
-	async_tcp_socket_reader_ce->serialize = zend_class_serialize_deny;
-	async_tcp_socket_reader_ce->unserialize = zend_class_unserialize_deny;
-
-	zend_class_implements(async_tcp_socket_reader_ce, 1, async_readable_stream_ce);
-
-	memcpy(&async_tcp_socket_reader_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	async_tcp_socket_reader_handlers.free_obj = async_tcp_socket_reader_object_destroy;
-	async_tcp_socket_reader_handlers.clone_obj = NULL;
-
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\TcpSocketWriter", async_tcp_socket_writer_functions);
-	async_tcp_socket_writer_ce = zend_register_internal_class(&ce);
-	async_tcp_socket_writer_ce->ce_flags |= ZEND_ACC_FINAL;
-	async_tcp_socket_writer_ce->serialize = zend_class_serialize_deny;
-	async_tcp_socket_writer_ce->unserialize = zend_class_unserialize_deny;
-
-	zend_class_implements(async_tcp_socket_writer_ce, 1, async_writable_stream_ce);
-
-	memcpy(&async_tcp_socket_writer_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	async_tcp_socket_writer_handlers.free_obj = async_tcp_socket_writer_object_destroy;
-	async_tcp_socket_writer_handlers.clone_obj = NULL;
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\TcpServer", async_tcp_server_functions);
 	async_tcp_server_ce = zend_register_internal_class(&ce);

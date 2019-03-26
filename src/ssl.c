@@ -329,6 +329,17 @@ int async_ssl_create_engine(async_ssl_engine *engine)
 	return configure_engine(engine->ctx, engine->ssl, engine->rbio, engine->wbio);
 }
 
+int async_ssl_create_buffer_engine(async_ssl_engine *engine, size_t size)
+{
+	engine->ssl = SSL_new(engine->ctx);
+	engine->rbio = BIO_new_php(size);
+	engine->wbio = BIO_new(BIO_s_mem());
+	
+	BIO_set_mem_eof_return(engine->wbio, -1);
+	
+	return configure_engine(engine->ctx, engine->ssl, engine->rbio, engine->wbio);
+}
+
 int async_ssl_create_socket_engine(async_ssl_engine *engine, php_socket_t sock)
 {
 	engine->ssl = SSL_new(engine->ctx);
@@ -1424,5 +1435,7 @@ void async_ssl_ce_register()
 	
 #ifdef HAVE_ASYNC_SSL
 	async_index = SSL_get_ex_new_index(0, "async", NULL, NULL, NULL);
+	
+	async_ssl_bio_init();
 #endif
 }

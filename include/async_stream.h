@@ -22,12 +22,6 @@
 #include "async_buffer.h"
 #include "async_ssl.h"
 
-#ifdef PHP_WIN32
-#define ASYNC_STREAM_UV_BUF_SIZE(len) (ULONG)(len)
-#else
-#define ASYNC_STREAM_UV_BUF_SIZE(len) (size_t)(len)
-#endif
-
 #define ASYNC_STREAM_EOF 1
 #define ASYNC_STREAM_CLOSED (1 << 1)
 #define ASYNC_STREAM_SHUT_RD (1 << 2)
@@ -44,6 +38,7 @@
 typedef struct _async_stream async_stream;
 
 typedef void (* async_stream_write_cb)(void *arg);
+typedef void (* async_stream_dispose_cb)(void *arg);
 
 typedef struct {
 	struct {
@@ -103,6 +98,10 @@ struct _async_stream {
 	zval read_error;
 	zval write_error;
 	zval ref;
+#ifdef HAVE_ASYNC_SSL
+	async_stream_dispose_cb dispose;
+	void *arg;
+#endif
 };
 
 #define ASYNC_STREAM_WRITE_OP_FLAG_NEEDS_FREE 1
@@ -131,10 +130,24 @@ typedef struct {
 	async_stream_write_buf out;
 } async_stream_write_op;
 
+typedef struct {
+	zend_object std;
+	zend_object *ref;
+	async_stream *stream;
+	zval *error;
+} async_stream_reader;
+
+typedef struct {
+	zend_object std;
+	zend_object *ref;
+	async_stream *stream;
+	zval *error;
+} async_stream_writer;
+
 async_stream *async_stream_init(uv_stream_t *handle, size_t bufsize);
 void async_stream_free(async_stream *stream);
 void async_stream_close(async_stream *stream, zval *ref);
-void async_stream_close_cb(async_stream *stream, uv_close_cb callback, void *data);
+void async_stream_close_cb(async_stream *stream, async_stream_dispose_cb callback, void *data);
 void async_stream_shutdown(async_stream *stream, int how, zval *ref);
 void async_stream_flush(async_stream *stream);
 int async_stream_read(async_stream *stream, async_stream_read_req *req);
@@ -143,6 +156,16 @@ int async_stream_write(async_stream *stream, async_stream_write_req *req);
 #ifdef HAVE_ASYNC_SSL
 int async_stream_ssl_handshake(async_stream *stream, async_ssl_handshake_data *data);
 #endif
+
+static zend_always_inline void set_stream_receive_buffer(async_stream *stream, int v)
+{
+	uv_recv_buffer_size((uv_handle_t *) stream->handle, &v);
+}
+
+static zend_always_inline void set_stream_send_buffer(async_stream *stream, int v)
+{
+	uv_send_buffer_size((uv_handle_t *) stream->handle, &v);
+}
 
 static void zend_always_inline forward_stream_read_error(async_stream_read_req *req)
 {
@@ -167,6 +190,78 @@ static void zend_always_inline forward_stream_write_error(async_stream_write_req
 
 	zend_throw_exception_ex(async_stream_exception_ce, 0, "Write operation failed: %s", uv_strerror(req->out.error));
 }
+
+static zend_always_inline void async_stream_call_read(async_stream *stream, zval *error, zval *return_value, zend_execute_data *execute_data)
+{
+	async_stream_read_req read;
+
+	zval *hint;
+	size_t len;
+
+	hint = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(hint)
+	ZEND_PARSE_PARAMETERS_END();
+
+	if (hint == NULL || Z_TYPE_P(hint) == IS_NULL) {
+		len = stream->buffer.size;
+	} else if (Z_LVAL_P(hint) < 1) {
+		zend_throw_exception_ex(async_socket_exception_ce, 0, "Invalid read length: %d", (int) Z_LVAL_P(hint));
+		return;
+	} else {
+		len = (size_t) Z_LVAL_P(hint);
+	}
+
+	if (UNEXPECTED(Z_TYPE_P(error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(error);
+		return;
+	}
+
+	read.in.len = len;
+	read.in.buffer = NULL;
+	read.in.timeout = 0;
+
+	if (EXPECTED(SUCCESS == async_stream_read(stream, &read))) {
+		if (EXPECTED(read.out.len)) {
+			RETURN_STR(read.out.str);
+		}
+
+		return;
+	}
+
+	forward_stream_read_error(&read);
+}
+
+static zend_always_inline void async_stream_call_write(async_stream *stream, zval *error, zval *return_value, zend_execute_data *execute_data)
+{
+	async_stream_write_req write;
+
+	zend_string *data;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_STR(data)
+	ZEND_PARSE_PARAMETERS_END();
+
+	if (UNEXPECTED(Z_TYPE_P(error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(error);
+		return;
+	}
+
+	write.in.len = ZSTR_LEN(data);
+	write.in.buffer = ZSTR_VAL(data);
+	write.in.str = data;
+	write.in.ref = getThis();
+	write.in.flags = 0;
+
+	if (UNEXPECTED(FAILURE == async_stream_write(stream, &write))) {
+		forward_stream_write_error(&write);
+	}
+}
+
+async_stream_reader *async_stream_reader_create(async_stream *stream, zend_object *ref, zval *error);
+async_stream_writer *async_stream_writer_create(async_stream *stream, zend_object *ref, zval *error);
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_stream_close, 0, 0, IS_VOID, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
