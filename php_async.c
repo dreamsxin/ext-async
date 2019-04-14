@@ -115,6 +115,7 @@ static PHP_INI_MH(OnUpdateThreadCount)
 PHP_INI_BEGIN()
 	STD_PHP_INI_ENTRY("async.dns", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, dns_enabled, zend_async_globals, async_globals)
 	STD_PHP_INI_ENTRY("async.filesystem", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, fs_enabled, zend_async_globals, async_globals)
+	STD_PHP_INI_ENTRY("async.forked", "0", PHP_INI_SYSTEM, OnUpdateBool, forked, zend_async_globals, async_globals)
 	STD_PHP_INI_ENTRY("async.stack_size", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateFiberStackSize, stack_size, zend_async_globals, async_globals)
 	STD_PHP_INI_ENTRY("async.tcp", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, tcp_enabled, zend_async_globals, async_globals)
 	STD_PHP_INI_ENTRY("async.threads", "4", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateThreadCount, threads, zend_async_globals, async_globals)
@@ -184,6 +185,7 @@ PHP_MINIT_FUNCTION(async)
 	async_context_ce_register();
 	async_deferred_ce_register();
 	async_dns_ce_register();
+	async_pipe_ce_register();
 	async_process_ce_register();
 	async_signal_watcher_ce_register();
 	async_ssl_ce_register();
@@ -220,7 +222,6 @@ PHP_MINIT_FUNCTION(async)
 	return SUCCESS;
 }
 
-
 PHP_MSHUTDOWN_FUNCTION(async)
 {
 	async_task_ce_unregister();
@@ -236,7 +237,6 @@ PHP_MSHUTDOWN_FUNCTION(async)
 	return SUCCESS;
 }
 
-
 PHP_MINFO_FUNCTION(async)
 {
 	char uv_version[20];
@@ -251,7 +251,6 @@ PHP_MINFO_FUNCTION(async)
 
 	DISPLAY_INI_ENTRIES();
 }
-
 
 PHP_RINIT_FUNCTION(async)
 {

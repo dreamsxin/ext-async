@@ -19,6 +19,8 @@
 #include "php_async.h"
 #include "async_ssl.h"
 
+#ifdef HAVE_ASYNC_SSL
+
 static BIO_METHOD *php_method;
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
@@ -128,11 +130,15 @@ ASYNC_API BIO *BIO_new_php(size_t size)
 	return b;
 }
 
+#endif
+
 void async_ssl_bio_init()
 {
+#ifdef HAVE_ASYNC_SSL
 	php_method = BIO_meth_new(BIO_TYPE_PHP, "PHP memory buffer");
 	
 	BIO_meth_set_read(php_method, bio_php_read);
 	BIO_meth_set_ctrl(php_method, bio_php_ctrl);
 	BIO_meth_set_destroy(php_method, bio_php_free);
+#endif
 }

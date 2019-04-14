@@ -3,12 +3,12 @@
 namespace Concurrent\Process;
 
 $builder = new ProcessBuilder(PHP_BINARY);
-$builder->configureStdout(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDOUT);
-$builder->configureStderr(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDERR);
+$builder = $builder->withStdoutInherited();
+$builder = $builder->withStderrInherited();
 
-$builder->setEnv([
+$builder = $builder->withEnv([
     'MY_TITLE' => 'TEST'
-]);
+], true);
 
 $process = $builder->start(__DIR__ . '/process-p2.php');
 
@@ -22,7 +22,7 @@ $code = $process->join();
 
 echo "\nEXIT CODE: ", $code, "\n";
 
-$builder->configureStdin(ProcessBuilder::STDIO_PIPE);
+$builder = $builder->withStdinPipe();
 
 $process = $builder->start(__DIR__ . '/process-p1.php');
 
@@ -53,22 +53,15 @@ $reader = function (ReadablePipe $pipe, int $len) {
     }
 };
 
-$win32 = (\DIRECTORY_SEPARATOR == '\\');
+$builder = ProcessBuilder::shell();
+$builder = $builder->withCwd(__DIR__);
 
-$builder = new ProcessBuilder($win32 ? 'cmd' : 'ls');
-$builder->setDirectory(__DIR__);
-$builder->configureStdout(ProcessBuilder::STDIO_PIPE);
-$builder->configureStderr(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDERR);
+$builder = $builder->withStdoutPipe();
+$builder = $builder->withStderrInherited();
 
-if ($win32) {
-    $process = $builder->start('/c', 'dir');
-} else {
-    $process = $builder->start(...\array_slice($_SERVER['argv'], 1));
-}
+$process = $builder->start((\DIRECTORY_SEPARATOR == '\\') ? 'dir' : 'ls');
 
-// \Concurrent\Task::async($reader, $process->getStdout(), 256);
-
-$reader($process->getStdout(), 256);
+\Concurrent\Task::async($reader, $process->getStdout(), 256);
 
 $code = $process->join();
 

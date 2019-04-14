@@ -162,6 +162,8 @@ ASYNC_API extern zend_class_entry *async_deferred_ce;
 ASYNC_API extern zend_class_entry *async_deferred_awaitable_ce;
 ASYNC_API extern zend_class_entry *async_duplex_stream_ce;
 ASYNC_API extern zend_class_entry *async_pending_read_exception_ce;
+ASYNC_API extern zend_class_entry *async_pipe_ce;
+ASYNC_API extern zend_class_entry *async_pipe_server_ce;
 ASYNC_API extern zend_class_entry *async_process_builder_ce;
 ASYNC_API extern zend_class_entry *async_process_ce;
 ASYNC_API extern zend_class_entry *async_readable_console_stream_ce;
@@ -199,6 +201,7 @@ void async_console_ce_register();
 void async_context_ce_register();
 void async_deferred_ce_register();
 void async_dns_ce_register();
+void async_pipe_ce_register();
 void async_process_ce_register();
 void async_signal_watcher_ce_register();
 void async_socket_ce_register();
@@ -585,6 +588,7 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 	
 	/* INI settings. */
 	zend_bool dns_enabled;
+	zend_bool forked;
 	zend_bool fs_enabled;
 	zend_long stack_size;
 	zend_bool tcp_enabled;
@@ -610,7 +614,11 @@ ZEND_TSRMLS_CACHE_EXTERN()
 } while (0)
 #else
 #define ASYNC_DEBUG_LOG(message, ...) do { \
-	php_printf("\e[96m" message "\e[0m" ASYNC_VA_ARGS(__VA_ARGS__)); \
+	if (UV_TTY == uv_guess_handle(1)) { \
+		php_printf("\e[96m" message "\e[0m" ASYNC_VA_ARGS(__VA_ARGS__)); \
+	} else { \
+		php_printf(message ASYNC_VA_ARGS(__VA_ARGS__)); \
+	} \
 } while (0)
 #endif
 
@@ -900,6 +908,18 @@ ASYNC_API int async_dns_lookup_ipv6(char *name, struct sockaddr_in6 *dest, int p
 #define ASYNC_RETURN_ON_ERROR() do { \
 	if (UNEXPECTED(EG(exception))) { \
 		return; \
+	} \
+} while (0)
+
+#define ASYNC_BREAK_ON_ERROR() do { \
+	if (UNEXPECTED(EG(exception))) { \
+		break; \
+	} \
+} while (0)
+
+#define ASYNC_CONTINUE_ON_ERROR() do { \
+	if (UNEXPECTED(EG(exception))) { \
+		continue; \
 	} \
 } while (0)
 

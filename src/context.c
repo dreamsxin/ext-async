@@ -286,7 +286,6 @@ static ZEND_METHOD(Context, with)
 
 	zval *key;
 	zval *value;
-	zval obj;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 2)
 		Z_PARAM_ZVAL(key)
@@ -310,9 +309,7 @@ static ZEND_METHOD(Context, with)
 
 	ASYNC_ADDREF(&current->std);
 
-	ZVAL_OBJ(&obj, &context->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
+	RETURN_OBJ(&context->std);
 }
 
 static ZEND_METHOD(Context, withIsolatedOutput)
@@ -348,8 +345,6 @@ static ZEND_METHOD(Context, withTimeout)
 
 	zend_long timeout;
 
-	zval obj;
-
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_LONG(timeout)
 	ZEND_PARSE_PARAMETERS_END();
@@ -366,9 +361,7 @@ static ZEND_METHOD(Context, withTimeout)
 	uv_timer_start(&cancel->timer, timed_out, (uint64_t) timeout, 0);
 	uv_unref((uv_handle_t *) &cancel->timer);
 
-	ZVAL_OBJ(&obj, &context->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
+	RETURN_OBJ(&context->std);
 }
 
 static ZEND_METHOD(Context, withCancel)
@@ -378,7 +371,6 @@ static ZEND_METHOD(Context, withCancel)
 	async_context_cancellation *cancel;
 
 	zval *val;
-	zval obj;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
 		Z_PARAM_ZVAL_DEREF(val)
@@ -392,17 +384,14 @@ static ZEND_METHOD(Context, withCancel)
 	context = create_cancellable_context(cancel, parent);
 	
 	ZVAL_OBJ(val, &async_cancellation_handler_object_create(cancel)->std);
-	ZVAL_OBJ(&obj, &context->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
+	
+	RETURN_OBJ(&context->std);
 }
 
 static ZEND_METHOD(Context, shield)
 {
 	async_context *prev;
 	async_context *context;
-
-	zval obj;
 
 	ZEND_PARSE_PARAMETERS_NONE();
 
@@ -417,9 +406,7 @@ static ZEND_METHOD(Context, shield)
 
 	ASYNC_ADDREF(&prev->std);
 
-	ZVAL_OBJ(&obj, &context->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
+	RETURN_OBJ(&context->std);
 }
 
 static ZEND_METHOD(Context, throwIfCancelled)

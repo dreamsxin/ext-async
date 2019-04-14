@@ -781,7 +781,6 @@ static ZEND_METHOD(Task, async)
 	uint32_t i;
 
 	zval *params;
-	zval obj;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
 		Z_PARAM_FUNC_EX(fci, fcc, 1, 0)
@@ -807,9 +806,7 @@ static ZEND_METHOD(Task, async)
 	
 	ASYNC_ADDREF_CB(task->fci);
 
-	ZVAL_OBJ(&obj, &task->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
+	RETURN_OBJ(&task->std);
 }
 
 static ZEND_METHOD(Task, asyncWithContext)
@@ -823,7 +820,6 @@ static ZEND_METHOD(Task, asyncWithContext)
 
 	zval *ctx;
 	zval *params;
-	zval obj;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, -1)
 		Z_PARAM_ZVAL(ctx)
@@ -850,9 +846,7 @@ static ZEND_METHOD(Task, asyncWithContext)
 	
 	ASYNC_ADDREF_CB(task->fci);
 
-	ZVAL_OBJ(&obj, &task->std);
-
-	RETURN_ZVAL(&obj, 1, 1);
+	RETURN_OBJ(&task->std);
 }
 
 

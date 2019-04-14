@@ -4,39 +4,6 @@ namespace Concurrent\Network;
 
 use Concurrent\Timer;
 
-/*
-$context = stream_context_create([
-    'ssl' => [
-        'local_cert' => dirname(__DIR__) . '/cert/localhost.pem',
-        'passphrase' => 'localhost'
-    ]
-]);
-
-$errno = null;
-$errstr = null;
-
-$server = stream_socket_server('tls://127.0.0.1:10011', $errno, $errstr, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN, $context);
-$sock = stream_socket_accept($server);
-
-while (!feof($sock)) {
-    $chunk = fread($sock, 0xFFFF);
-    
-    if ($chunk !== false) {
-        if ($chunk !== str_repeat('A', strlen($chunk))) {
-            throw new \Error('Corrupted data received');
-        }
-        
-        $len += strlen($chunk);
-    } else {
-        break;
-    }
-}
-
-var_dump($len);
-
-return;
-*/
-
 $file = dirname(__DIR__) . '/cert/localhost.';
 
 $tls = new TlsServerEncryption();

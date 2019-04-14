@@ -93,11 +93,15 @@ if test "$PHP_ASYNC" != "no"; then
     src/dns.c \
     src/fiber/stack.c \
     src/filesystem.c \
-    src/process.c \
+    src/pipe.c \
+    src/process/builder.c \
+    src/process/env.c \
+    src/process/runner.c \
     src/signal_watcher.c \
     src/socket.c \
-    src/ssl.c \
+    src/ssl/api.c \
     src/ssl/bio.c \
+    src/ssl/engine.c \
     src/stream.c \
     src/stream_watcher.c \
     src/task.c \

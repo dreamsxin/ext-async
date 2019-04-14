@@ -10,7 +10,7 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 namespace Concurrent\Process;
 
 $builder = new ProcessBuilder(PHP_BINARY);
-$builder->configureStdout(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDOUT);
+$builder = $builder->withStdoutInherited();
 
 $process = $builder->start(__DIR__ . '/assets/signal.php');
 

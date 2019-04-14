@@ -116,6 +116,7 @@ static size_t async_xp_socket_write(php_stream *stream, const char *buf, size_t 
 	
 	write.in.len = count;
 	write.in.buffer = (char *) buf;
+	write.in.handle = NULL;
 	write.in.str = NULL;
 	write.in.ref = &ref;
 	write.in.flags = 0;
@@ -144,7 +145,9 @@ static size_t async_xp_socket_read(php_stream *stream, char *buf, size_t count)
 	
 	read.in.len = count;
 	read.in.buffer = buf;
+	read.in.handle = NULL;
 	read.in.timeout = data->timeout;
+	read.in.flags = 0;
 	
 	code = async_stream_read(data->astream, &read);
 	
@@ -188,11 +191,11 @@ ASYNC_CALLBACK dispose_timer(uv_handle_t *handle)
 	
 	ZEND_ASSERT(data != NULL);
 	
-	async_task_scheduler_unref(data->scheduler);
-	
 	if (data->ssl != NULL) {
 		async_xp_socket_release_ssl(data->ssl);
 	}
+	
+	async_task_scheduler_unref(data->scheduler);
 	
 	efree(data);
 }
@@ -219,11 +222,11 @@ ASYNC_CALLBACK close_cb(void *arg)
 	}
 	
 	if (uv_is_closing((uv_handle_t *) &data->timer)) {
-		async_task_scheduler_unref(data->scheduler);
-		
 		if (data->ssl != NULL) {
 			async_xp_socket_release_ssl(data->ssl);
 		}
+		
+		async_task_scheduler_unref(data->scheduler);
 		
 		efree(data);
 	} else {
@@ -245,11 +248,11 @@ ASYNC_CALLBACK close_dgram_cb(uv_handle_t *handle)
 	}
 	
 	if (uv_is_closing((uv_handle_t *) &data->timer)) {
-		async_task_scheduler_unref(data->scheduler);
-		
 		if (data->ssl != NULL) {
 			async_xp_socket_release_ssl(data->ssl);
 		}
+		
+		async_task_scheduler_unref(data->scheduler);
 		
 		efree(data);
 	} else {

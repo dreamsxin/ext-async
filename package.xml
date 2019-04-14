@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2019-03-22</date>
-  <time>14:00:16</time>
+  <date>2019-04-05</date>
+  <time>09:38:59</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -33,6 +33,8 @@
       <file role="src" name="php_async.h"/>
       <file role="src" name="include/async_buffer.h"/>
       <file role="src" name="include/async_fiber.h"/>
+      <file role="src" name="include/async_pipe.h"/>
+      <file role="src" name="include/async_process.h"/>
       <file role="src" name="include/async_socket.h"/>
       <file role="src" name="include/async_ssl.h"/>
       <file role="src" name="include/async_stack.h"/>
@@ -48,10 +50,15 @@
       <file role="src" name="src/fiber/ucontext.c"/>
       <file role="src" name="src/fiber/winfib.c"/>
       <file role="src" name="src/filesystem.c"/>
-      <file role="src" name="src/process.c"/>
+      <file role="src" name="src/pipe.c"/>
+      <file role="src" name="src/process/builder.c"/>
+      <file role="src" name="src/process/env.c"/>
+      <file role="src" name="src/process/runner.c"/>
       <file role="src" name="src/signal_watcher.c"/>
       <file role="src" name="src/socket.c"/>
-      <file role="src" name="src/ssl.c"/>
+      <file role="src" name="src/ssl/api.c"/>
+      <file role="src" name="src/ssl/bio.c"/>
+      <file role="src" name="src/ssl/engine.c"/>
       <file role="src" name="src/stream.c"/>
       <file role="src" name="src/stream_watcher.c"/>
       <file role="src" name="src/task.c"/>
@@ -222,6 +229,7 @@
       <file role="src" name="thirdparty/libuv/src/win/winapi.h"/>
       <file role="src" name="thirdparty/libuv/src/win/winsock.c"/>
       <file role="src" name="thirdparty/libuv/src/win/winsock.h"/>
+      <file role="test" name="tests/assets/functions.php"/>
       <file role="test" name="tests/channel/buffer-close.phpt"/>
       <file role="test" name="tests/channel/buffered-values-are-released.phpt"/>
       <file role="test" name="tests/channel/buffered.phpt"/>
@@ -281,18 +289,34 @@
       <file role="test" name="tests/filesystem/stat.phpt"/>
       <file role="test" name="tests/filesystem/touch.phpt"/>
       <file role="test" name="tests/filesystem/write.phpt"/>
+      <file role="test" name="tests/pipe/connect.phpt"/>
+      <file role="test" name="tests/pipe/pair.phpt"/>
+      <file role="test" name="tests/pipe/server-cancel-accept.phpt"/>
+      <file role="test" name="tests/pipe/server-close-during-accept.phpt"/>
+      <file role="test" name="tests/pipe/server-close.phpt"/>
+      <file role="test" name="tests/process/assets/env-foo.php"/>
       <file role="test" name="tests/process/assets/env.php"/>
       <file role="test" name="tests/process/assets/env2.php"/>
+      <file role="test" name="tests/process/assets/fork-pipe.php"/>
+      <file role="test" name="tests/process/assets/fork-server.php"/>
+      <file role="test" name="tests/process/assets/fork.php"/>
       <file role="test" name="tests/process/assets/running.php"/>
       <file role="test" name="tests/process/assets/signal.php"/>
       <file role="test" name="tests/process/assets/stderr-output.php"/>
       <file role="test" name="tests/process/assets/stdin-dump.php"/>
+      <file role="test" name="tests/process/env-validation.phpt"/>
       <file role="test" name="tests/process/env.phpt"/>
       <file role="test" name="tests/process/error-pipe.phpt"/>
       <file role="test" name="tests/process/execute-env.phpt"/>
       <file role="test" name="tests/process/exit-code.phpt"/>
+      <file role="test" name="tests/process/fork-pipe.phpt"/>
+      <file role="test" name="tests/process/fork-server.phpt"/>
+      <file role="test" name="tests/process/fork.phpt"/>
+      <file role="test" name="tests/process/inherit-stderr.phpt"/>
+      <file role="test" name="tests/process/inherit-stdin.phpt"/>
       <file role="test" name="tests/process/input-pipe.phpt"/>
       <file role="test" name="tests/process/output-pipe.phpt"/>
+      <file role="test" name="tests/process/shell.phpt"/>
       <file role="test" name="tests/process/signal.phpt"/>
       <file role="test" name="tests/stream_watcher/closed-root-level.phpt"/>
       <file role="test" name="tests/stream_watcher/closed-within-task.phpt"/>

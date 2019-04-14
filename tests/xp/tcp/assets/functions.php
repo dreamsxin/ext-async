@@ -2,6 +2,8 @@
 
 namespace Concurrent;
 
+require_once dirname(__DIR__, 3) . '/assets/functions.php';
+
 function socketpair(): array
 {
     $errno = null;
@@ -43,23 +45,8 @@ function socketpair(): array
 
             return $socket;
         });
-
-        $result = \array_fill(0, 2, null);
-
-        return Task::await(Deferred::combine([
-            $t1,
-            $t2
-        ], function (Deferred $defer, bool $last, int $k, ?\Throwable $e, $v = null) use (& $result) {
-            if ($e) {
-                $defer->fail($e);
-            } else {
-                $result[$k] = $v;
-
-                if ($last) {
-                    $defer->resolve($result);
-                }
-            }
-        }));
+        
+        return Task::await(\Concurrent\all([$t1, $t2]));
     } finally {
         @\fclose($server);
     }

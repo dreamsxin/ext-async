@@ -10,11 +10,11 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 namespace Concurrent\Process;
 
 $builder = new ProcessBuilder(PHP_BINARY);
-$builder->configureStdout(ProcessBuilder::STDIO_PIPE);
+$builder = $builder->withStdoutPipe();
 
-$builder->setEnv([
+$builder = $builder->withEnv([
     'FOO' => 'BAR'
-]);
+], true);
 
 var_dump('START');
 

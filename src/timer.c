@@ -318,7 +318,6 @@ ZEND_METHOD(Timer, timeout)
 	async_context *context;
 	
 	zval *a;
-	zval obj;
 	
 	uint64_t delay;
 	
@@ -345,9 +344,7 @@ ZEND_METHOD(Timer, timeout)
 	
 	uv_timer_start(&awaitable->timer, timeout_cb, delay, 0);
 	
-	ZVAL_OBJ(&obj, &awaitable->base.base.std);
-	
-	RETURN_ZVAL(&obj, 1, 1);
+	RETURN_OBJ(&awaitable->base.base.std);
 }
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_timer_ctor, 0, 0, 1)

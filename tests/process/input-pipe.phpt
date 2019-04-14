@@ -10,8 +10,8 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 namespace Concurrent\Process;
 
 $builder = new ProcessBuilder(PHP_BINARY);
-$builder->configureStdin(ProcessBuilder::STDIO_PIPE);
-$builder->configureStdout(ProcessBuilder::STDIO_INHERIT, ProcessBuilder::STDOUT);
+$builder = $builder->withStdinPipe();
+$builder = $builder->withStdoutInherited();
 
 $process = $builder->start(__DIR__ . '/assets/stdin-dump.php');
 

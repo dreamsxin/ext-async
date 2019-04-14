@@ -420,7 +420,7 @@ namespace Concurrent\Stream;
 
 final class ReadablePipe implements ReadableStream
 {
-    public static function getStdin(): ReadablePipe { }
+    public static function getStdin(bool $ipc = false): ReadablePipe { }
        
     public function isTerminal(): bool { }
 }
@@ -435,9 +435,9 @@ namespace Concurrent\Stream;
 
 final class WritablePipe implements WritableStream
 {
-    public static function getStdout(): WritablePipe { }
+    public static function getStdout(bool $ipc = false): WritablePipe { }
     
-    public static function getStderr(): WritablePipe { }
+    public static function getStderr(bool $ipc = false): WritablePipe { }
     
     public function isTerminal(): bool { }
 }
@@ -502,6 +502,42 @@ interface Server extends Socket
 }
 ```
 
+### Pipe
+
+A pipe is a `DuplexStream` that is backed by a UNIX domain socket or a named pipe (Windows only). For UNIX domain sockets you have to specify a location within the local filesystem as `$name` for `connect()`. On Windows machines you specify a named pipe (`\\\\{$host}\\pipe\\{$name}`) to connect to (you can also pass the pipe name including the host as `$name` to `connect()`).
+
+```php
+namespace Concurrent\Network;
+
+final class Pipe implements SocketStream
+{
+    public static function connect(string $name, ?string $host = null, ?bool $ipc = null): Pipe { }
+    
+    public static function import(Pipe $pipe, ?bool $ipc = null): Pipe { }
+    
+    public static function pair(?bool $ipc = null): array { }
+    
+    public function export(Pipe $pipe): void { }
+}
+```
+
+### PipeServer
+
+A pipe server listens for incoming connections on a UNIX domain socket or a named pipe (Windows only). For UNIX domain sockets you have to specify a location within the local filesystem as `$name` for `listen()` (the file must not exist, you may have to delete it first). On Windows machines you have to specify the pipe using `$name` (this must not be a pipe name starting with a double backslash).
+
+```php
+namespace Concurrent\Network;
+
+final class PipeServer implements Server
+{
+    public static function listen(string $name, ?bool $ipc = null): PipeServer { }
+    
+    public static function import(Pipe $pipe, ?bool $ipc = null): PipeServer { }
+    
+    public function export(Pipe $pipe): void { }
+}
+```
+
 ### TcpSocket
 
 A `TcpSocket` wraps a TCP network conneciton. It implements `DuplexStream` to provide access based on the stream API. Closing a TCP socket will close both read and write sides of the stream. You can use `getWritableStream()` to aquire the writer and call `close()` on it to signal the remote peer that the stream is half-closed, you can still read data from the remote peer until the stream is closed by the remote peer.
@@ -518,7 +554,11 @@ final class TcpSocket implements SocketStream
 
     public static function connect(string $host, int $port, ?TlsClientEncryption $tls = null): TcpSocket { }
     
+    public static function import(Pipe $pipe, ?TlsClientEncryption $tls = null): TcpSocket { }
+    
     public static function pair(): array { }
+    
+    public function export(Pipe $pipe): void { }
     
     public function encrypt(): TlsInfo { }
 }
@@ -536,6 +576,10 @@ final class TcpServer implements Server
     public const SIMULTANEOUS_ACCEPTS;
     
     public static function listen(string $host, int $port, ?TlsServerEncryption $tls = null): TcpServer { }
+    
+    public static function import(Pipe $pipe, ?TlsServerEncryption $tls = null): TcpServer { }
+    
+    public function export(Pipe $pipe): void { }
 }
 ```
 
@@ -654,11 +698,17 @@ The process API provides tools to spawn processes and communicate with them. Thi
 
 ### ProcessBuilder
 
-The `ProcessBuilder` is used to configure the execution environment of a spawned process. The constructor takes the command to be executed, additional arguments can be passed to `execute()` or `start()`. The current working directory of the spawned process can be changed using `setDirectory()`, the process will inherit the current working directory by default. You can specify env vars to be passed to the process using `setEnv()`, inheritance of all current env vars can be configured using `inheritEnv()` (inheritance is enabled by default, variables specified in `setEnv()` will be added to the inherited vars).
+The `ProcessBuilder` is used to configure the execution environment of a spawned process. The constructor takes the command to be executed, additional arguments can be passed to `execute()` or `start()`. The current working directory of the spawned process can be changed using `withCwd()`, the process will inherit the current working directory by default. You can specify env vars to be passed to the process using `withEnv()`, inheritance of all current env vars can be achieved by passing `true` as second argument `$inherit` (inheritance is disabled by default to protect env vars from leaking into foreign processes).
 
-Each process is spawned with access to three anonymous pipes (`STDIN`, `STDOUT` and `STDERR`). The behavior of these pipes can be configured using the `configure*($mode, $fd)` methods of the `ProcessBuilder`. By default all pipes will be ignored (redirected to eighter `/dev/null` or `NUL`) providing no access to process IO. It is possible to have pipes use the same pipe as the process that is spawning a new process, use `STDIO_INHERIT` as `$mode` and one of the `ProcessBuilder` class constants (`STDIN`, `STDOUT` and `STDERR`) to configure inheritance. Both `STDIO_IGNORE` and `STDIO_INHERIT` handle IO automatically, there is no way to control or access the pipes. If you need to write or read data to / from a pipe you need to configure it using `STDIO_PIPE` as mode. Doing so will provide access to the various pipes as async streams that can be accessed using the `Process` object.
+Each process is spawned with access to three anonymous pipes (`STDIN`, `STDOUT` and `STDERR`). By default all pipes will be ignored (redirected to eighter `/dev/null` or `NUL`) providing no access to process IO. Each pipe can be configured to be inherited from the parent process (`with*Inherited(?int)` methods) or to be used as an async stream (`with*Pipe()` methods) controlled by the parent process.
 
-A call to `execute()` will run the spawned process to completion and return with the exit code of the process. This method can only be used if all pipes are configured with mode `STDIO_IGNORE` or `STDIO_INHERIT`. If you need to do pipe IO, access the process PID or signal the process you need to call `start()` instead which will return a `Process` object that provides access to a running process.
+A call to `execute()` will run the spawned process to completion and return the exit code of the process. This method can only be used if no pipe is configured to be an async stream. If you need to do pipe IO, access the process PID or signal the process you need to call `start()` instead which will return a `Process` object that provides access to a running process.
+
+The process builder provides a convenient way to execute a shell command by using the `shell()` named constructor. It will locate the default system shell (`/bin/sh` or `cmd.exe` depending on your OS) and setup a builder object. In non-interactive mode you have to provide the command as first argument to eighter `execute()` or `start()`. Interactive mode will configure `STDIN`, `STDOUT` and `STDERR` to be async streams. You can send input to the shell using the stream returned by `Process::getStdin()`. It is always possible to configure different IO modes for all pipes.
+
+> Running an interactive shell on Windows will (automatically) append `1>&3` to every command and start the shell with `STDOUT` redirected to `NUL`. This hack allows to avoid `cmd.exe` output and prompt line making there way into command output. You can obtain command output using `Process::getStdout()` as usual (just be careful when you are using output redirection in commands yourself as it might break).
+
+In case you want to create a PHP worker process there is the very handy `fork()` named constructor. It will create a process builder that launches another PHP process using the same PHP executable that is running the parent process. It will also make sure that the child process uses the same INI file and INI settings (passed to the parent process using PHP's `-d` command line option) as the parent process. The child process will have no `STDIN` and inherit both `STDOUT` and `STDERR` from the parent process by default. Using `fork()` has an additional benefit: It can establish an IPC pipe to allow full duplex communication between parent and child process (support for transferring TCP and pipe sockets & servers included). The parent process has access to the IPC pipe by calling `getIpc()` on the `Process` object created by `start()`. In your child process you need to call `Process::forked()` to gain access to the other end of the pipe.
 
 ```php
 namespace Concurrent\Process;
@@ -669,42 +719,59 @@ final class ProcessBuilder
     public const STDOUT;
     public const STDERR;
     
-    public const STDIO_IGNORE;
-    public const STDIO_INHERIT;
-    public const STDIO_PIPE;
-    
     public function __construct(string $command, string ...$args) { }
     
-    public function setDirectory(string $dir): void { }
+    public static function fork(string $file): ProcessBuilder { }
     
-    public function setEnv(array $env): void { }
+    public static function shell(?bool $interactive = false): ProcessBuilder { }
     
-    public function inheritEnv(bool $inherit): void { }
+    public function withCwd(string $directory): ProcessBuilder { }
     
-    public function configureStdin(int $mode, ?int $fd = null): void { }
+    public function withEnv(array $env, ?bool $inherit = null): ProcessBuilder { }
     
-    public function configureStdout(int $mode, ?int $fd = null): void { }
+    public function withStdinPipe(): ProcessBuilder { }
     
-    public function configureStderr(int $mode, ?int $fd = null): void { }
+    public function withStdinInherited(?int $fd = null): ProcessBuilder { }
     
-    public function execute(string ...$args): int {}
+    public function withoutStdin(): ProcessBuilder { }
     
-    public function start(string ...$args): Process {}
+    public function withStdoutPipe(): ProcessBuilder { }
+    
+    public function withStdoutInherited(?int $fd = null): ProcessBuilder { }
+    
+    public function withoutStdout(): ProcessBuilder { }
+    
+    public function withStderrPipe(): ProcessBuilder { }
+    
+    public function withStderrInherited(?int $fd = null): ProcessBuilder { }
+    
+    public function withoutStderr(): ProcessBuilder { }
+    
+    public function execute(string ...$args): int { }
+    
+    public function start(string ...$args): Process { }
 }
 ```
 
 ### Process
 
-The `Process` class provides access to a started process. You can use `isRunning()` to check if the process has terminated yet. The process identifier can be accessed using `getPid()`. Iy any pipe was configured using `STDIO_PIPE` it will be accessible via the corresponding getter method. You can send a signal to the process using `signal()`, on Windows systems only `SIGHUP` and `SIGINT` are supported (you should use the class constants defined in `SignalWatcher` to avoid magic numbers). Calling `join()` will suspend the current task until the process has terminated and return the exit code of the process.
+The `Process` class provides access to a started process. You can use `isRunning()` to check if the process has terminated yet. The process identifier can be accessed using `getPid()`. Iy any pipe was configured to be a pipe it will be accessible via the corresponding getter method. You can send a signal to the process using `signal()`, on Windows systems only `SIGHUP` and `SIGINT` are supported (you should use the class constants defined in `SignalWatcher` to avoid magic numbers). Calling `join()` will suspend the current task until the process has terminated and return the exit code of the process.
+
+You can check if the current process has been created using `ProcessBuilder::fork()` by calling `isForked()`. You need to call `forked()` in order to access the IPC pipe that allows a child process to communicate with it's parent process. The pipe can transfer string data and file descriptors, it is up to you to come up with some sort of IPC protocol on top of this (e.g. using binary framing).
 
 ```php
 namespace Concurrent\Process;
 
+use Concurrent\Network\Pipe;
 use Concurrent\Stream\ReadableStream;
 use Concurrent\Stream\WritableStream;
 
 final class Process
 {
+    public static function isForked(): bool { }
+    
+    public static function forked(): Pipe { }
+    
     public function isRunning(): bool { }
     
     public function getPid(): int { }
@@ -714,6 +781,8 @@ final class Process
     public function getStdout(): ReadableStream { }
     
     public function getStderr(): ReadableStream { }
+    
+    public function getIpc(): Pipe { }
     
     public function signal(int $signum): void { }
     
