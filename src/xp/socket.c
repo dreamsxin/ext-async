@@ -618,7 +618,7 @@ static int toggle_ssl(php_stream *stream, async_xp_socket_data *data, php_stream
 	
 	handshake.settings = &data->astream->ssl.settings;
 	
-	async_ssl_create_buffer_engine(&data->astream->ssl, data->astream->buffer.size);
+	async_ssl_create_buffered_engine(&data->astream->ssl, data->astream->buffer.size);
 	async_ssl_setup_encryption(data->astream->ssl.ssl, handshake.settings);
 	
 	code = async_stream_ssl_handshake(data->astream, &handshake);

@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2019-04-05</date>
-  <time>09:38:59</time>
+  <date>2019-04-21</date>
+  <time>08:41:33</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -309,6 +309,7 @@
       <file role="test" name="tests/process/error-pipe.phpt"/>
       <file role="test" name="tests/process/execute-env.phpt"/>
       <file role="test" name="tests/process/exit-code.phpt"/>
+      <file role="test" name="tests/process/fork-listen.phpt"/>
       <file role="test" name="tests/process/fork-pipe.phpt"/>
       <file role="test" name="tests/process/fork-server.phpt"/>
       <file role="test" name="tests/process/fork.phpt"/>
@@ -318,6 +319,8 @@
       <file role="test" name="tests/process/output-pipe.phpt"/>
       <file role="test" name="tests/process/shell.phpt"/>
       <file role="test" name="tests/process/signal.phpt"/>
+      <file role="test" name="tests/signal_watcher/raise-and-catch.phpt"/>
+      <file role="test" name="tests/signal_watcher/support.phpt"/>
       <file role="test" name="tests/stream_watcher/closed-root-level.phpt"/>
       <file role="test" name="tests/stream_watcher/closed-within-task.phpt"/>
       <file role="test" name="tests/stream_watcher/disposed-within-task.phpt"/>

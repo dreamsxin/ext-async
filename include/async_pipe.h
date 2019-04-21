@@ -20,6 +20,7 @@
 #define ASYNC_PIPE_H
 
 #define ASYNC_PIPE_FLAG_IPC 1
+#define ASYNC_PIPE_FLAG_LAZY (1 << 1)
 
 typedef struct {
 	/* PHP object handle. */

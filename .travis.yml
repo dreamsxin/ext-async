@@ -35,7 +35,7 @@ script:
   - make test-coverage
 
 after_success:
-  - coveralls -b $TRAVIS_BUILD_DIR -E Zend --gcov-options '\-lp'
+  - coveralls --exclude thirdparty -b $TRAVIS_BUILD_DIR -E Zend --gcov-options '\-lp'
 
 notifications:
   email: false

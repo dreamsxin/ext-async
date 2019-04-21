@@ -258,11 +258,12 @@ struct _async_fiber {
 	async_task_scheduler *scheduler;
 	async_context *context;
 	async_task *task;
-	zend_execute_data *exec;
-	zend_vm_stack stack;
-	size_t stack_page_size;
+	zend_execute_data *current_execute_data;
+	zend_vm_stack vm_stack;
+	size_t vm_stack_page_size;
 	zend_class_entry *exception_class;
 	zend_error_handling_t error_handling;
+	int error_reporting;
 	JMP_BUF *bailout;
 };
 

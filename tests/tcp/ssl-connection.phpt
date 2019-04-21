@@ -16,7 +16,7 @@ $file = dirname(__DIR__, 2) . '/examples/cert/localhost.';
 $tls = new TlsServerEncryption();
 $tls = $tls->withDefaultCertificate($file . 'pem', null, 'localhost');
 
-$server = TcpServer::listen('127.0.0.1', 0, $tls);
+$server = TcpServer::bind('127.0.0.1', 0, $tls);
 
 try {
     $host = $server->getAddress();

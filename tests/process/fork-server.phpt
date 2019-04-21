@@ -12,7 +12,7 @@ namespace Concurrent\Process;
 use Concurrent\Network\TcpServer;
 use Concurrent\Network\TcpSocket;
 
-$server = TcpServer::listen('127.0.0.1', 0);
+$server = TcpServer::bind('127.0.0.1', 0);
 $port = $server->getPort();
 
 $builder = ProcessBuilder::fork(__DIR__ . '/assets/fork-server.php');
@@ -24,6 +24,8 @@ $ipc = $process->getIpc();
 
 $server->export($ipc);
 $server->close();
+
+var_dump($ipc->read());
 
 $socket = TcpSocket::connect('127.0.0.1', $port);
 
@@ -39,5 +41,6 @@ var_dump($process->join());
 
 --EXPECT--
 string(5) "START"
+NULL
 string(12) "Hello World!"
 int(0)

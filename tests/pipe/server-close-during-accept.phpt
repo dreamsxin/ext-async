@@ -22,7 +22,7 @@ if (DIRECTORY_SEPARATOR == '\\') {
     }
 }
 
-$server = PipeServer::listen($url);
+$server = PipeServer::bind($url);
 
 Task::async(function () use ($server) {
     (new Timer(50))->awaitTimeout();

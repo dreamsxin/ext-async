@@ -320,26 +320,36 @@ static ZEND_METHOD(Pipe, export)
 
 #ifdef ZEND_WIN32
 
+typedef struct {
+	async_op base;
+	int code;
+	int pending;
+} pipe_pair_op;
+
 ASYNC_CALLBACK listen_pipe_pair(uv_stream_t *handle, int status)
 {
-	async_uv_op *op;
+	pipe_pair_op *op;
 	
-	op = (async_uv_op *) handle->data;
+	op = (pipe_pair_op *) handle->data;
 	op->code = status;
 	
-	ASYNC_FINISH_OP(op);
-	ASYNC_FREE_OP(op);
+	if (0 == --op->pending) {
+		ASYNC_FINISH_OP(op);
+		ASYNC_FREE_OP(op);
+	}
 }
 
 ASYNC_CALLBACK connect_pipe_pair(uv_connect_t *req, int status)
 {
-	async_uv_op *op;
+	pipe_pair_op *op;
 	
-	op = (async_uv_op *) req->data;
+	op = (pipe_pair_op *) req->data;
 	op->code = status;
 	
-	ASYNC_FINISH_OP(op);
-	ASYNC_FREE_OP(op);
+	if (0 == --op->pending) {
+		ASYNC_FINISH_OP(op);
+		ASYNC_FREE_OP(op);
+	}
 	
 	efree(req);
 }
@@ -371,7 +381,7 @@ static ZEND_METHOD(Pipe, pair)
 	async_pipe *server;
 	async_pipe *client;
 	
-	async_uv_op *op;
+	pipe_pair_op *op;
 	
 	uv_connect_t *req;
 	char name[128];
@@ -383,7 +393,7 @@ static ZEND_METHOD(Pipe, pair)
 		
 		code = uv_pipe_bind(&server->handle, name);
 		
-		if (UNEXPECTED(code != UV_EADDRINUSE)) {
+		if (EXPECTED(code != UV_EADDRINUSE)) {
 			break;
 		}
 	}
@@ -399,7 +409,9 @@ static ZEND_METHOD(Pipe, pair)
 	
 	pipe = async_pipe_object_create(ipc ? 1 : 0);
 	
-	ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op));
+	ASYNC_ALLOC_CUSTOM_OP(op, sizeof(pipe_pair_op));
+	
+	op->pending = 2;
 	
 	server->handle.data = op;
 		
@@ -414,8 +426,9 @@ static ZEND_METHOD(Pipe, pair)
 	}
 	
 	req = emalloc(sizeof(uv_connect_t));
+	req->data = op;
 	
-	uv_pipe_connect(req, &pipe->handle, name, connect_pipe_pair);	
+	uv_pipe_connect(req, &pipe->handle, name, connect_pipe_pair);
 	uv_ref((uv_handle_t *) &server->handle);
 	
 	if (UNEXPECTED(async_await_op((async_op *) op) == FAILURE)) {
@@ -847,7 +860,7 @@ ASYNC_CALLBACK listen_cb(uv_stream_t *stream, int status)
 	}
 }
 
-static ZEND_METHOD(PipeServer, listen)
+static void create_server(async_pipe_server **result, zend_execute_data *execute_data, zval *return_value)
 {
 	async_pipe_server *server;
 	
@@ -855,6 +868,8 @@ static ZEND_METHOD(PipeServer, listen)
 	zend_long ipc;
 	
 	int code;
+	
+	*result = NULL;
 	
 	ipc = 0;
 	
@@ -897,17 +912,43 @@ static ZEND_METHOD(PipeServer, listen)
 	server->name = zend_string_copy(name);
 #endif
 	
-	code = uv_listen((uv_stream_t *) &server->handle, 128, listen_cb);
-
-	if (UNEXPECTED(code != 0)) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Server failed to listen: %s", uv_strerror(code));
-		ASYNC_DELREF(&server->std);
-		return;
-	}
-	
 	uv_unref((uv_handle_t *) &server->handle);
 	
-	RETURN_OBJ(&server->std);
+	*result = server;
+}
+
+static ZEND_METHOD(PipeServer, bind)
+{
+	async_pipe_server *server;
+	
+	create_server(&server, execute_data, return_value);
+	
+	if (EXPECTED(server)) {
+		server->flags = ASYNC_PIPE_FLAG_LAZY;
+		
+		RETURN_OBJ(&server->std);
+	}
+}
+
+static ZEND_METHOD(PipeServer, listen)
+{
+	async_pipe_server *server;
+	
+	int code;
+	
+	create_server(&server, execute_data, return_value);
+	
+	if (EXPECTED(server)) {
+		code = uv_listen((uv_stream_t *) &server->handle, 128, listen_cb);
+	
+		if (UNEXPECTED(code != 0)) {
+			zend_throw_exception_ex(async_socket_exception_ce, 0, "Server failed to listen: %s", uv_strerror(code));
+			ASYNC_DELREF(&server->std);
+			return;
+		}
+		
+		RETURN_OBJ(&server->std);
+	}
 }
 
 static ZEND_METHOD(PipeServer, import)
@@ -929,6 +970,7 @@ static ZEND_METHOD(PipeServer, import)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	server = async_piper_server_object_create();
+	server->flags = ASYNC_PIPE_FLAG_LAZY;
 	
 	if (ipc) {
 		server->flags |= ASYNC_PIPE_FLAG_IPC;
@@ -1043,6 +1085,14 @@ static ZEND_METHOD(PipeServer, accept)
 
 	server = (async_pipe_server *) Z_OBJ_P(getThis());
 	
+	if (server->flags & ASYNC_PIPE_FLAG_LAZY) {
+		code = uv_listen((uv_stream_t *) &server->handle, 128, listen_cb);
+	
+		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Server failed to listen: %s", uv_strerror(code));
+		
+		server->flags ^= ASYNC_PIPE_FLAG_LAZY;
+	}
+	
 	if (server->pending == 0) {
 		if (UNEXPECTED(Z_TYPE_P(&server->error) != IS_UNDEF)) {
 			ASYNC_FORWARD_ERROR(&server->error);
@@ -1093,6 +1143,11 @@ static ZEND_METHOD(PipeServer, accept)
 	RETURN_OBJ(&pipe->std);
 }
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_pipe_server_bind, 0, 1, Concurrent\\Network\\PipeServer, 0)
+	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, ipc, _IS_BOOL, 1)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_pipe_server_listen, 0, 1, Concurrent\\Network\\PipeServer, 0)
 	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, ipc, _IS_BOOL, 1)
@@ -1108,6 +1163,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_pipe_server_export, 0, 1, IS_VOI
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_pipe_server_functions[] = {
+	ZEND_ME(PipeServer, bind, arginfo_pipe_server_bind, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(PipeServer, listen, arginfo_pipe_server_listen, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(PipeServer, import, arginfo_pipe_server_import, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(PipeServer, close, arginfo_stream_close, ZEND_ACC_PUBLIC)

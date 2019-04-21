@@ -39,6 +39,8 @@ ASYNC_API zend_class_entry *async_tcp_server_ce;
 static zend_object_handlers async_tcp_socket_handlers;
 static zend_object_handlers async_tcp_server_handlers;
 
+#define ASYNC_TCP_SERVER_FLAG_LAZY 1
+
 typedef struct {
 	/* PHP object handle. */
 	zend_object std;
@@ -48,6 +50,8 @@ typedef struct {
 
 	/* UV TCP handle. */
 	uv_tcp_t handle;
+	
+	uint8_t flags;
 
 	/* Hostname or IP address that was used to establish the connection. */
 	zend_string *name;
@@ -805,7 +809,7 @@ static ZEND_METHOD(TcpSocket, encrypt)
 		handshake.settings = &socket->server->settings;
 	}
 	
-	async_ssl_create_buffer_engine(&socket->stream->ssl, socket->stream->buffer.size);
+	async_ssl_create_buffered_engine(&socket->stream->ssl, socket->stream->buffer.size);
 	async_ssl_setup_encryption(socket->stream->ssl.ssl, handshake.settings);
 	
 	uv_tcp_nodelay(&socket->handle, 1);
@@ -1058,7 +1062,7 @@ static int setup_server_tls(async_tcp_server *server, zval *tls)
 	return SUCCESS;
 }
 
-static ZEND_METHOD(TcpServer, listen)
+static void create_server(async_tcp_server **result, zend_execute_data *execute_data, zval *return_value)
 {
 	async_tcp_server *server;
 
@@ -1071,6 +1075,8 @@ static ZEND_METHOD(TcpServer, listen)
 	uv_os_fd_t sock;
 	int code;
 
+	*result = NULL;
+	
 	tls = NULL;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 3)
@@ -1087,6 +1093,7 @@ static ZEND_METHOD(TcpServer, listen)
 	async_socket_set_port((struct sockaddr *) &addr, port);
 
 	server = async_tcp_server_object_create();
+	
 	server->name = zend_string_copy(name);
 	server->port = (uint16_t) port;
 
@@ -1094,14 +1101,6 @@ static ZEND_METHOD(TcpServer, listen)
 
 	if (UNEXPECTED(code != 0)) {
 		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to bind server: %s", uv_strerror(code));
-		ASYNC_DELREF(&server->std);
-		return;
-	}
-
-	code = uv_listen((uv_stream_t *) &server->handle, 128, server_connected);
-
-	if (UNEXPECTED(code != 0)) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Server failed to listen: %s", uv_strerror(code));
 		ASYNC_DELREF(&server->std);
 		return;
 	}
@@ -1117,7 +1116,41 @@ static ZEND_METHOD(TcpServer, listen)
 		async_socket_get_local_peer((php_socket_t) sock, &server->addr, &server->port);
 	}
 	
-	RETURN_OBJ(&server->std);
+	*result = server;
+}
+
+static ZEND_METHOD(TcpServer, bind)
+{
+	async_tcp_server *server;
+	
+	create_server(&server, execute_data, return_value);
+	
+	if (EXPECTED(server)) {
+		server->flags = ASYNC_TCP_SERVER_FLAG_LAZY;
+		
+		RETURN_OBJ(&server->std);
+	}
+}
+
+static ZEND_METHOD(TcpServer, listen)
+{
+	async_tcp_server *server;
+	
+	int code;
+	
+	create_server(&server, execute_data, return_value);
+	
+	if (EXPECTED(server)) {
+		code = uv_listen((uv_stream_t *) &server->handle, 128, server_connected);
+
+		if (UNEXPECTED(code != 0)) {
+			zend_throw_exception_ex(async_socket_exception_ce, 0, "Server failed to listen: %s", uv_strerror(code));
+			ASYNC_DELREF(&server->std);
+			return;
+		}
+	
+		RETURN_OBJ(&server->std);
+	}
 }
 
 static ZEND_METHOD(TcpServer, import)
@@ -1128,8 +1161,6 @@ static ZEND_METHOD(TcpServer, import)
 	zval *conn;
 	zval *tls;
 	
-	int code;
-	
 	tls = NULL;
 	
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
@@ -1139,6 +1170,7 @@ static ZEND_METHOD(TcpServer, import)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	server = async_tcp_server_object_create();
+	server->flags = ASYNC_TCP_SERVER_FLAG_LAZY;
 	
 	async_pipe_import_stream((async_pipe *) Z_OBJ_P(conn), (uv_stream_t *) &server->handle);
 	
@@ -1153,14 +1185,6 @@ static ZEND_METHOD(TcpServer, import)
 		} else {
 			server->name = ZSTR_EMPTY_ALLOC();
 		}
-	}
-	
-	code = uv_listen((uv_stream_t *) &server->handle, 128, server_connected);
-
-	if (UNEXPECTED(code != 0)) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Server failed to listen: %s", uv_strerror(code));
-		ASYNC_DELREF(&server->std);
-		return;
 	}
 
 	uv_unref((uv_handle_t *) &server->handle);
@@ -1279,6 +1303,14 @@ static ZEND_METHOD(TcpServer, accept)
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	server = (async_tcp_server *) Z_OBJ_P(getThis());
+	
+	if (server->flags & ASYNC_TCP_SERVER_FLAG_LAZY) {
+		code = uv_listen((uv_stream_t *) &server->handle, 128, server_connected);
+	
+		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Server failed to listen: %s", uv_strerror(code));
+		
+		server->flags ^= ASYNC_TCP_SERVER_FLAG_LAZY;
+	}
 
 	if (server->pending == 0) {
 		if (UNEXPECTED(Z_TYPE_P(&server->error) != IS_UNDEF)) {
@@ -1340,6 +1372,12 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_listen, 0, 2, Concurre
 	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_bind, 0, 2, Concurrent\\Network\\TcpServer, 0)
+	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
+	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_import, 0, 1, Concurrent\\Network\\TcpServer, 0)
 	ZEND_ARG_OBJ_INFO(0, pipe, Concurrent\\Network\\Pipe, 0)
 	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
@@ -1350,6 +1388,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_export, 0, 1, IS_VOID
 ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_tcp_server_functions[] = {
+	ZEND_ME(TcpServer, bind, arginfo_tcp_server_bind, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(TcpServer, listen, arginfo_tcp_server_listen, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(TcpServer, import, arginfo_tcp_server_import, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(TcpServer, close, arginfo_stream_close, ZEND_ACC_PUBLIC)

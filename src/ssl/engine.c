@@ -309,34 +309,13 @@ static zend_always_inline int configure_engine(SSL_CTX *ctx, SSL *ssl, BIO *rbio
 	return SUCCESS;
 }
 
-int async_ssl_create_engine(async_ssl_engine *engine)
-{
-	engine->ssl = SSL_new(engine->ctx);
-	engine->rbio = BIO_new(BIO_s_mem());
-	engine->wbio = BIO_new(BIO_s_mem());
-	
-	BIO_set_mem_eof_return(engine->rbio, -1);
-	BIO_set_mem_eof_return(engine->wbio, -1);
-	
-	return configure_engine(engine->ctx, engine->ssl, engine->rbio, engine->wbio);
-}
-
-int async_ssl_create_buffer_engine(async_ssl_engine *engine, size_t size)
+int async_ssl_create_buffered_engine(async_ssl_engine *engine, size_t size)
 {
 	engine->ssl = SSL_new(engine->ctx);
 	engine->rbio = BIO_new_php(size);
 	engine->wbio = BIO_new(BIO_s_mem());
 	
 	BIO_set_mem_eof_return(engine->wbio, -1);
-	
-	return configure_engine(engine->ctx, engine->ssl, engine->rbio, engine->wbio);
-}
-
-int async_ssl_create_socket_engine(async_ssl_engine *engine, php_socket_t sock)
-{
-	engine->ssl = SSL_new(engine->ctx);
-	engine->rbio = BIO_new_socket((int) sock, BIO_NOCLOSE);
-	engine->wbio = engine->rbio;
 	
 	return configure_engine(engine->ctx, engine->ssl, engine->rbio, engine->wbio);
 }

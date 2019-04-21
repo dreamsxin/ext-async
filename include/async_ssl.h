@@ -206,9 +206,7 @@ typedef struct {
 #ifdef HAVE_ASYNC_SSL
 
 SSL_CTX *async_ssl_create_context();
-int async_ssl_create_engine(async_ssl_engine *engine);
-int async_ssl_create_buffer_engine(async_ssl_engine *engine, size_t size);
-int async_ssl_create_socket_engine(async_ssl_engine *engine, php_socket_t sock);
+int async_ssl_create_buffered_engine(async_ssl_engine *engine, size_t size);
 void async_ssl_dispose_engine(async_ssl_engine *engine, zend_bool ctx);
 
 async_tls_server_encryption *async_ssl_create_server_encryption();

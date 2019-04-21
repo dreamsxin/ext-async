@@ -357,6 +357,8 @@ final class SignalWatcher
     public function awaitSignal(): void { }
     
     public static function isSupported(int $signum): bool { }
+    
+    public static function raise(int $signum): void { }
 }
 ```
 
@@ -530,6 +532,8 @@ namespace Concurrent\Network;
 
 final class PipeServer implements Server
 {
+    public static function bind(string $name, ?bool $ipc = null): PipeServer { }
+    
     public static function listen(string $name, ?bool $ipc = null): PipeServer { }
     
     public static function import(Pipe $pipe, ?bool $ipc = null): PipeServer { }
@@ -568,12 +572,16 @@ final class TcpSocket implements SocketStream
 
 A `TcpServer` listens on a local port for incoming TCP connection attempts until `close()` is called to terminate the server socket. You have to call `accept()` to accept the next pending connection attempt. Each accepted connection is wrapped in a `TcpSocket` that can be used to communicate with the remote peer. Accepted socket connections are not closed when the server is closed, they have to be closed individually by calling `close()` on the `TcpSocket` object.
 
+> You can use `bind()` to create a server that does not listen for incoming connections until `accept()` is called for the first time. This can be useful when you want to create a multi-process server. The master process uses `bind()` to create a server and passes the socket to spawned workers using an IPC pipe. Each worker must call `accept()` at least once to start listening for incoming connections. Be sure to set option `SIMULTANEOUS_ACCEPTS` to `false` in your workers to achieve an even load distribution.
+
 ```php
 namespace Concurrent\Network;
 
 final class TcpServer implements Server
 {
     public const SIMULTANEOUS_ACCEPTS;
+    
+    public static function bind(string $host, int $port, ?TlsServerEncryption $tls = null): TcpServer { }
     
     public static function listen(string $host, int $port, ?TlsServerEncryption $tls = null): TcpServer { }
     
