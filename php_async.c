@@ -20,6 +20,9 @@
 #include "async_fiber.h"
 #include "async_ssl.h"
 
+#include "SAPI.h"
+#include "php_main.h"
+
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
 ASYNC_API zend_class_entry *async_awaitable_ce;
@@ -57,7 +60,7 @@ static void execute_root(zend_execute_data *exec)
 	zend_object *error;
 	
 	error = NULL;
-
+	
 	zend_try {
 		orig_execute_ex(exec);
 	} zend_catch {
@@ -190,8 +193,10 @@ PHP_MINIT_FUNCTION(async)
 	async_signal_watcher_ce_register();
 	async_ssl_ce_register();
 	async_stream_watcher_ce_register();
+	async_sync_init();
 	async_task_ce_register();
 	async_tcp_ce_register();
+	async_thread_ce_register();
 	async_timer_ce_register();
 	async_udp_socket_ce_register();
 	
@@ -225,6 +230,7 @@ PHP_MINIT_FUNCTION(async)
 PHP_MSHUTDOWN_FUNCTION(async)
 {
 	async_task_ce_unregister();
+	async_thread_ce_unregister();
 
 	UNREGISTER_INI_ENTRIES();
 

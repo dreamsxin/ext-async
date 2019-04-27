@@ -192,8 +192,6 @@ You can use `Channel` objects to exchange messages between different tasks. Ever
 
 Reading from a channel is done using PHP's iterator API. You can use `foreach` to iterate over a channel object. Be sure to call `getIterator()` and return just the created `ChannelIterator` if you want to expose the contents of a channel. This way you prevent thirdparty code from calling `close()` or sending messages into your channel.
 
-You can use `isReadyForSend()` to check if a value can be sent into the channel without blocking, this is possible when there is space left in the channel's buffer or a receive operation is pending. Likewise you can use `isReadyForReceive()` to check if a message can be received without blocking (this is true when a message has been buffered or a send operation is pending).
-
 ```php
 namespace Concurrent;
 
@@ -204,10 +202,6 @@ final class Channel implements \IteratorAggregate
     public function close(?\Throwable $e = null): void { }
     
     public function isClosed(): bool { }
-    
-    public function isReadyForSend(): bool { }
-    
-    public function isReadyForReceive(): bool { }
     
     public function send($message): void { }
 }
@@ -288,6 +282,52 @@ namespace Concurrent;
 final class CancellationHandler
 {
     public function __invoke(?\Throwable $e = null): void { }
+}
+```
+
+### (experimental) ThreadPool (ZTS command line only)
+
+> This is based on code taken from [ext-parallel](https://github.com/krakjoe/parallel) by [Joe Watkins](https://github.com/krakjoe). It might be removed in the future if we are able to achieve some kind of integration between threads and libuv.
+
+You can make use of multiple PHP threads using a `ThreadPool`. The pool will load and run a bootstrap file for each thread. You have to supply closures to the pool that will be run in one of the pooled threads. Arguments and return values have to be PHP primitive types or (possibly nested) arrays containing these values. Passing objects is not supported because the loaded class definitions might differ from thread to thread.
+
+> You need a thread-safe build (ZTS) of PHP in order to make use of threads. This requires PHP to be compiled with `--enable-maintainer-zts`. Usage of threads is also restricted to the `cli` SAPI (PHP running from the command line). An alternative to using threads is to use `ProcessBuilder::fork()` to create additional PHP worker processes and exchange data using IPC pipes.
+
+If a job fails it will resolve the awaitable with a `JobFailedException`. The exception exposes the same error message, file and line as the error thrown in the thread (trace inforamtion is not provided).
+
+```php
+namespace Concurrent;
+
+final class ThreadPool
+{
+    public function __construct(?int $size = null, ?string $bootstrap = null) { }
+    
+    public static function isAvailable(): bool { }
+    
+    public function close(?\Throwable $e = null): void { }
+    
+    public function submit(\Closure $work, ...$args): Awaitable { }
+}
+```
+
+## Sync API
+
+### Condition
+
+A `Condition` can be used to have a task wait until it is signalled. A task that calls `wait()` will be blocked (async) until some other piece of code calls eighter `signal()` or `broadcast()`. A call to `signal()` will reactivate the first task that is waiting (it has no effect if no task is waiting). Calling `broadcast()` will reactivate all tasks that have been waiting at the moment this method is called. Tasks that enter while `broadcast()` is still working will not be activated. Both `signal()` and `broadcast()` will return the number of waiting tasks that have been rescheduled. A call to `close()` will wake up all waiting tasks with an error. Any attempz to signal or wait on a closed condition will throw an error.
+
+```php
+namespace Concurrent;
+
+final class Condition
+{
+    public function close(?\Throwable $e = null): void { }
+    
+    public function wait(): void { }
+    
+    public function signal(): int { }
+    
+    public function broadcast(): int { }
 }
 ```
 

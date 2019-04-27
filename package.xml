@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2019-04-21</date>
-  <time>08:41:33</time>
+  <date>2019-04-27</date>
+  <time>14:34:42</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -61,8 +61,11 @@
       <file role="src" name="src/ssl/engine.c"/>
       <file role="src" name="src/stream.c"/>
       <file role="src" name="src/stream_watcher.c"/>
+      <file role="src" name="src/sync.c"/>
       <file role="src" name="src/task.c"/>
       <file role="src" name="src/tcp.c"/>
+      <file role="src" name="src/thread/copy.c"/>
+      <file role="src" name="src/thread.c"/>
       <file role="src" name="src/timer.c"/>
       <file role="src" name="src/udp.c"/>
       <file role="src" name="src/xp/socket.c"/>
@@ -327,6 +330,9 @@
       <file role="test" name="tests/stream_watcher/read-write.phpt"/>
       <file role="test" name="tests/stream_watcher/root-level.phpt"/>
       <file role="test" name="tests/stream_watcher/within-task.phpt"/>
+      <file role="test" name="tests/sync/broadcast.phpt"/>
+      <file role="test" name="tests/sync/close.phpt"/>
+      <file role="test" name="tests/sync/wait-and-notify.phpt"/>
       <file role="test" name="tests/task/await-pending-task.phpt"/>
       <file role="test" name="tests/task/await-return-refcount.phpt"/>
       <file role="test" name="tests/task/await.phpt"/>

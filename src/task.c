@@ -1456,7 +1456,8 @@ void async_task_ce_register()
 	zend_vm_set_opcode_handler_ex(task_run_op + 1, 0, 0, 0);
 
 	memset(&task_run_func, 0, sizeof(task_run_func));
-	ASYNC_STRP(task_run_func.function_name, "ext-async");	
+	
+	task_run_func.function_name = zend_new_interned_string(zend_string_init(ZEND_STRL("main"), 1));	
 	task_run_func.type = ZEND_USER_FUNCTION;
 	task_run_func.filename = ZSTR_EMPTY_ALLOC();
 	task_run_func.opcodes = task_run_op;
@@ -1533,6 +1534,6 @@ void async_task_scheduler_shutdown()
 
 void async_task_ce_unregister()
 {
-	zend_string_free(task_run_func.function_name);
+	zend_string_release(task_run_func.function_name);
 	task_run_func.function_name = NULL;
 }

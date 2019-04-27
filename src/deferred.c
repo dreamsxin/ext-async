@@ -818,7 +818,7 @@ static const zend_function_entry deferred_functions[] = {
 };
 
 
-ASYNC_API void async_init_awaitable(async_deferred_custom_awaitable *awaitable, void (* dtor)(async_deferred_awaitable *awaitable), async_context *context)
+ASYNC_API void async_init_awaitable(async_deferred_custom_awaitable *awaitable, void (* dtor)(async_deferred_custom_awaitable *awaitable), async_context *context)
 {
 	if (EXPECTED(context == NULL)) {
 		context = async_context_get();
@@ -864,7 +864,7 @@ static void async_deferred_custom_awaitable_object_destroy(zend_object *object)
 	awaitable = (async_deferred_custom_awaitable *) object;
 	
 	if (UNEXPECTED(awaitable->base.state->status == ASYNC_DEFERRED_STATUS_PENDING)) {
-		awaitable->dtor((async_deferred_awaitable *) awaitable);
+		awaitable->dtor(awaitable);
 	}
 }
 

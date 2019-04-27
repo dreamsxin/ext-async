@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PHP_VERSION=php-7.3.3
+PHP_VERSION=php-7.3.4
 
 sudo apt-get update
 sudo apt-get install gdb git gcc make pkg-config autoconf libtool bison libxml2-dev libssl-dev curl valgrind -y
@@ -26,6 +26,7 @@ sudo ./configure \
     --without-pear \
     --enable-cli \
     --enable-debug \
+    --enable-maintainer-zts \
     --enable-mbstring \
     --enable-pcntl \
     --enable-sockets

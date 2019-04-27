@@ -104,8 +104,11 @@ if test "$PHP_ASYNC" != "no"; then
     src/ssl/engine.c \
     src/stream.c \
     src/stream_watcher.c \
+    src/sync.c \
     src/task.c \
     src/tcp.c \
+    src/thread.c \
+    src/thread/copy.c \
     src/timer.c \
     src/udp.c \
     src/xp/socket.c \

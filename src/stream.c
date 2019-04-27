@@ -1035,6 +1035,8 @@ int async_stream_write(async_stream *stream, async_stream_write_req *req)
 	uv_buf_t bufs[1];
 	int code;
 	
+	handle = NULL;
+
 	req->out.error = 0;
 	
 #ifdef HAVE_ASYNC_SSL

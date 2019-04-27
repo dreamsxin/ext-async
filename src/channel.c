@@ -426,28 +426,6 @@ static ZEND_METHOD(Channel, isClosed)
 	RETURN_BOOL(state->cancel.func == NULL);
 }
 
-static ZEND_METHOD(Channel, isReadyForReceive)
-{
-	async_channel_state *state;
-	
-	ZEND_PARSE_PARAMETERS_NONE();
-	
-	state = ((async_channel *) Z_OBJ_P(getThis()))->state;
-	
-	RETURN_BOOL(ASYNC_CHANNEL_READABLE_NONBLOCK(state));
-}
-
-static ZEND_METHOD(Channel, isReadyForSend)
-{
-	async_channel_state *state;
-	
-	ZEND_PARSE_PARAMETERS_NONE();
-	
-	state = ((async_channel *) Z_OBJ_P(getThis()))->state;
-	
-	RETURN_BOOL(state->cancel.func != NULL && (state->receivers.first != NULL || state->buffer.len < state->buffer.size));
-}
-
 static ZEND_METHOD(Channel, send)
 {
 	async_channel_state *state;
@@ -526,12 +504,6 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_is_closed, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_is_ready_for_receive, 0, 0, _IS_BOOL, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_is_ready_for_send, 0, 0, _IS_BOOL, 0)
-ZEND_END_ARG_INFO()
-
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_send, 0, 1, IS_VOID, 0)
 	ZEND_ARG_INFO(0, message)
 ZEND_END_ARG_INFO()
@@ -541,8 +513,6 @@ static const zend_function_entry channel_functions[] = {
 	ZEND_ME(Channel, getIterator, arginfo_channel_get_iterator, ZEND_ACC_PUBLIC)
 	ZEND_ME(Channel, close, arginfo_channel_close, ZEND_ACC_PUBLIC)
 	ZEND_ME(Channel, isClosed, arginfo_channel_is_closed, ZEND_ACC_PUBLIC)
-	ZEND_ME(Channel, isReadyForReceive, arginfo_channel_is_ready_for_receive, ZEND_ACC_PUBLIC)
-	ZEND_ME(Channel, isReadyForSend, arginfo_channel_is_ready_for_send, ZEND_ACC_PUBLIC)
 	ZEND_ME(Channel, send, arginfo_channel_send, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };

@@ -299,7 +299,7 @@ ASYNC_CALLBACK timeout_cb(uv_timer_t *timer)
 	uv_close((uv_handle_t *) timer, timeout_close_cb);
 }
 
-ASYNC_CALLBACK timeout_dispose_cb(async_deferred_awaitable *obj)
+ASYNC_CALLBACK timeout_dispose_cb(async_deferred_custom_awaitable *obj)
 {
 	async_timeout_awaitable *awaitable;
 	
