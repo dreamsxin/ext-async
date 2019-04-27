@@ -317,7 +317,7 @@ final class ThreadPool
 A `Condition` can be used to have a task wait until it is signalled. A task that calls `wait()` will be blocked (async) until some other piece of code calls eighter `signal()` or `broadcast()`. A call to `signal()` will reactivate the first task that is waiting (it has no effect if no task is waiting). Calling `broadcast()` will reactivate all tasks that have been waiting at the moment this method is called. Tasks that enter while `broadcast()` is still working will not be activated. Both `signal()` and `broadcast()` will return the number of waiting tasks that have been rescheduled. A call to `close()` will wake up all waiting tasks with an error. Any attempz to signal or wait on a closed condition will throw an error.
 
 ```php
-namespace Concurrent;
+namespace Concurrent\Sync;
 
 final class Condition
 {
