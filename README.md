@@ -44,6 +44,8 @@ make test
 make test TESTS=test/{DIR}/
 ```
 
+> Warning: If you want to compile the extension on different machines (local, docker, vagrant, ...) be sure to use a fresh copy of the extensions's source code for each machine. The compile process will (if linux machines are involved) compile libuv into the local file `thirdparty/lib/libuv.a` and use it with the linker. This file cannot be shared across different machines, be sure to delete it if you (re)compile the extension using another machine!
+
 ### Windows
 
 You can [download a pre-compiled DLL](https://github.com/martinschroeder/ext-async-win32/raw/master/php_async.dll) working with PHP 7.3+ (VC15 x64 Thread Safe only). Just drop the DLL file in your `ext` directory and add `extension=php_async.dll` in your `php.ini` file.
