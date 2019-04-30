@@ -1,5 +1,5 @@
 --TEST--
-Stream watcher can be closed while being awaited within a task.
+Poll can be closed while being awaited within a task.
 --SKIPIF--
 <?php
 if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
@@ -22,25 +22,25 @@ function pair()
 
 list ($a, $b) = pair();
 
-$watcher = new StreamWatcher($b);
+$poll = new Poll($b);
 
-Task::async(function () use ($watcher) {
+Task::async(function () use ($poll) {
     try {
-        $watcher->awaitReadable();
+        $poll->awaitReadable();
     } catch (\Throwable $e) {
         var_dump($e->getMessage());
         var_dump($e->getPrevious()->getMessage());
     }
 
     try {
-        $watcher->awaitReadable();
+        $poll->awaitReadable();
     } catch (\Throwable $e) {
         var_dump($e->getMessage());
         var_dump($e->getPrevious()->getMessage());
     }
     
     try {
-        $watcher->awaitWritable();
+        $poll->awaitWritable();
     } catch (\Throwable $e) {
         var_dump($e->getMessage());
         var_dump($e->getPrevious()->getMessage());
@@ -49,12 +49,12 @@ Task::async(function () use ($watcher) {
 
 (new Timer(10))->awaitTimeout();
 
-$watcher->close(new \Error('FAIL!'));
+$poll->close(new \Error('FAIL!'));
 
 --EXPECT--
-string(30) "Stream watcher has been closed"
+string(20) "Poll has been closed"
 string(5) "FAIL!"
-string(30) "Stream watcher has been closed"
+string(20) "Poll has been closed"
 string(5) "FAIL!"
-string(30) "Stream watcher has been closed"
+string(20) "Poll has been closed"
 string(5) "FAIL!"

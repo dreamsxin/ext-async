@@ -585,6 +585,28 @@ static ZEND_METHOD(Pipe, getRemotePort)
 	ZEND_PARSE_PARAMETERS_NONE();
 }
 
+static ZEND_METHOD(Pipe, isAlive)
+{
+	async_pipe *pipe;
+	uv_os_fd_t sock;
+	
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	pipe = (async_pipe *) Z_OBJ_P(getThis());
+	
+	if (EXPECTED(pipe->cancel.func != NULL && !(pipe->stream->flags & ASYNC_STREAM_CLOSED))) {
+		if (pipe->stream->buffer.len) {
+			RETURN_TRUE;
+		}
+		
+		if (EXPECTED(0 == uv_fileno((const uv_handle_t *) pipe->stream->handle, &sock))) {
+			RETURN_BOOL(async_socket_is_alive((php_socket_t) sock));
+		}
+	}
+
+	RETURN_FALSE;
+}
+
 static ZEND_METHOD(Pipe, read)
 {
 	async_pipe *pipe;
@@ -642,7 +664,7 @@ static ZEND_METHOD(Pipe, writeAsync)
 	write.in.flags = ASYNC_STREAM_WRITE_REQ_FLAG_ASYNC;
 	
 	if (UNEXPECTED(FAILURE == async_stream_write(pipe->stream, &write))) {
-		forward_stream_write_error(&write);
+		forward_stream_write_error(pipe->stream, &write);
 	} else {
 		RETURN_LONG(pipe->handle.write_queue_size);
 	}
@@ -702,6 +724,7 @@ static const zend_function_entry async_pipe_functions[] = {
 	ZEND_ME(Pipe, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC)
 	ZEND_ME(Pipe, getRemoteAddress, arginfo_socket_stream_get_remote_address, ZEND_ACC_PUBLIC)
 	ZEND_ME(Pipe, getRemotePort, arginfo_socket_stream_get_remote_port, ZEND_ACC_PUBLIC)
+	ZEND_ME(Pipe, isAlive, arginfo_socket_stream_is_alive, ZEND_ACC_PUBLIC)
 	ZEND_ME(Pipe, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
 	ZEND_ME(Pipe, getReadableStream, arginfo_duplex_stream_get_readable_stream, ZEND_ACC_PUBLIC)
 	ZEND_ME(Pipe, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
@@ -1274,7 +1297,7 @@ void async_pipe_import_stream(async_pipe *pipe, uv_stream_t *handle)
 		return;
 	}
 	
-	forward_stream_read_error(&read);
+	forward_stream_read_error(pipe->stream, &read);
 }
 
 void async_pipe_export_stream(async_pipe *pipe, uv_stream_t *handle)
@@ -1291,8 +1314,8 @@ void async_pipe_export_stream(async_pipe *pipe, uv_stream_t *handle)
 	write.in.flags = ASYNC_STREAM_WRITE_REQ_FLAG_EXPORT;
 	
 	if (UNEXPECTED(FAILURE == async_stream_write(pipe->stream, &write))) {
-		forward_stream_write_error(&write);
-}
+		forward_stream_write_error(pipe->stream, &write);
+	}
 }
 
 

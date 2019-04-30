@@ -8,6 +8,7 @@ if (PHP_ASYNC != 'no') {
 	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname);
 	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\include');
 	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\thirdparty\\libuv\\include');
+	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\thirdparty\\krakjoe\\parallel');
 	
 	ADD_FLAG('LDFLAGS', '/NODEFAULTLIB:LIBCMT');
 		
@@ -24,23 +25,23 @@ if (PHP_ASYNC != 'no') {
 		'src\\process\\builder.c',
 		'src\\process\\env.c',
 		'src\\process\\runner.c',
-		'src\\signal_watcher.c',
 		'src\\socket.c',
 		'src\\ssl\\api.c',
 		'src\\ssl\\bio.c',
 		'src\\ssl\\engine.c',
 		'src\\stream.c',
-		'src\\stream_watcher.c',
 		'src\\sync.c',
 		'src\\task.c',
 		'src\\tcp.c',
 		'src\\thread.c',
-		'src\\thread\\copy.c',
-		'src\\timer.c',
 		'src\\udp.c',
+		'src\\watcher\\poll.c',
+		'src\\watcher\\signal.c',
+		'src\\watcher\\timer.c',
 		'src\\xp\\socket.c',
 		'src\\xp\\tcp.c',
-		'src\\xp\\udp.c'
+		'src\\xp\\udp.c',
+		'thirdparty\\krakjoe\\parallel\\copy.c'
 	];
 	
 	var async_header_files = [

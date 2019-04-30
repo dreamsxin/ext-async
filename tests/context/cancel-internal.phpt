@@ -13,7 +13,7 @@ $cancel = null;
 $context = Context::current()->withCancel($cancel);
 
 Task::asyncWithContext($context, function () {
-    $signal = new SignalWatcher(SignalWatcher::SIGINT);
+    $signal = new Signal(Signal::SIGINT);
     
     var_dump('AWAIT SIGNAL');
     

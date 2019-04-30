@@ -106,18 +106,16 @@ typedef size_t uv_buf_size_t;
 #include "php_network.h"
 #include "php_streams.h"
 
-#if !defined(PHP_WIN32) || (defined(HAVE_SOCKETS) && !defined(COMPILE_DL_SOCKETS))
-#define ASYNC_SOCKETS 1
-#else
-#define ASYNC_SOCKETS 0
-#endif
-
 #if defined(HAVE_SOCKETS) && !defined(COMPILE_DL_SOCKETS)
+#define ASYNC_SOCKETS 1
 #include "ext/sockets/php_sockets.h"
 #elif !defined(PHP_WIN32)
+#define ASYNC_SOCKETS 0
 typedef struct {
 	int bsd_socket;
 } php_socket;
+#else
+#define ASYNC_SOCKETS 0
 #endif
 
 #define ASYNC_OP_PENDING 0
@@ -165,6 +163,7 @@ ASYNC_API extern zend_class_entry *async_job_failed_ce;
 ASYNC_API extern zend_class_entry *async_pending_read_exception_ce;
 ASYNC_API extern zend_class_entry *async_pipe_ce;
 ASYNC_API extern zend_class_entry *async_pipe_server_ce;
+ASYNC_API extern zend_class_entry *async_poll_ce;
 ASYNC_API extern zend_class_entry *async_process_builder_ce;
 ASYNC_API extern zend_class_entry *async_process_ce;
 ASYNC_API extern zend_class_entry *async_readable_console_stream_ce;
@@ -173,14 +172,14 @@ ASYNC_API extern zend_class_entry *async_readable_process_pipe_ce;
 ASYNC_API extern zend_class_entry *async_readable_stream_ce;
 ASYNC_API extern zend_class_entry *async_server_ce;
 ASYNC_API extern zend_class_entry *async_socket_ce;
+ASYNC_API extern zend_class_entry *async_socket_disconnect_exception_ce;
 ASYNC_API extern zend_class_entry *async_socket_exception_ce;
 ASYNC_API extern zend_class_entry *async_socket_stream_ce;
 ASYNC_API extern zend_class_entry *async_stream_closed_exception_ce;
 ASYNC_API extern zend_class_entry *async_stream_exception_ce;
 ASYNC_API extern zend_class_entry *async_stream_reader_ce;
 ASYNC_API extern zend_class_entry *async_stream_writer_ce;
-ASYNC_API extern zend_class_entry *async_signal_watcher_ce;
-ASYNC_API extern zend_class_entry *async_stream_watcher_ce;
+ASYNC_API extern zend_class_entry *async_signal_ce;
 ASYNC_API extern zend_class_entry *async_sync_condition_ce;
 ASYNC_API extern zend_class_entry *async_task_ce;
 ASYNC_API extern zend_class_entry *async_task_scheduler_ce;
@@ -205,12 +204,12 @@ void async_context_ce_register();
 void async_deferred_ce_register();
 void async_dns_ce_register();
 void async_pipe_ce_register();
+void async_poll_ce_register();
 void async_process_ce_register();
-void async_signal_watcher_ce_register();
+void async_signal_ce_register();
 void async_socket_ce_register();
 void async_ssl_ce_register();
 void async_stream_ce_register();
-void async_stream_watcher_ce_register();
 void async_sync_init();
 void async_task_ce_register();
 void async_tcp_ce_register();
@@ -226,6 +225,7 @@ void async_dns_init();
 void async_filesystem_init();
 void async_tcp_socket_init();
 void async_task_scheduler_init();
+void async_thread_init();
 void async_timer_init();
 void async_udp_socket_init();
 
@@ -234,6 +234,7 @@ void async_dns_shutdown();
 void async_filesystem_shutdown();
 void async_tcp_socket_shutdown();
 void async_task_scheduler_shutdown();
+void async_thread_shutdown();
 void async_timer_shutdown();
 void async_udp_socket_shutdown();
 
@@ -410,7 +411,7 @@ struct _async_context_timeout {
 	/* Task scheduler instance (only != NULL if timeout is active). */
 	async_task_scheduler *scheduler;
 
-	/* Timeout instance (watcher is never referenced within libuv). */
+	/* Timeout instance (unreferenced). */
 	uv_timer_t timer;
 };
 
@@ -601,6 +602,7 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 	zend_long stack_size;
 	zend_bool tcp_enabled;
 	zend_long threads;
+	zend_bool thread;
 	zend_bool timer_enabled;
 	zend_bool udp_enabled;
 

@@ -12,18 +12,18 @@ foreach ([$a, $b] as $r) {
     stream_set_write_buffer($r, 0);
 }
 
-$watcher = new StreamWatcher($b);
+$poll = new Poll($b);
 
-Task::async(function () use ($b, $watcher) {
-    $watcher->awaitReadable();
+Task::async(function () use ($b, $poll) {
+    $poll->awaitReadable();
     var_dump('GET CONTENT...');
     var_dump(stream_get_contents($b, 0xFFFF));
 });
 
-Task::asyncWithContext(Context::background(), function () use ($a, $b, $watcher) {
+Task::asyncWithContext(Context::background(), function () use ($a, $b, $poll) {
     try {
         while (true) {
-            $watcher->awaitReadable();
+            $poll->awaitReadable();
         }
     } catch (\Throwable $e) {
         echo $e;

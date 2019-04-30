@@ -52,7 +52,7 @@ sudo phpize
 sudo ./configure --with-valgrind
 sudo make install -B
 
-sudo echo "extension=\"async.so\"" >> /usr/local/php/cli/php.ini
+sudo cat ./defaults.ini >> /usr/local/php/cli/php.ini
 
 php -v
 php -m

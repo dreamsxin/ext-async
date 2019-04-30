@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2019-04-27</date>
-  <time>14:34:42</time>
+  <date>2019-04-30</date>
+  <time>07:24:36</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -54,20 +54,19 @@
       <file role="src" name="src/process/builder.c"/>
       <file role="src" name="src/process/env.c"/>
       <file role="src" name="src/process/runner.c"/>
-      <file role="src" name="src/signal_watcher.c"/>
       <file role="src" name="src/socket.c"/>
       <file role="src" name="src/ssl/api.c"/>
       <file role="src" name="src/ssl/bio.c"/>
       <file role="src" name="src/ssl/engine.c"/>
       <file role="src" name="src/stream.c"/>
-      <file role="src" name="src/stream_watcher.c"/>
       <file role="src" name="src/sync.c"/>
       <file role="src" name="src/task.c"/>
       <file role="src" name="src/tcp.c"/>
-      <file role="src" name="src/thread/copy.c"/>
       <file role="src" name="src/thread.c"/>
-      <file role="src" name="src/timer.c"/>
       <file role="src" name="src/udp.c"/>
+      <file role="src" name="src/watcher/poll.c"/>
+      <file role="src" name="src/watcher/signal.c"/>
+      <file role="src" name="src/watcher/timer.c"/>
       <file role="src" name="src/xp/socket.c"/>
       <file role="src" name="src/xp/tcp.c"/>
       <file role="src" name="src/xp/udp.c"/>
@@ -108,6 +107,9 @@
       <file role="src" name="thirdparty/boost/asm/make_ppc64_sysv_xcoff_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/make_x86_64_sysv_elf_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/make_x86_64_sysv_macho_gas.S"/>
+      <file role="src" name="thirdparty/krakjoe/parallel/copy.c"/>
+      <file role="src" name="thirdparty/krakjoe/parallel/copy.h"/>
+      <file role="src" name="thirdparty/krakjoe/parallel/parallel.h"/>
       <file role="doc" name="thirdparty/libuv/CONTRIBUTING.md"/>
       <file role="src" name="thirdparty/libuv/LICENSE"/>
       <file role="doc" name="thirdparty/libuv/MAINTAINERS.md"/>
@@ -322,14 +324,6 @@
       <file role="test" name="tests/process/output-pipe.phpt"/>
       <file role="test" name="tests/process/shell.phpt"/>
       <file role="test" name="tests/process/signal.phpt"/>
-      <file role="test" name="tests/signal_watcher/raise-and-catch.phpt"/>
-      <file role="test" name="tests/signal_watcher/support.phpt"/>
-      <file role="test" name="tests/stream_watcher/closed-root-level.phpt"/>
-      <file role="test" name="tests/stream_watcher/closed-within-task.phpt"/>
-      <file role="test" name="tests/stream_watcher/disposed-within-task.phpt"/>
-      <file role="test" name="tests/stream_watcher/read-write.phpt"/>
-      <file role="test" name="tests/stream_watcher/root-level.phpt"/>
-      <file role="test" name="tests/stream_watcher/within-task.phpt"/>
       <file role="test" name="tests/sync/broadcast.phpt"/>
       <file role="test" name="tests/sync/close.phpt"/>
       <file role="test" name="tests/sync/wait-and-notify.phpt"/>
@@ -374,19 +368,27 @@
       <file role="test" name="tests/tcp/ssl-connection.phpt"/>
       <file role="test" name="tests/tcp/ssl-slow-receiver.phpt"/>
       <file role="test" name="tests/tcp/write-detects-broken-pipe.phpt"/>
-      <file role="test" name="tests/timer/close-root-level.phpt"/>
-      <file role="test" name="tests/timer/close-within-task.phpt"/>
-      <file role="test" name="tests/timer/disposed-within-task.phpt"/>
-      <file role="test" name="tests/timer/root-level.phpt"/>
-      <file role="test" name="tests/timer/sleep-arg.phpt"/>
-      <file role="test" name="tests/timer/sleep-interrupted.phpt"/>
-      <file role="test" name="tests/timer/sleep.phpt"/>
-      <file role="test" name="tests/timer/timeout-unref.phpt"/>
-      <file role="test" name="tests/timer/timeout.phpt"/>
-      <file role="test" name="tests/timer/within-task.phpt"/>
       <file role="test" name="tests/udp/async-send.phpt"/>
       <file role="test" name="tests/udp/cancel-receiver.phpt"/>
       <file role="test" name="tests/udp/unicast.phpt"/>
+      <file role="test" name="tests/watcher/poll/closed-root-level.phpt"/>
+      <file role="test" name="tests/watcher/poll/closed-within-task.phpt"/>
+      <file role="test" name="tests/watcher/poll/disposed-within-task.phpt"/>
+      <file role="test" name="tests/watcher/poll/read-write.phpt"/>
+      <file role="test" name="tests/watcher/poll/root-level.phpt"/>
+      <file role="test" name="tests/watcher/poll/within-task.phpt"/>
+      <file role="test" name="tests/watcher/signal/raise-and-catch.phpt"/>
+      <file role="test" name="tests/watcher/signal/support.phpt"/>
+      <file role="test" name="tests/watcher/timer/close-root-level.phpt"/>
+      <file role="test" name="tests/watcher/timer/close-within-task.phpt"/>
+      <file role="test" name="tests/watcher/timer/disposed-within-task.phpt"/>
+      <file role="test" name="tests/watcher/timer/root-level.phpt"/>
+      <file role="test" name="tests/watcher/timer/sleep-arg.phpt"/>
+      <file role="test" name="tests/watcher/timer/sleep-interrupted.phpt"/>
+      <file role="test" name="tests/watcher/timer/sleep.phpt"/>
+      <file role="test" name="tests/watcher/timer/timeout-unref.phpt"/>
+      <file role="test" name="tests/watcher/timer/timeout.phpt"/>
+      <file role="test" name="tests/watcher/timer/within-task.phpt"/>
       <file role="test" name="tests/xp/tcp/assets/functions.php"/>
       <file role="test" name="tests/xp/tcp/connection.phpt"/>
       <file role="test" name="tests/xp/tcp/read-after-shutdown.phpt"/>

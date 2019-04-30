@@ -17,6 +17,9 @@ var_dump($a->getPort());
 var_dump($a->getRemotePort());
 var_dump($a->setOption(1, 'foo'));
 
+var_dump($a->isAlive());
+var_dump($b->isAlive());
+
 Task::async(function () use ($a) {
     try {
         try {
@@ -49,6 +52,8 @@ try {
 NULL
 NULL
 bool(false)
+bool(true)
+bool(true)
 string(5) "Hello"
 int(0)
 string(6) "World!"

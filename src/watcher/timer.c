@@ -31,7 +31,7 @@ typedef struct {
 	/* PHP object handle. */
 	zend_object std;
 
-	/* Error being set as the watcher was closed (undef by default). */
+	/* Error if timer was closed (undef by default). */
 	zval error;
 
 	/* Timer interval in milliseconds. */

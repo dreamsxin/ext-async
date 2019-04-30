@@ -1,5 +1,5 @@
 --TEST--
-Stream watcher can be awaited within a task.
+Poll can be disposed while being awaited within a task.
 --SKIPIF--
 <?php
 if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
@@ -22,27 +22,15 @@ function pair()
 
 list ($a, $b) = pair();
 
-Task::async(function () use ($b) {
-    $watcher = new StreamWatcher($b);
+$poll = new Poll($b);
 
-    while (!feof($b)) {
-        var_dump(stream_get_contents($b));
-
-        $watcher->awaitReadable();
+Task::asyncWithContext(Context::background(), function () use ($poll) {
+    try {
+        $poll->awaitReadable();
+    } catch (\Throwable $e) {
+        var_dump($e->getMessage());
     }
-
-    var_dump(stream_get_contents($b));
 });
 
-fwrite($a, 'Hello');
-
-(new Timer(20))->awaitTimeout();
-
-fwrite($a, 'World');
-
-fclose($a);
-
 --EXPECT--
-string(5) "Hello"
-string(5) "World"
-string(0) ""
+string(32) "Task scheduler has been disposed"

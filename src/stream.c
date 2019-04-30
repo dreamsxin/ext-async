@@ -1440,8 +1440,8 @@ int async_stream_ssl_handshake(async_stream *stream, async_ssl_handshake_data *h
 #endif
 
 
-ZEND_METHOD(ReadableStream, close) { }
-ZEND_METHOD(ReadableStream, read) { }
+static ZEND_METHOD(ReadableStream, close) { }
+static ZEND_METHOD(ReadableStream, read) { }
 
 static const zend_function_entry async_readable_stream_functions[] = {
 	ZEND_ME(ReadableStream, close, arginfo_stream_close, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
@@ -1450,8 +1450,8 @@ static const zend_function_entry async_readable_stream_functions[] = {
 };
 
 
-ZEND_METHOD(WritableStream, close) { }
-ZEND_METHOD(WritableStream, write) { }
+static ZEND_METHOD(WritableStream, close) { }
+static ZEND_METHOD(WritableStream, write) { }
 
 static const zend_function_entry async_writable_stream_functions[] = {
 	ZEND_ME(WritableStream, close, arginfo_stream_close, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)
@@ -1460,8 +1460,8 @@ static const zend_function_entry async_writable_stream_functions[] = {
 };
 
 
-ZEND_METHOD(DuplexStream, getReadableStream) { }
-ZEND_METHOD(DuplexStream, getWritableStream) { }
+static ZEND_METHOD(DuplexStream, getReadableStream) { }
+static ZEND_METHOD(DuplexStream, getWritableStream) { }
 
 static const zend_function_entry async_duplex_stream_functions[] = {
 	ZEND_ME(DuplexStream, getReadableStream, arginfo_duplex_stream_get_readable_stream, ZEND_ACC_PUBLIC | ZEND_ACC_ABSTRACT)

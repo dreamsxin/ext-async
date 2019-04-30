@@ -42,12 +42,12 @@ for ($i = 0; $i < 4; $i++) {
 
 $server->close();
 
-$signal = new SignalWatcher(SignalWatcher::SIGINT);
+$signal = new Signal(Signal::SIGINT);
 $signal->awaitSignal();
 
 foreach ($procs as $process) {
     if ($process->isRunning()) {
-        $process->signal(SignalWatcher::SIGINT);
+        $process->signal(Signal::SIGINT);
     }
 }
 

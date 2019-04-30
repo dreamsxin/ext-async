@@ -1,5 +1,5 @@
 --TEST--
-Stream watcher can be awaited at root level.
+Poll can be awaited at root level.
 --SKIPIF--
 <?php
 if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
@@ -32,12 +32,12 @@ Task::async(function () use ($a) {
     fclose($a);
 });
 
-$watcher = new StreamWatcher($b);
+$poll = new Poll($b);
 
 while (!feof($b)) {
     var_dump(stream_get_contents($b));
 
-    $watcher->awaitReadable();
+    $poll->awaitReadable();
 }
 
 var_dump(stream_get_contents($b));

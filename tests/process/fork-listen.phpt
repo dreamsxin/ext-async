@@ -11,7 +11,6 @@ namespace Concurrent\Process;
 
 use Concurrent\Network\TcpServer;
 use Concurrent\Network\TcpSocket;
-use Concurrent\SignalWatcher;
 
 $server = TcpServer::bind('127.0.0.1', 0);
 $port = $server->getPort();

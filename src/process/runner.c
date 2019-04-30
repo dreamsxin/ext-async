@@ -818,7 +818,7 @@ static ZEND_METHOD(ReadablePipe, read)
 		return;
 	}
 
-	forward_stream_read_error(&read);
+	forward_stream_read_error(pipe->state->stream, &read);
 }
 
 static const zend_function_entry async_readable_process_pipe_functions[] = {
@@ -965,7 +965,7 @@ static ZEND_METHOD(WritablePipe, write)
 	write.in.flags = 0;
 
 	if (UNEXPECTED(FAILURE == async_stream_write(pipe->state->stream, &write))) {
-		forward_stream_write_error(&write);
+		forward_stream_write_error(pipe->state->stream, &write);
 	}
 	
 #ifdef ZEND_WIN32

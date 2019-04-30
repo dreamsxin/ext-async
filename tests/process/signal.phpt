@@ -20,7 +20,7 @@ var_dump('START');
 
 var_dump('SEND SIGNAL');
 
-$process->signal(\Concurrent\SignalWatcher::SIGINT);
+$process->signal(\Concurrent\Signal::SIGINT);
 
 var_dump($process->join());
 var_dump('FINISHED');

@@ -1,5 +1,5 @@
 --TEST--
-Signal watcher can raise and catch signals.
+Signal can raise and catch signals.
 --SKIPIF--
 <?php
 if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
@@ -14,15 +14,15 @@ Task::async(function () {
     $timer->awaitTimeout();
     
     var_dump('TRIGGER');
-    SignalWatcher::raise(SignalWatcher::SIGUSR1);
+    Signal::raise(Signal::SIGUSR1);
     
     $timer->awaitTimeout();
     
     var_dump('TRIGGER');
-    SignalWatcher::raise(SignalWatcher::SIGUSR1);
+    Signal::raise(Signal::SIGUSR1);
 });
 
-$signal = new SignalWatcher(SignalWatcher::SIGUSR1);
+$signal = new Signal(Signal::SIGUSR1);
 
 var_dump('AWAIT SIGNAL');
 $signal->awaitSignal();
@@ -45,4 +45,4 @@ string(7) "TRIGGER"
 string(12) "AWAIT SIGNAL"
 string(7) "TRIGGER"
 string(5) "CLOSE"
-string(30) "Signal watcher has been closed"
+string(22) "Signal has been closed"

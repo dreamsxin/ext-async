@@ -15,7 +15,7 @@ $process = $builder->start(__DIR__ . '/process-p2.php');
 \Concurrent\Task::async(function () use ($process) {
     (new \Concurrent\Timer(400))->awaitTimeout();
     var_dump('SIGNAL!');
-    $process->signal(\Concurrent\SignalWatcher::SIGINT);
+    $process->signal(\Concurrent\Signal::SIGINT);
 });
 
 $code = $process->join();

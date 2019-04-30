@@ -16,9 +16,13 @@ list ($a, $b) = TcpSocket::pair();
 
 Task::async(function () use ($a) {
     try {
+        var_dump($a->isAlive());
+        
         while (null !== ($chunk = $a->read())) {
             var_dump($chunk);
         }
+        
+        var_dump($a->isAlive());
         
         $a->write('DONE');
     } finally {
@@ -41,7 +45,9 @@ try {
 }
 
 --EXPECT--
+bool(true)
 string(5) "Hello"
 string(5) "World"
+bool(false)
 string(4) "DONE"
 NULL

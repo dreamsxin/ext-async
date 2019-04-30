@@ -18,23 +18,14 @@
 #ifndef HAVE_PARALLEL_COPY_H
 #define HAVE_PARALLEL_COPY_H
 
-/////////////////////////////////////////////////////////////////////////////
-// Adjustments to be able to copy-paste this from krakjoe/parallel/src/copy.h
-
-void init_copy();
-
-/////////////////////////////////////////////////////////////////////////////
-
 #if PHP_VERSION_ID < 70300
 # define GC_SET_REFCOUNT(ref, rc) (GC_REFCOUNT(ref) = (rc))
 # define GC_ADDREF(ref) GC_REFCOUNT(ref)++
 # define GC_DELREF(ref) --GC_REFCOUNT(ref)
 # define GC_SET_PERSISTENT_TYPE(ref, type) (GC_TYPE_INFO(ref) = type)
-# if PHP_VERSION_ID < 70200
-#  define GC_ARRAY IS_ARRAY
-# else
-#  define GC_ARRAY (IS_ARRAY | (GC_COLLECTABLE << GC_FLAGS_SHIFT))
-# endif
+# define GC_ADD_FLAGS(ref, flags) GC_FLAGS(ref) |= flags 
+# define GC_DEL_FLAGS(ref, flags) GC_FLAGS(ref) &= ~flags
+# define GC_ARRAY (IS_ARRAY | (GC_COLLECTABLE << GC_FLAGS_SHIFT))
 #else
 # define GC_SET_PERSISTENT_TYPE(ref, type) \
 	(GC_TYPE_INFO(ref) = type | (GC_PERSISTENT << GC_FLAGS_SHIFT))
@@ -43,13 +34,13 @@ void init_copy();
 zend_function* php_parallel_copy(const zend_function *function, zend_bool persistent);
 void php_parallel_copy_free(zend_function *function, zend_bool persistent);
 void php_parallel_copy_zval(zval *dest, zval *source, zend_bool persistent);
-zend_bool php_parallel_copy_check(zend_execute_data *execute_data, const zend_function * function, zval *argv, zend_bool *returns);
+zend_function* php_parallel_copy_check(zend_execute_data *execute_data, const zend_function * function, zval *argv, zend_bool *returns);
 
 static zend_always_inline void php_parallel_ht_dtor(HashTable *table, zend_bool persistent) {
 #if PHP_VERSION_ID < 70300
-    if (GC_DELREF(table) == 0) {
+    if (GC_DELREF(table) == (persistent ? 1 : 0)) {
 #else
-    if (table != &zend_empty_array && GC_DELREF(table) == 0) {
+    if (table != &zend_empty_array && GC_DELREF(table) == (persistent ? 1 : 0)) {
 #endif
         zend_hash_destroy(table);
 	    pefree(table, persistent);
@@ -72,4 +63,6 @@ static zend_always_inline void php_parallel_zval_dtor(zval *zv) {
 	}
 }
 
+void php_parallel_copy_startup(void);
+void php_parallel_copy_shutdown(void);
 #endif

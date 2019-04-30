@@ -35,6 +35,8 @@ try {
             var_dump($socket->getRemoteAddress() == $host);
             var_dump($socket->getRemotePort() == $port);
             
+            var_dump($socket->isAlive());
+            
             var_dump($socket->read());
             $socket->write('World!');
         } finally {
@@ -52,9 +54,13 @@ try {
         while (null !== ($chunk = $socket->read())) {
             var_dump($chunk);
         }
+        
+        var_dump($socket->isAlive());
     } finally {
         $socket->close();
     }
+    
+    var_dump($socket->isAlive());
 } finally {
     $server->close();
 }
@@ -70,5 +76,8 @@ bool(true)
 bool(true)
 bool(true)
 bool(true)
+bool(true)
 string(5) "Hello"
 string(6) "World!"
+bool(false)
+bool(false)

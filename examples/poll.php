@@ -12,22 +12,22 @@ foreach ([$a, $b] as $r) {
     stream_set_write_buffer($r, 0);
 }
 
-$watcher = new StreamWatcher($b);
+$poll = new Poll($b);
 
-task::async(function () use ($a, $watcher) {
+task::async(function () use ($a, $poll) {
     (new Timer(500))->awaitTimeout();
     
     fwrite($a, 'Hello Socket :)');
     fclose($a);
     var_dump('EOF!');
 
-//     $watcher->close(new \LogicException('Nope!'));
+//     $poll->close(new \LogicException('Nope!'));
 });
 
 var_dump('WAIT FOR IO...');
 
 while (\is_resource($b) && !\feof($b)) {
-    $watcher->awaitReadable();
+    $poll->awaitReadable();
     
     var_dump(fread($b, 4));
 }

@@ -97,23 +97,23 @@ if test "$PHP_ASYNC" != "no"; then
     src/process/builder.c \
     src/process/env.c \
     src/process/runner.c \
-    src/signal_watcher.c \
     src/socket.c \
     src/ssl/api.c \
     src/ssl/bio.c \
     src/ssl/engine.c \
     src/stream.c \
-    src/stream_watcher.c \
     src/sync.c \
     src/task.c \
     src/tcp.c \
     src/thread.c \
-    src/thread/copy.c \
-    src/timer.c \
     src/udp.c \
+    src/watcher/poll.c \
+    src/watcher/signal.c \
+    src/watcher/timer.c \
     src/xp/socket.c \
     src/xp/tcp.c \
-    src/xp/udp.c
+    src/xp/udp.c \
+    thirdparty/krakjoe/parallel/copy.c
   "
   
   if test "$async_cpu" = 'x86_64'; then
@@ -155,6 +155,7 @@ if test "$PHP_ASYNC" != "no"; then
   fi
   
   PHP_ADD_INCLUDE("$srcdir/thirdparty/libuv/include")
+  PHP_ADD_INCLUDE("$srcdir/thirdparty/krakjoe/parallel")
   
   if test "$async_os" = 'MAC'; then
     ASYNC_SHARED_LIBADD="$ASYNC_SHARED_LIBADD -luv"

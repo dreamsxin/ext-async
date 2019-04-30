@@ -677,6 +677,28 @@ static ZEND_METHOD(TcpSocket, setOption)
 	RETURN_BOOL((code < 0) ? 0 : 1);
 }
 
+static ZEND_METHOD(TcpSocket, isAlive)
+{
+	async_tcp_socket *socket;
+	uv_os_fd_t sock;
+	
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
+	
+	if (EXPECTED(socket->cancel.func != NULL && !(socket->stream->flags & ASYNC_STREAM_CLOSED))) {
+		if (socket->stream->buffer.len) {
+			RETURN_TRUE;
+		}
+	
+		if (EXPECTED(0 == uv_fileno((const uv_handle_t *) socket->stream->handle, &sock))) {
+			RETURN_BOOL(async_socket_is_alive((php_socket_t) sock));
+		}
+	}
+
+	RETURN_FALSE;
+}
+
 static ZEND_METHOD(TcpSocket, read)
 {
 	async_tcp_socket *socket;
@@ -734,7 +756,7 @@ static ZEND_METHOD(TcpSocket, writeAsync)
 	write.in.flags = ASYNC_STREAM_WRITE_REQ_FLAG_ASYNC;
 	
 	if (UNEXPECTED(FAILURE == async_stream_write(socket->stream, &write))) {
-		forward_stream_write_error(&write);
+		forward_stream_write_error(socket->stream, &write);
 	} else {
 		RETURN_LONG(socket->handle.write_queue_size);
 	}
@@ -876,6 +898,7 @@ static const zend_function_entry async_tcp_socket_functions[] = {
 	ZEND_ME(TcpSocket, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, getRemoteAddress, arginfo_socket_stream_get_remote_address, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, getRemotePort, arginfo_socket_stream_get_remote_port, ZEND_ACC_PUBLIC)
+	ZEND_ME(TcpSocket, isAlive, arginfo_socket_stream_is_alive, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, getReadableStream, arginfo_duplex_stream_get_readable_stream, ZEND_ACC_PUBLIC)
 	ZEND_ME(TcpSocket, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)

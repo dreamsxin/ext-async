@@ -1176,7 +1176,9 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 {
 	async_task_scheduler *scheduler;
 
+#if ZEND_DEBUG
 	int code;
+#endif
 
 	scheduler = (async_task_scheduler *)object;
 
@@ -1188,16 +1190,16 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 	// Run loop again to cleanup idle watcher.
 	uv_run(&scheduler->loop, UV_RUN_DEFAULT);
 
-	ZEND_ASSERT(!uv_loop_alive(&scheduler->loop));
-	ZEND_ASSERT(debug_handles(&scheduler->loop) == 0);
+#if ZEND_DEBUG
+	if (EXPECTED(!ASYNC_G(exit))) {
+		ZEND_ASSERT(!uv_loop_alive(&scheduler->loop));
+		ZEND_ASSERT(debug_handles(&scheduler->loop) == 0);
+	}
 	
 	code = uv_loop_close(&scheduler->loop);
-	ZEND_ASSERT(code == 0);
-	
-	ZEND_ASSERT(scheduler->ready.first == NULL);
-	ZEND_ASSERT(scheduler->fibers.first == NULL);
-	
-	zend_object_std_dtor(object);
+#else
+	uv_loop_close(&scheduler->loop);
+#endif
 	
 	if (scheduler->runner != NULL) {
 		if (scheduler->runner->flags & ASYNC_FIBER_FLAG_QUEUED) {
@@ -1206,6 +1208,16 @@ static void async_task_scheduler_object_destroy(zend_object *object)
 		
 		async_fiber_destroy(scheduler->runner);
 	}
+	
+#if ZEND_DEBUG
+	if (EXPECTED(!ASYNC_G(exit))) {
+		ZEND_ASSERT(code == 0);
+		ZEND_ASSERT(scheduler->ready.first == NULL);
+		ZEND_ASSERT(scheduler->fibers.first == NULL);
+	}
+#endif
+	
+	zend_object_std_dtor(object);
 }
 
 static ZEND_METHOD(TaskScheduler, __construct)

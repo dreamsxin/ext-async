@@ -22,7 +22,7 @@
 #include "php_main.h"
 #include "zend_inheritance.h"
 
-#include "thread/copy.h"
+#include "parallel.h"
 
 zend_string *php_parallel_runtime_main;
 
@@ -34,8 +34,6 @@ static zend_object_handlers async_thread_pool_handlers;
 typedef int (*php_sapi_deactivate_t)(void);
 
 static php_sapi_deactivate_t sapi_deactivate_func;
-
-#define ASYNC_THREAD_POOL_JOB_FLAG_NO_RETURN 1
 
 typedef struct _async_thread async_thread;
 typedef struct _async_thread_job async_thread_job;
@@ -107,6 +105,9 @@ typedef struct {
 	} ready;
 } async_thread_data;
 
+#define ASYNC_THREAD_POOL_JOB_FLAG_NO_RETURN 1
+#define ASYNC_THREAD_POOL_JOB_FLAG_FAILED (1 << 1)
+
 struct _async_thread_job {
 	/* Job flags. */
 	uint8_t flags;
@@ -122,9 +123,6 @@ struct _async_thread_job {
 	
 	/* Location being used to store the result of the function call. */
 	zval retval;
-	
-	/* Will be set if an error occurs during job execution. */
-	zend_bool failed;
 	
 	/* File and line of an error being thrown from within the job callback. */
 	zend_string *file;
@@ -161,6 +159,7 @@ typedef struct {
 #define GET_ERROR_BASE_CE(obj) (instanceof_function(Z_OBJCE_P(obj), zend_ce_exception) ? zend_ce_exception : zend_ce_error)
 #define GET_ERROR_PROP(obj, name, retval) zend_read_property_ex(GET_ERROR_BASE_CE(obj), obj, ZSTR_KNOWN(name), 1, retval)
 
+#ifdef ZTS
 
 static int run_bootstrap(async_thread *worker)
 {
@@ -204,10 +203,28 @@ static int run_bootstrap(async_thread *worker)
 	return FAILURE;
 }
 
+static void transfer_error(async_thread_job *job, zval *error)
+{
+	zend_string *str;	
+	zval retval;
+	
+	job->flags |= ASYNC_THREAD_POOL_JOB_FLAG_FAILED;
+	
+	if (NULL != (str = zval_get_string(GET_ERROR_PROP(error, ZEND_STR_MESSAGE, &retval)))) {
+		ZVAL_STR(&job->retval, zend_string_init(ZSTR_VAL(str), ZSTR_LEN(str), 1));
+		zend_string_release(str);
+	}
+	
+	if (NULL != (str = zval_get_string(GET_ERROR_PROP(error, ZEND_STR_FILE, &retval)))) {
+		job->file = zend_string_init(ZSTR_VAL(str), ZSTR_LEN(str), 1);
+		zend_string_release(str);
+	}
+	
+	job->line = zval_get_long(GET_ERROR_PROP(error, ZEND_STR_LINE, &retval));
+}
+
 static void run_job(async_thread *worker, async_thread_job *job, zend_execute_data *frame)
 {
-	zend_string *str;
-	
 	zval error;
 	zval retval;
 
@@ -224,22 +241,8 @@ static void run_job(async_thread *worker, async_thread_job *job, zend_execute_da
 				ZVAL_UNDEF(&job->retval);
 			} else {			
 				if (UNEXPECTED(EG(exception))) {
-					job->failed = 1;
-					
 					ZVAL_OBJ(&error, EG(exception));
-					
-					if (NULL != (str = zval_get_string(GET_ERROR_PROP(&error, ZEND_STR_MESSAGE, &retval)))) {
-						ZVAL_STR(&job->retval, zend_string_init(ZSTR_VAL(str), ZSTR_LEN(str), 1));
-						zend_string_release(str);
-					}
-					
-					if (NULL != (str = zval_get_string(GET_ERROR_PROP(&error, ZEND_STR_FILE, &retval)))) {
-						job->file = zend_string_init(ZSTR_VAL(str), ZSTR_LEN(str), 1);
-						zend_string_release(str);
-					}
-					
-					job->line = zval_get_long(GET_ERROR_PROP(&error, ZEND_STR_LINE, &retval));
-					
+					transfer_error(job, &error);
 					zend_clear_exception();
 				} else {
 					retval = job->retval;
@@ -251,7 +254,11 @@ static void run_job(async_thread *worker, async_thread_job *job, zend_execute_da
 				}
 			}
 		} zend_catch {
-			// TODO: How to handle exit / bailout in threaded job?
+			ASYNC_G(exit) = 1;
+			
+			ASYNC_PREPARE_ERROR(&error, "Worker has been killed");
+			transfer_error(job, &error);
+			zval_ptr_dtor(&error);
 		} zend_end_try();
 		
 		if (UNEXPECTED(EG(exception))) {
@@ -301,6 +308,8 @@ ASYNC_CALLBACK run_thread(void *arg)
 	SG(headers_sent) = 1;
 	SG(request_info).no_headers = 1;
 	
+	ASYNC_G(thread) = 1;
+	
 	if (data->bootstrap != NULL && FAILURE == run_bootstrap(worker)) {
 		goto cleanup;
 	}
@@ -340,7 +349,7 @@ ASYNC_CALLBACK run_thread(void *arg)
 		}
 		
 		run_job(worker, job, frame);
-	} while (1);
+	} while (!ASYNC_G(exit));
 	
 cleanup:
 	
@@ -377,7 +386,7 @@ static void finish_job(async_thread_job *job)
 	if (job->flags & ASYNC_THREAD_POOL_JOB_FLAG_NO_RETURN) {
 		async_resolve_awaitable((async_deferred_awaitable *) job->awaitable, NULL);
 	} else {	
-		if (job->failed) {
+		if (job->flags & ASYNC_THREAD_POOL_JOB_FLAG_FAILED) {
 			if (Z_TYPE_P(&job->retval) == IS_STRING) {
 				php_parallel_copy_zval(&val, &job->retval, 0);
 			
@@ -563,6 +572,8 @@ ASYNC_CALLBACK shutdown_pool_cb(void *arg, zval *error)
 	
 	uv_mutex_unlock(&data->mutex);
 }
+
+#endif
 
 static zend_object *async_thread_pool_object_create(zend_class_entry *ce)
 {
@@ -854,9 +865,19 @@ static const zend_function_entry empty_funcs[] = {
 	ZEND_FE_END
 };
 
+zend_class_entry *php_parallel_runtime_error_illegal_function_ce;
+zend_class_entry *php_parallel_runtime_error_illegal_instruction_ce;
+zend_class_entry *php_parallel_runtime_error_illegal_parameter_ce;
+zend_class_entry *php_parallel_runtime_error_illegal_return_ce;
+
 void async_thread_ce_register()
 {
 	zend_class_entry ce;
+	
+	php_parallel_runtime_error_illegal_function_ce = NULL;
+	php_parallel_runtime_error_illegal_instruction_ce = NULL;
+	php_parallel_runtime_error_illegal_parameter_ce = NULL;
+	php_parallel_runtime_error_illegal_return_ce = NULL;
 
 	INIT_CLASS_ENTRY(ce, "Concurrent\\ThreadPool", thread_pool_funcs);
 	async_thread_pool_ce = zend_register_internal_class(&ce);
@@ -877,19 +898,35 @@ void async_thread_ce_register()
 	
 	php_parallel_runtime_main = zend_new_interned_string(zend_string_init(ZEND_STRL("main"), 1));
 	
+#ifdef ZTS
 	if (ASYNC_G(cli)) {
 		sapi_deactivate_func = sapi_module.deactivate;
 		sapi_module.deactivate = NULL;
 	}
-	
-	init_copy();
+#endif
+}
+
+void async_thread_init()
+{
+#ifdef ZTS
+	php_parallel_copy_startup();
+#endif
+}
+
+void async_thread_shutdown()
+{
+#ifdef ZTS
+	php_parallel_copy_shutdown();
+#endif
 }
 
 void async_thread_ce_unregister()
 {
+#ifdef ZTS
 	if (ASYNC_G(cli)) {
 		sapi_module.deactivate = sapi_deactivate_func;
 	}
+#endif
 
 	zend_string_release(php_parallel_runtime_main);
 }
