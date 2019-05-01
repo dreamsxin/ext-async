@@ -14,3 +14,5 @@ RUN cat ./defaults.ini >> /usr/local/etc/php/conf.d/async.ini
 
 RUN php -v
 RUN php -m
+
+CMD ["/bin/sh"]
