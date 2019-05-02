@@ -177,7 +177,7 @@ static zend_always_inline void set_stream_send_buffer(async_stream *stream, int 
 	uv_send_buffer_size((uv_handle_t *) stream->handle, &v);
 }
 
-static zend_bool zend_always_inline is_socket_disconnect_error(uv_handle_t *handle, int error)
+static zend_always_inline zend_bool is_socket_disconnect_error(uv_handle_t *handle, int error)
 {
 	if (handle->type != UV_TCP && handle->type != UV_NAMED_PIPE) {
 		return 0;
@@ -198,7 +198,7 @@ static zend_bool zend_always_inline is_socket_disconnect_error(uv_handle_t *hand
 	return 0;
 }
 
-static void zend_always_inline forward_stream_read_error(async_stream *stream, async_stream_read_req *req)
+static zend_always_inline void forward_stream_read_error(async_stream *stream, async_stream_read_req *req)
 {
 	ASYNC_RETURN_ON_ERROR();
 	
@@ -215,7 +215,7 @@ static void zend_always_inline forward_stream_read_error(async_stream *stream, a
 	}
 }
 
-static void zend_always_inline forward_stream_write_error(async_stream *stream, async_stream_write_req *req)
+static zend_always_inline void forward_stream_write_error(async_stream *stream, async_stream_write_req *req)
 {
 	ASYNC_RETURN_ON_ERROR();
 	

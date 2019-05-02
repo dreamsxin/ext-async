@@ -680,23 +680,12 @@ static ZEND_METHOD(TcpSocket, setOption)
 static ZEND_METHOD(TcpSocket, isAlive)
 {
 	async_tcp_socket *socket;
-	uv_os_fd_t sock;
 	
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 	
-	if (EXPECTED(socket->cancel.func != NULL && !(socket->stream->flags & ASYNC_STREAM_CLOSED))) {
-		if (socket->stream->buffer.len) {
-			RETURN_TRUE;
-		}
-	
-		if (EXPECTED(0 == uv_fileno((const uv_handle_t *) socket->stream->handle, &sock))) {
-			RETURN_BOOL(async_socket_is_alive((php_socket_t) sock));
-		}
-	}
-
-	RETURN_FALSE;
+	RETURN_BOOL(async_socket_is_alive(socket->stream));
 }
 
 static ZEND_METHOD(TcpSocket, read)

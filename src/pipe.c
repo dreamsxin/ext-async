@@ -588,23 +588,12 @@ static ZEND_METHOD(Pipe, getRemotePort)
 static ZEND_METHOD(Pipe, isAlive)
 {
 	async_pipe *pipe;
-	uv_os_fd_t sock;
 	
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	pipe = (async_pipe *) Z_OBJ_P(getThis());
 	
-	if (EXPECTED(pipe->cancel.func != NULL && !(pipe->stream->flags & ASYNC_STREAM_CLOSED))) {
-		if (pipe->stream->buffer.len) {
-			RETURN_TRUE;
-		}
-		
-		if (EXPECTED(0 == uv_fileno((const uv_handle_t *) pipe->stream->handle, &sock))) {
-			RETURN_BOOL(async_socket_is_alive((php_socket_t) sock));
-		}
-	}
-
-	RETURN_FALSE;
+	RETURN_BOOL(async_socket_is_alive(pipe->stream));
 }
 
 static ZEND_METHOD(Pipe, read)

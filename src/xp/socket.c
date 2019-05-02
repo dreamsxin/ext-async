@@ -713,21 +713,12 @@ static int async_xp_socket_set_option(php_stream *stream, int option, int value,
 		}
 
 		return PHP_STREAM_OPTION_RETURN_OK;
-	case PHP_STREAM_OPTION_CHECK_LIVENESS: {
-		uv_os_fd_t sock;
-		
-		if (EXPECTED(data->astream != NULL && !(data->astream->flags & ASYNC_STREAM_CLOSED))) {
-			if (data->astream->buffer.len) {
-				return PHP_STREAM_OPTION_RETURN_OK;
-			}
-		
-			if (EXPECTED(0 == uv_fileno((const uv_handle_t *) data->astream->handle, &sock))) {
-				return async_socket_is_alive((php_socket_t) sock) ? PHP_STREAM_OPTION_RETURN_OK : PHP_STREAM_OPTION_RETURN_ERR;
-			}
+	case PHP_STREAM_OPTION_CHECK_LIVENESS:		
+		if (EXPECTED(data->astream != NULL && async_socket_is_alive(data->astream))) {
+			return PHP_STREAM_OPTION_RETURN_OK;
 		}
 		
 		return PHP_STREAM_OPTION_RETURN_ERR;
-	}
 	case PHP_STREAM_OPTION_READ_TIMEOUT: {		
 		struct timeval tv = *(struct timeval *) ptrparam;
 		

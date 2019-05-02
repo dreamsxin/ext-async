@@ -19,6 +19,8 @@
 #ifndef ASYNC_SOCKET_H
 #define ASYNC_SOCKET_H
 
+#include "async_stream.h"
+
 static zend_always_inline int async_socket_addr_size(const struct sockaddr *addr)
 {
 #ifdef HAVE_IPV6
@@ -173,9 +175,11 @@ static zend_always_inline int async_socket_parse_ipv6(const char *address, uint1
 }
 #endif
 
-static zend_always_inline int async_socket_is_alive(php_socket_t sock)
+static zend_always_inline int async_socket_is_alive(async_stream *stream)
 {
+	php_socket_t sock;
 	struct timeval tv;
+	
 	char buf;
 	int error;
 	
@@ -184,8 +188,28 @@ static zend_always_inline int async_socket_is_alive(php_socket_t sock)
 #else
 	ssize_t code;
 #endif
+
+	if (UNEXPECTED(stream->flags & ASYNC_STREAM_CLOSED)) {
+		return 0;
+	}
 	
-	if (sock == -1) {
+	if (UNEXPECTED(stream->buffer.len > 0)) {
+		return 1;
+	}
+	
+#ifdef HAVE_ASYNC_SSL
+	if (stream->ssl.ssl != NULL) {
+		if (UNEXPECTED(stream->flags & ASYNC_STREAM_SSL_FATAL || SSL_get_shutdown(stream->ssl.ssl) & SSL_RECEIVED_SHUTDOWN)) {
+			return 0;
+		}
+	}
+#endif
+	
+	if (UNEXPECTED(0 != uv_fileno((const uv_handle_t *) stream->handle, (uv_os_fd_t *) &sock))) {
+		return 0;
+	}
+	
+	if (UNEXPECTED(sock == -1)) {
 		return 0;
 	}
 	
