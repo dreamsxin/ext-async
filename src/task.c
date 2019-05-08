@@ -722,7 +722,7 @@ static zval *read_task_property(zval *object, zval *member, int type, void **cac
 	if (strcmp(key, "status") == 0) {
 		ZVAL_STRING(rv, async_status_label(task->status));
 	} else if (strcmp(key, "file") == 0) {
-		ZVAL_STR(rv, zend_string_copy(task->file));
+		ZVAL_STR_COPY(rv, task->file);
 	} else if (strcmp(key, "line") == 0) {
 		ZVAL_LONG(rv, task->line);
 	} else {

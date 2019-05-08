@@ -26,7 +26,7 @@ use Concurrent\Process\Process;
 error_reporting(-1);
 ini_set('display_errors', '1');
 
-$ipc = Process::forked();
+$ipc = Process::connect();
 
 $server = TcpServer::import($ipc);
 $server->setOption(TcpServer::SIMULTANEOUS_ACCEPTS, false);

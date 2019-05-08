@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2019-04-30</date>
-  <time>07:24:36</time>
+  <date>2019-05-08</date>
+  <time>20:06:17</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -107,15 +107,14 @@
       <file role="src" name="thirdparty/boost/asm/make_ppc64_sysv_xcoff_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/make_x86_64_sysv_elf_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/make_x86_64_sysv_macho_gas.S"/>
-      <file role="src" name="thirdparty/krakjoe/parallel/copy.c"/>
-      <file role="src" name="thirdparty/krakjoe/parallel/copy.h"/>
-      <file role="src" name="thirdparty/krakjoe/parallel/parallel.h"/>
       <file role="doc" name="thirdparty/libuv/CONTRIBUTING.md"/>
       <file role="src" name="thirdparty/libuv/LICENSE"/>
       <file role="doc" name="thirdparty/libuv/MAINTAINERS.md"/>
       <file role="src" name="thirdparty/libuv/Makefile.am"/>
+      <file role="src" name="thirdparty/libuv/Makefile.in"/>
       <file role="doc" name="thirdparty/libuv/README.md"/>
       <file role="doc" name="thirdparty/libuv/SUPPORTED_PLATFORMS.md"/>
+      <file role="src" name="thirdparty/libuv/aclocal.m4"/>
       <file role="src" name="thirdparty/libuv/autogen.sh"/>
       <file role="src" name="thirdparty/libuv/configure.ac"/>
       <file role="src" name="thirdparty/libuv/include/uv/aix.h"/>
@@ -136,7 +135,13 @@
       <file role="src" name="thirdparty/libuv/include/uv.h"/>
       <file role="src" name="thirdparty/libuv/libuv.pc.in"/>
       <file role="src" name="thirdparty/libuv/m4/as_case.m4"/>
+      <file role="src" name="thirdparty/libuv/m4/libtool.m4"/>
       <file role="src" name="thirdparty/libuv/m4/libuv-check-flags.m4"/>
+      <file role="src" name="thirdparty/libuv/m4/libuv-extra-automake-flags.m4"/>
+      <file role="src" name="thirdparty/libuv/m4/ltoptions.m4"/>
+      <file role="src" name="thirdparty/libuv/m4/ltsugar.m4"/>
+      <file role="src" name="thirdparty/libuv/m4/ltversion.m4"/>
+      <file role="src" name="thirdparty/libuv/m4/lt~obsolete.m4"/>
       <file role="src" name="thirdparty/libuv/src/fs-poll.c"/>
       <file role="src" name="thirdparty/libuv/src/heap-inl.h"/>
       <file role="src" name="thirdparty/libuv/src/idna.c"/>
@@ -368,6 +373,15 @@
       <file role="test" name="tests/tcp/ssl-connection.phpt"/>
       <file role="test" name="tests/tcp/ssl-slow-receiver.phpt"/>
       <file role="test" name="tests/tcp/write-detects-broken-pipe.phpt"/>
+      <file role="test" name="tests/thread/assets/error.php"/>
+      <file role="test" name="tests/thread/assets/fork.php"/>
+      <file role="test" name="tests/thread/assets/ipc-no-conn.php"/>
+      <file role="test" name="tests/thread/assets/ipc.php"/>
+      <file role="test" name="tests/thread/bootstrap.phpt"/>
+      <file role="test" name="tests/thread/error.phpt"/>
+      <file role="test" name="tests/thread/fork.phpt"/>
+      <file role="test" name="tests/thread/ipc-no-connection.phpt"/>
+      <file role="test" name="tests/thread/ipc.phpt"/>
       <file role="test" name="tests/udp/async-send.phpt"/>
       <file role="test" name="tests/udp/cancel-receiver.phpt"/>
       <file role="test" name="tests/udp/unicast.phpt"/>

@@ -40,8 +40,7 @@ if (PHP_ASYNC != 'no') {
 		'src\\watcher\\timer.c',
 		'src\\xp\\socket.c',
 		'src\\xp\\tcp.c',
-		'src\\xp\\udp.c',
-		'thirdparty\\krakjoe\\parallel\\copy.c'
+		'src\\xp\\udp.c'
 	];
 	
 	var async_header_files = [

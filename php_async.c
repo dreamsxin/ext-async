@@ -77,10 +77,6 @@ static void execute_root(zend_execute_data *exec)
 	async_task_scheduler_run();
 	
 	EG(exception) = error;
-	
-	if (UNEXPECTED(ASYNC_G(exit) && ASYNC_G(thread))) {
-		zend_bailout();
-	}
 }
 
 /* Custom executor being used to run the task scheduler before shutdown functions. */
@@ -270,7 +266,6 @@ PHP_RINIT_FUNCTION(async)
 
 	async_context_init();
 	async_task_scheduler_init();
-	async_thread_init();
 
 	if (ASYNC_G(dns_enabled)) {
 		async_dns_init();
@@ -301,7 +296,6 @@ PHP_RSHUTDOWN_FUNCTION(async)
 	async_tcp_socket_shutdown();
 	async_udp_socket_shutdown();
 	
-	async_thread_shutdown();
 	async_task_scheduler_shutdown();
 	async_context_shutdown();
 	

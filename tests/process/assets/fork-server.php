@@ -9,7 +9,7 @@ use Concurrent\Timer;
 ini_set('html_errors', '0');
 ini_set('xdebug.overload_var_dump', '0');
 
-$ipc = Process::forked();
+$ipc = Process::connect();
 
 $server = TcpServer::import($ipc);
 $server->setOption(TcpServer::SIMULTANEOUS_ACCEPTS, false);

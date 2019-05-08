@@ -229,7 +229,6 @@ void async_dns_init();
 void async_filesystem_init();
 void async_tcp_socket_init();
 void async_task_scheduler_init();
-void async_thread_init();
 void async_timer_init();
 void async_udp_socket_init();
 
@@ -238,7 +237,6 @@ void async_dns_shutdown();
 void async_filesystem_shutdown();
 void async_tcp_socket_shutdown();
 void async_task_scheduler_shutdown();
-void async_thread_shutdown();
 void async_timer_shutdown();
 void async_udp_socket_shutdown();
 
@@ -599,6 +597,9 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 	/* Will be populated when bailout is requested. */
 	zend_bool exit;
 	
+	/* Point to the active thread (NULL when not running within worker thread). */
+	zend_object *thread;
+	
 	/* INI settings. */
 	zend_bool dns_enabled;
 	zend_bool forked;
@@ -606,7 +607,6 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 	zend_long stack_size;
 	zend_bool tcp_enabled;
 	zend_long threads;
-	zend_bool thread;
 	zend_bool timer_enabled;
 	zend_bool udp_enabled;
 

@@ -177,6 +177,39 @@ static zend_always_inline void set_stream_send_buffer(async_stream *stream, int 
 	uv_send_buffer_size((uv_handle_t *) stream->handle, &v);
 }
 
+static zend_always_inline int async_stream_call_close(zval *stream)
+{
+	zval tmp;
+	
+	if (stream == NULL) {
+		return 0;
+	}
+	
+	ZVAL_UNDEF(&tmp);
+	zend_call_method_with_0_params(stream, Z_OBJCE_P(stream), NULL, "close", &tmp);
+	zval_ptr_dtor(&tmp);
+	
+	return 1;
+}
+
+static zend_always_inline int async_stream_call_close_obj(zend_object *object)
+{
+	zval obj;
+	zval tmp;
+	
+	if (object == NULL) {
+		return 0;
+	}
+	
+	ZVAL_OBJ(&obj, object);
+	ZVAL_UNDEF(&tmp);
+
+	zend_call_method_with_0_params(&obj, Z_OBJCE_P(&obj), NULL, "close", &tmp);
+	zval_ptr_dtor(&tmp);
+	
+	return 1;
+}
+
 static zend_always_inline zend_bool is_socket_disconnect_error(uv_handle_t *handle, int error)
 {
 	if (handle->type != UV_TCP && handle->type != UV_NAMED_PIPE) {

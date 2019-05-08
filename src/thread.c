@@ -17,165 +17,77 @@
 */
 
 #include "php_async.h"
+#include "async_pipe.h"
 
 #include "SAPI.h"
 #include "php_main.h"
 #include "zend_inheritance.h"
 
-#include "parallel.h"
+ASYNC_API zend_class_entry *async_thread_ce;
 
-zend_string *php_parallel_runtime_main;
+static zend_object_handlers async_thread_handlers;
 
-ASYNC_API zend_class_entry *async_thread_pool_ce;
-ASYNC_API zend_class_entry *async_job_failed_ce;
-
-static zend_object_handlers async_thread_pool_handlers;
+static zend_string *str_main;
 
 typedef int (*php_sapi_deactivate_t)(void);
 
 static php_sapi_deactivate_t sapi_deactivate_func;
 
-typedef struct _async_thread async_thread;
-typedef struct _async_thread_job async_thread_job;
-
-#define ASYNC_THREAD_POOL_FLAG_CLOSED 1
+#define ASYNC_THREAD_FLAG_RUNNING 1
+#define ASYNC_THREAD_FLAG_TERMINATED (1 << 1)
 
 typedef struct {
-	/* Shared data flags. */
-	uint8_t flags;
+	zend_object std;
 	
-	/* Reference count, used to sync pool and handle dtor. */
-	uint8_t refcount;
+	uint16_t flags;
 	
-	/* Holds a reference to the task scheduler for cleanup. */
 	async_task_scheduler *scheduler;
-	
-	/* Hook into the task schedulers automatic shutdown sequence. */
 	async_cancel_cb shutdown;
 	
-	/* Holds an error after the pool has been closed. */
-	zval error;
-	
-	/* Threaded worker bootstrap file. */
-	zend_string *bootstrap;
-
-	/* Maximum thread pool size. */
-	int size;
-	
-	/* Number of active worker threads. */
-	int alive;
-	
-	/* Number of threads that are currently being disposed. */
-	int closing;
-	
-	/* Worker ID sequence counter. */
-	int counter;
-	
-	/* Async handle that wakes up the event loop when workers have finished jobs. */
+	uv_thread_t impl;
 	uv_async_t handle;
-
-	/* Mutex protects access to data shared with worker threads. */
-	uv_mutex_t mutex;
 	
-	/* Condition being used by workers to await new jobs. */
-	uv_cond_t cond;
+	async_pipe *master;
+	async_pipe *slave;
 	
-	/* Active worker threads. */
-	struct {
-		async_thread *first;
-		async_thread *last;
-	} workers;
+#ifdef PHP_WIN32
+	uv_pipe_t server;
+	async_uv_op accept;
+	async_uv_op connect;
+	char ipc[128];
+#else
+	uv_file pipes[2];
+#endif
 	
-	/* Workers that are being disposed. */
-	struct {
-		async_thread *first;
-		async_thread *last;
-	} disposed;
-	
-	/* Jobs queued for execution. */
-	struct {
-		async_thread_job *first;
-		async_thread_job *last;
-	} jobs;
-	
-	/* Hobs that have been completed within workers and need to be forwared into the loop thread. */
-	struct {
-		async_thread_job *first;
-		async_thread_job *last;
-	} ready;
-} async_thread_data;
-
-#define ASYNC_THREAD_POOL_JOB_FLAG_NO_RETURN 1
-#define ASYNC_THREAD_POOL_JOB_FLAG_FAILED (1 << 1)
-
-struct _async_thread_job {
-	/* Job flags. */
-	uint8_t flags;
-	
-	/* Refers to the awaitable that forwards the job result. */
-	async_deferred_custom_awaitable *awaitable;
-	
-	/* Shared thread data. */
-	async_thread_data *data;
-	
-	/* Execution frame of the user-provided closure. */
-	zend_execute_data *exec;
-	
-	/* Location being used to store the result of the function call. */
-	zval retval;
-	
-	/* File and line of an error being thrown from within the job callback. */
+	zend_string *bootstrap;
+	zend_string *message;
 	zend_string *file;
 	zend_long line;
 	
-	/* Needed to enqueue jobs. */
-	async_thread_job *prev;
-	async_thread_job *next;
-};
-
-struct _async_thread {
-	/* UV thread handle being used to start and join the thread. */
-	uv_thread_t handle;
+	zval error;
 	
-	/* Shared thread data. */
-	async_thread_data *data;
-	
-	/* Unique ID of this worker thread. */
-	int id;
-	
-	/* Needed to enqueue workers. */
-	async_thread *prev;
-	async_thread *next;
-};
-
-typedef struct {
-	/* PHP object handle. */
-	zend_object std;
-	
-	/* Shared thread data to sync with workers. */
-	async_thread_data *data;
-} async_thread_pool;
+	async_op_list join;
+} async_thread;
 
 #define GET_ERROR_BASE_CE(obj) (instanceof_function(Z_OBJCE_P(obj), zend_ce_exception) ? zend_ce_exception : zend_ce_error)
 #define GET_ERROR_PROP(obj, name, retval) zend_read_property_ex(GET_ERROR_BASE_CE(obj), obj, ZSTR_KNOWN(name), 1, retval)
 
-#ifdef ZTS
 
-static int run_bootstrap(async_thread *worker)
+static void run_bootstrap(async_thread *thread)
 {
 	zend_file_handle handle;
 	zend_op_array *ops;
 	
+	zend_string *str;
+	zval error;	
 	zval retval;
 	
-	// ASYNC_DEBUG_LOG("Bootstrap worker #%d\n", worker->id);
-	
-	if (SUCCESS != php_stream_open_for_zend_ex(ZSTR_VAL(worker->data->bootstrap), &handle, USE_PATH | REPORT_ERRORS | STREAM_OPEN_FOR_INCLUDE)) {
-		return FAILURE;
+	if (SUCCESS != php_stream_open_for_zend_ex(ZSTR_VAL(thread->bootstrap), &handle, USE_PATH | REPORT_ERRORS | STREAM_OPEN_FOR_INCLUDE)) {
+		return;
 	}
 	
 	if (!handle.opened_path) {
-		handle.opened_path = zend_string_dup(worker->data->bootstrap, 0);
+		handle.opened_path = zend_string_dup(thread->bootstrap, 0);
 	}
 	
 	zend_hash_add_empty_element(&EG(included_files), handle.opened_path);
@@ -191,108 +103,33 @@ static int run_bootstrap(async_thread *worker)
 		
 		if (!EG(exception)) {
 			zval_ptr_dtor(&retval);
-			
-			return SUCCESS;
 		}
 	}
 	
 	if (EG(exception)) {
-		zend_clear_exception();
-	}
-	
-	return FAILURE;
-}
-
-static void transfer_error(async_thread_job *job, zval *error)
-{
-	zend_string *str;	
-	zval retval;
-	
-	job->flags |= ASYNC_THREAD_POOL_JOB_FLAG_FAILED;
-	
-	if (NULL != (str = zval_get_string(GET_ERROR_PROP(error, ZEND_STR_MESSAGE, &retval)))) {
-		ZVAL_STR(&job->retval, zend_string_init(ZSTR_VAL(str), ZSTR_LEN(str), 1));
-		zend_string_release(str);
-	}
-	
-	if (NULL != (str = zval_get_string(GET_ERROR_PROP(error, ZEND_STR_FILE, &retval)))) {
-		job->file = zend_string_init(ZSTR_VAL(str), ZSTR_LEN(str), 1);
-		zend_string_release(str);
-	}
-	
-	job->line = zval_get_long(GET_ERROR_PROP(error, ZEND_STR_LINE, &retval));
-}
-
-static void run_job(async_thread *worker, async_thread_job *job, zend_execute_data *frame)
-{
-	zval error;
-	zval retval;
-
-	// ASYNC_DEBUG_LOG("Execute job using worker #%d\n", worker->id);
-	
-	zend_init_func_execute_data(frame, &frame->func->op_array, &job->retval);
-	
-	zend_first_try {
-		zend_try {
-			zend_execute_ex(frame);
-			
-			if (job->flags & ASYNC_THREAD_POOL_JOB_FLAG_NO_RETURN) {
-				zval_ptr_dtor(&job->retval);
-				ZVAL_UNDEF(&job->retval);
-			} else {			
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_OBJ(&error, EG(exception));
-					transfer_error(job, &error);
-					zend_clear_exception();
-				} else {
-					retval = job->retval;
-					
-					if (Z_REFCOUNTED(job->retval)) {
-						php_parallel_copy_zval(&job->retval, &job->retval, 1);
-						zval_ptr_dtor(&retval);
-					}
-				}
-			}
-		} zend_catch {
-			ASYNC_G(exit) = 1;
-			
-			ASYNC_PREPARE_ERROR(&error, "Worker has been killed");
-			transfer_error(job, &error);
-			zval_ptr_dtor(&error);
-		} zend_end_try();
+		ZVAL_OBJ(&error, EG(exception));
 		
-		if (UNEXPECTED(EG(exception))) {
-			zend_clear_exception();
+		if (NULL != (str = zval_get_string(GET_ERROR_PROP(&error, ZEND_STR_MESSAGE, &retval)))) {
+			thread->message = zend_string_init(ZSTR_VAL(str), ZSTR_LEN(str), 1);
+			zend_string_release(str);
 		}
 		
-		uv_mutex_lock(&worker->data->mutex);
-		ASYNC_LIST_APPEND(&worker->data->ready, job);
-		uv_mutex_unlock(&worker->data->mutex);
-
-		uv_async_send(&worker->data->handle);
+		if (NULL != (str = zval_get_string(GET_ERROR_PROP(&error, ZEND_STR_FILE, &retval)))) {
+			thread->file = zend_string_init(ZSTR_VAL(str), ZSTR_LEN(str), 1);
+			zend_string_release(str);
+		}
 		
-		php_parallel_copy_free(frame->func, 0);
-		zend_vm_stack_free_call_frame(frame);
-	} zend_end_try();
-	
-	// ASYNC_DEBUG_LOG("Job done using worker #%d\n", worker->id);
+		thread->line = zval_get_long(GET_ERROR_PROP(&error, ZEND_STR_LINE, &retval));
+		
+		zend_clear_exception();
+	}
 }
 
 ASYNC_CALLBACK run_thread(void *arg)
 {
-	async_thread *worker;
-	async_thread_data *data;
-	async_thread_job *job;
+	async_thread *thread;
 	
-	zend_execute_data *frame;
-	zval *slot;
-	zval *param;
-	
-	int argc;
-	int i;
-	
-	worker = (async_thread *) arg;
-	data = worker->data;
+	thread = (async_thread *) arg;
 	
 	ts_resource(0);
 
@@ -308,387 +145,289 @@ ASYNC_CALLBACK run_thread(void *arg)
 	SG(headers_sent) = 1;
 	SG(request_info).no_headers = 1;
 	
-	ASYNC_G(thread) = 1;
+	ASYNC_G(cli) = 1;
+	ASYNC_G(thread) = &thread->std;
 	
-	if (data->bootstrap != NULL && FAILURE == run_bootstrap(worker)) {
-		goto cleanup;
+	zend_first_try {
+		run_bootstrap(thread);
+	} zend_catch {
+		ASYNC_G(exit) = 1;
+	} zend_end_try();
+	
+	if (async_stream_call_close_obj(&thread->slave->std)) {
+		ASYNC_DELREF(&thread->slave->std);
+		thread->slave = NULL;
 	}
 	
-	do {
-		uv_mutex_lock(&data->mutex);
-		
-		while (data->jobs.first == NULL) {
-			if (data->flags & ASYNC_THREAD_POOL_FLAG_CLOSED) {
-				uv_mutex_unlock(&data->mutex);
-				
-				goto cleanup;
-			}
-			
-			uv_cond_wait(&data->cond, &data->mutex);
-		}
-		
-		ASYNC_LIST_EXTRACT_FIRST(&data->jobs, job);
-		
-		uv_mutex_unlock(&data->mutex);
-		
-		argc = ZEND_CALL_NUM_ARGS(job->exec);
-		
-#if PHP_VERSION_ID < 70400
-		frame = zend_vm_stack_push_call_frame(ZEND_CALL_TOP_FUNCTION, php_parallel_copy(job->exec->func, 0), argc, NULL, NULL);
-#else
-		frame = zend_vm_stack_push_call_frame(ZEND_CALL_TOP_FUNCTION, php_parallel_copy(job->exec->func, 0), argc, NULL);
-#endif
-
-		if (argc) {
-			slot = (zval *) ZEND_CALL_ARG(job->exec, 1);
-			param = (zval *) ZEND_CALL_ARG(frame, 1);
-			
-			for (i = 0; i < argc; i++) {
-				php_parallel_copy_zval(&param[i], &slot[i], 0);
-			}
-		}
-		
-		run_job(worker, job, frame);
-	} while (!ASYNC_G(exit));
-	
-cleanup:
-	
-	// ASYNC_DEBUG_LOG("Dispose of worker #%d\n", worker->id);
-	
-	// First notification is used to start up a new worker ASAP.
-	uv_mutex_lock(&data->mutex);
-	
-	data->alive--;
-	data->closing++;
-	ASYNC_LIST_REMOVE(&data->workers, worker);
-	
-	uv_mutex_unlock(&data->mutex);
-	uv_async_send(&data->handle);
-	
-	// Run PHP shutdown logic.
 	php_request_shutdown(NULL);
 	ts_free_thread();
 	
-	// Put worker into the dispose queue and notify pool again to free up resources.
-	uv_mutex_lock(&data->mutex);
-	
-	ASYNC_LIST_APPEND(&data->disposed, worker);
-	
-	uv_mutex_unlock(&data->mutex);	
-	uv_async_send(&data->handle);
+	uv_async_send(&thread->handle);
 }
 
-static void finish_job(async_thread_job *job)
-{
-	zval val;
-	zval error;
-	
-	if (job->flags & ASYNC_THREAD_POOL_JOB_FLAG_NO_RETURN) {
-		async_resolve_awaitable((async_deferred_awaitable *) job->awaitable, NULL);
-	} else {	
-		if (job->flags & ASYNC_THREAD_POOL_JOB_FLAG_FAILED) {
-			if (Z_TYPE_P(&job->retval) == IS_STRING) {
-				php_parallel_copy_zval(&val, &job->retval, 0);
-			
-				if (Z_REFCOUNTED(job->retval)) {
-					php_parallel_zval_dtor(&job->retval);
-				}
-			
-				ASYNC_PREPARE_EXCEPTION(&error, async_job_failed_ce, "%s", ZSTR_VAL(Z_STR_P(&val)));
-				
-				zval_ptr_dtor(&val);
-				
-				if (job->file != NULL) {
-					ZVAL_STR(&val, job->file);
-					zend_update_property_ex(GET_ERROR_BASE_CE(&error), &error, ZSTR_KNOWN(ZEND_STR_FILE), &val);
-				}
-				
-				ZVAL_LONG(&val, job->line);
-				zend_update_property_ex(GET_ERROR_BASE_CE(&error), &error, ZSTR_KNOWN(ZEND_STR_LINE), &val);
-			} else {
-				ASYNC_PREPARE_EXCEPTION(&error, async_job_failed_ce, "Job failed due to an unknown error");
-			}
-		
-			async_fail_awaitable((async_deferred_awaitable *) job->awaitable, &error);
-			
-			zval_ptr_dtor(&error);
-		} else {
-			php_parallel_copy_zval(&val, &job->retval, 0);
-		
-			if (Z_REFCOUNTED(job->retval)) {
-				php_parallel_zval_dtor(&job->retval);
-			}
-		
-			async_resolve_awaitable((async_deferred_awaitable *) job->awaitable, &val);
-			
-			zval_ptr_dtor(&val);
-		}
-	}
-	
-	if (job->file != NULL) {
-		zend_string_release(job->file);
-	}
-	
-	pefree(job, 1);
-}
+#ifdef PHP_WIN32
 
-ASYNC_CALLBACK close_notify_cb(uv_handle_t *handle)
+ASYNC_CALLBACK ipc_close_cb(uv_handle_t *handle)
 {
-	async_thread_data *data;
+	async_thread *thread;
 	
-	data = (async_thread_data *) handle->data;
+	thread = (async_thread *) handle->data;
 	
-	ZEND_ASSERT(data != NULL);
+	ZEND_ASSERT(thread != NULL);
 	
-	uv_cond_destroy(&data->cond);
-	uv_mutex_destroy(&data->mutex);
-	
-	if (data->bootstrap != NULL) {
-		zend_string_release(data->bootstrap);
-	}
-	
-	async_task_scheduler_unref(data->scheduler);
-	
-	if (--data->refcount == 0) {
-		zval_ptr_dtor(&data->error);
-		
-		pefree(data, 1);
-	}
-}
-
-ASYNC_CALLBACK notify_pool_cb(uv_async_t *handle)
-{
-	async_thread_data *data;
-	async_thread *worker;
-	async_thread *disposed;
-	
-	async_thread_job *job;
-	async_thread_job *prev;
-	
-	data = (async_thread_data *) handle->data;
-	
-	ZEND_ASSERT(data != NULL);
-	
-	uv_mutex_lock(&data->mutex);
-	
-	// Extract workers and jobs but do not take action while holding the mutex.
-	disposed = data->disposed.first;
-	job = data->ready.first;
-	
-	if (disposed) {
-		data->disposed.first = NULL;
-		data->disposed.last = NULL;
-		
-		worker = disposed;
-		
-		while (worker) {
-			worker = worker->next;
-			data->closing--;
-		}
-	}
-	
-	if (job) {
-		data->ready.first = NULL;
-		data->ready.last = NULL;
-	}
-	
-	if (data->flags & ASYNC_THREAD_POOL_FLAG_CLOSED) {
-		if (data->alive == 0 && data->closing == 0) {
-			if (!uv_is_closing((uv_handle_t *) handle)) {
-				if (data->shutdown.func) {
-					ASYNC_LIST_REMOVE(&data->scheduler->shutdown, &data->shutdown);
-				}
-			
-				uv_close((uv_handle_t *) handle, close_notify_cb);
-			}
-		}
-	} else {
-		if (data->jobs.first == NULL) {
-			uv_unref((uv_handle_t *) &data->handle);
-		}
-	
-		while (data->alive < data->size) {	
-			worker = pecalloc(1, sizeof(async_thread), 1);
-			worker->id = ++data->counter;
-			worker->data = data;
-			
-			data->alive++;
-			
-			uv_thread_create(&worker->handle, run_thread, worker);
-			
-			ASYNC_LIST_APPEND(&data->workers, worker);
-		}
-	}
-	
-	uv_mutex_unlock(&data->mutex);
-	
-	while (job) {
-		prev = job;
-		job = job->next;
-		
-		finish_job(prev);
-	}
-	
-	while (disposed) {
-		worker = disposed;
-		disposed = disposed->next;
-		
-		uv_thread_join(&worker->handle);
-			
-		pefree(worker, 1);
-	}
-}
-
-ASYNC_CALLBACK shutdown_pool_cb(void *arg, zval *error)
-{
-	async_thread_data *data;
-	
-	data = (async_thread_data *) arg;
-	
-	data->shutdown.func = NULL;
-	
-	if (Z_TYPE_P(&data->error) == IS_UNDEF) {
-		if (error) {
-			ZVAL_COPY(&data->error, error);
-		} else {
-			ASYNC_PREPARE_ERROR(&data->error, "Thread pool has been closed");
-		}
-	}
-	
-	uv_mutex_lock(&data->mutex);
-	
-	if (!(data->flags & ASYNC_THREAD_POOL_FLAG_CLOSED)) {
-		data->flags |= ASYNC_THREAD_POOL_FLAG_CLOSED;
-		
-		if (data->alive == 0 && data->closing == 0) {
-			if (!uv_is_closing((uv_handle_t *) &data->handle)) {
-				uv_close((uv_handle_t *) &data->handle, close_notify_cb);
-			}
-		} else {
-			uv_ref((uv_handle_t *) &data->handle);
-			uv_cond_broadcast(&data->cond);
-		}
-	}
-	
-	uv_mutex_unlock(&data->mutex);
+	ASYNC_DELREF(&thread->std);
 }
 
 #endif
 
-static zend_object *async_thread_pool_object_create(zend_class_entry *ce)
+ASYNC_CALLBACK shutdown_cb(void *arg, zval *error)
 {
-	async_thread_pool *pool;
+	async_thread *thread;
 	
-	pool = ecalloc(1, sizeof(async_thread_pool));
+	thread = (async_thread *) arg;
 	
-	zend_object_std_init(&pool->std, ce);
-	pool->std.handlers = &async_thread_pool_handlers;
+	thread->shutdown.func = NULL;
 	
-	return &pool->std;
+	async_stream_call_close_obj(&thread->master->std);
+	
+#ifdef PHP_WIN32
+	if (!uv_is_closing((uv_handle_t *) &thread->server)) {
+		ASYNC_ADDREF(&thread->std);
+		
+		uv_close((uv_handle_t *) &thread->server, ipc_close_cb);
+	}
+#endif
 }
 
-static void async_thread_pool_object_dtor(zend_object *object)
+ASYNC_CALLBACK close_async_cb(uv_handle_t *handle)
 {
-	async_thread_pool *pool;
-	async_thread_data *data;
+	async_thread *thread;
 	
-	pool = (async_thread_pool *) object;
-	data = pool->data;
+	thread = (async_thread *) handle->data;
 	
-	if (data != NULL) {
-		if (data->shutdown.func) {
-			ASYNC_LIST_REMOVE(&data->scheduler->shutdown, &data->shutdown);
-			
-			data->shutdown.func(data, NULL);
-		} else if (--data->refcount == 0) {
-			zval_ptr_dtor(&data->error);
-			
-			pefree(data, 1);
+	ZEND_ASSERT(thread != NULL);
+	
+	ASYNC_DELREF(&thread->std);
+}
+
+ASYNC_CALLBACK notify_thread_cb(uv_async_t *handle)
+{
+	async_thread *thread;
+	
+	zval val;
+	
+	thread = (async_thread *) handle->data;
+	
+	ZEND_ASSERT(thread != NULL);
+	
+	thread->flags |= ASYNC_THREAD_FLAG_TERMINATED;
+	
+	if (EXPECTED(thread->shutdown.func)) {
+		thread->shutdown.func = NULL;
+		
+		ASYNC_LIST_REMOVE(&thread->scheduler->shutdown, &thread->shutdown);
+	}
+	
+	if (UNEXPECTED(thread->message != NULL)) {
+		ASYNC_PREPARE_ERROR(&thread->error, "%s", ZSTR_VAL(thread->message));
+		
+		if (thread->file != NULL) {
+			ZVAL_STR_COPY(&val, thread->file);
+			zend_update_property_ex(GET_ERROR_BASE_CE(&thread->error), &thread->error, ZSTR_KNOWN(ZEND_STR_FILE), &val);
 		}
+		
+		ZVAL_LONG(&val, thread->line);
+		zend_update_property_ex(GET_ERROR_BASE_CE(&thread->error), &thread->error, ZSTR_KNOWN(ZEND_STR_LINE), &val);
+		
+		while (thread->join.first != NULL) {
+			ASYNC_FAIL_OP(thread->join.first, &thread->error);
+		}
+	} else {
+		while (thread->join.first != NULL) {
+			ASYNC_FINISH_OP(thread->join.first);
+		}
+	}
+	
+#ifdef PHP_WIN32
+	if (thread->accept.base.status == ASYNC_STATUS_RUNNING) {
+		thread->accept.code = UV_ECONNREFUSED;
+		
+		ASYNC_FINISH_OP(&thread->accept);
+	}
+#else
+	closesocket(thread->pipes[1]);
+#endif
+
+	if (!uv_is_closing((uv_handle_t *) handle)) {
+		uv_close((uv_handle_t *) handle, close_async_cb);
 	}
 }
 
-static void async_thread_pool_object_destroy(zend_object *object)
+static zend_object *async_thread_object_create(zend_class_entry *ce)
 {
-	async_thread_pool *pool;
+	async_thread *thread;
 	
-	pool = (async_thread_pool *) object;
+	thread = ecalloc(1, sizeof(async_thread));
 	
-	zend_object_std_dtor(&pool->std);
+	zend_object_std_init(&thread->std, ce);
+	thread->std.handlers = &async_thread_handlers;
+	
+	thread->scheduler = async_task_scheduler_ref();
+	
+	thread->shutdown.func = shutdown_cb;
+	thread->shutdown.object = thread;
+	
+	ASYNC_LIST_APPEND(&thread->scheduler->shutdown, &thread->shutdown);
+	
+	uv_async_init(&thread->scheduler->loop, &thread->handle, notify_thread_cb);
+	
+	thread->handle.data = thread;
+	
+	ASYNC_ADDREF(&thread->std);
+
+	return &thread->std;
 }
 
-static ZEND_METHOD(ThreadPool, __construct)
+static void async_thread_object_dtor(zend_object *object)
+{
+	async_thread *thread;
+	
+	thread = (async_thread *) object;
+	
+	if (thread->shutdown.func != NULL) {
+		ASYNC_LIST_REMOVE(&thread->scheduler->shutdown, &thread->shutdown);
+		
+		thread->shutdown.func(thread, NULL);
+	}
+}
+
+static void async_thread_object_destroy(zend_object *object)
+{
+	async_thread *thread;
+	
+	thread = (async_thread *) object;
+	
+	if (thread->flags & ASYNC_THREAD_FLAG_RUNNING) {
+		thread->flags &= ~ASYNC_THREAD_FLAG_RUNNING;
+		
+		uv_thread_join(&thread->impl);
+	}
+	
+	if (async_stream_call_close_obj(&thread->master->std)) {
+		ASYNC_DELREF(&thread->master->std);
+		thread->master = NULL;
+	}
+	
+	async_task_scheduler_unref(thread->scheduler);
+	
+	zval_ptr_dtor(&thread->error);
+	
+	if (thread->bootstrap != NULL) {
+		zend_string_release(thread->bootstrap);
+	}
+	
+	if (thread->message != NULL) {
+		zend_string_release(thread->message);
+	}
+	
+	if (thread->file != NULL) {
+		zend_string_release(thread->file);
+	}
+	
+	zend_object_std_dtor(&thread->std);
+}
+
+static ZEND_METHOD(Thread, __construct)
 {
 #ifndef ZTS
 	zend_throw_error(NULL, "Threads require PHP to be compiled in thread safe mode (ZTS)");
 #else
-	async_thread_pool *pool;
-	async_thread_data *data;
-	async_thread *worker;
+	async_thread *thread;
+	zend_string *file;
 	
-	zend_long size;
-	zend_string *bootstrap;
+	char path[MAXPATHLEN];
+	int code;
 	
-	size = 1;
-	bootstrap = NULL;
-	
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 2)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_LONG(size)
-		Z_PARAM_STR(bootstrap)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_STR(file)
 	ZEND_PARSE_PARAMETERS_END();
-
+	
 	ASYNC_CHECK_ERROR(!ASYNC_G(cli), "Threads are only supported if PHP is run from the command line (cli)");
 	
-	pool = (async_thread_pool *) Z_OBJ_P(getThis());
+	thread = (async_thread *) Z_OBJ_P(getThis());
 	
-	ASYNC_CHECK_ERROR(size < 1, "Thread pool size must be at least 1");
-	ASYNC_CHECK_ERROR(size > 64, "maximum thread pool size is 64");
-	
-	data = pecalloc(1, sizeof(async_thread_data), 1);
-	
-	pool->data = data;
-	
-	data->refcount = 2;
-	data->size = (int) size;
-	data->scheduler = async_task_scheduler_ref();
-	
-	data->shutdown.object = data;
-	data->shutdown.func = shutdown_pool_cb;
-	
-	ASYNC_LIST_APPEND(&data->scheduler->shutdown, &data->shutdown);
-	
-	uv_mutex_init_recursive(&data->mutex);
-	uv_cond_init(&data->cond);
-	
-	uv_async_init(&data->scheduler->loop, &data->handle, notify_pool_cb);
-	uv_unref((uv_handle_t *) &data->handle);
-	
-	data->handle.data = data;
-	
-	if (bootstrap != NULL) {
-		data->bootstrap = zend_string_dup(bootstrap, 1);
+	if (UNEXPECTED(!VCWD_REALPATH(ZSTR_VAL(file), path))) {
+		if (!uv_is_closing((uv_handle_t *) &thread->handle)) {
+			uv_close((uv_handle_t *) &thread->handle, close_async_cb);
+		}
+
+		zend_throw_error(NULL, "Failed to locate thread bootstrap file: %s", ZSTR_VAL(file));
+		return;
 	}
 	
-	uv_mutex_lock(&data->mutex);
+	ASYNC_CHECK_ERROR(!VCWD_REALPATH(ZSTR_VAL(file), path), "Failed to locate thread bootstrap file: %s", ZSTR_VAL(file));
 	
-	while (data->alive < data->size) {
-		worker = pecalloc(1, sizeof(async_thread), 1);
-		worker->id = ++data->counter; 
-		worker->data = data;
+	thread->bootstrap = zend_string_init(path, strlen(path), 1);
+	
+#ifdef PHP_WIN32
+	int i;
+	
+	code = uv_pipe_init(&thread->scheduler->loop, &thread->server, 0);
+	
+	ASYNC_CHECK_ERROR(code < 0, "Failed to create IPC pipe: %s", uv_strerror(code));
+	
+	thread->server.data = thread;
+	
+	for (i = 0; i < 5; i++) {
+		sprintf(thread->ipc, "\\\\.\\pipe\\php\\%p-%lu.sock", (void *)(((char *) thread) + i), GetCurrentProcessId());
 		
-		data->alive++;
+		code = uv_pipe_bind(&thread->server, thread->ipc);
 		
-		uv_thread_create(&worker->handle, run_thread, worker);
-		
-		ASYNC_LIST_APPEND(&data->workers, worker);
+		if (EXPECTED(code != UV_EADDRINUSE)) {
+			break;
+		}
 	}
 	
-	uv_mutex_unlock(&data->mutex);
+	if (UNEXPECTED(code != 0)) {
+		if (!uv_is_closing((uv_handle_t *) &thread->handle)) {
+			uv_close((uv_handle_t *) &thread->handle, close_async_cb);
+		}
+	
+		zend_throw_error(NULL, "Failed to create IPC pipe: %s", uv_strerror(code));
+		return;
+	}
+	
+	uv_unref((uv_handle_t *) &thread->server);
+	uv_pipe_pending_instances(&thread->server, 1);
+#else
+	code = socketpair(AF_UNIX, SOCK_STREAM, 0, thread->pipes);
+	
+	if (UNEXPECTED(code == -1)) {
+		if (!uv_is_closing((uv_handle_t *) &thread->handle)) {
+			uv_close((uv_handle_t *) &thread->handle, close_async_cb);
+		}
+	
+		zend_throw_error(NULL, "Failed to create IPC pipe: %s", uv_strerror(uv_translate_sys_error(errno)));
+		return;
+	}
+#endif
+	
+	thread->flags |= ASYNC_THREAD_FLAG_RUNNING;
+	
+	code = uv_thread_create(&thread->impl, run_thread, thread);
+	
+	if (UNEXPECTED(code < 0)) {
+		if (!uv_is_closing((uv_handle_t *) &thread->handle)) {
+			uv_close((uv_handle_t *) &thread->handle, close_async_cb);
+		}
+	
+		zend_throw_error(NULL, "Failed to create thread: %s", uv_strerror(code));
+		return;
+	}
 #endif
 }
 
-static ZEND_METHOD(ThreadPool, isAvailable)
+static ZEND_METHOD(Thread, isAvailable)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
 	
@@ -699,224 +438,301 @@ static ZEND_METHOD(ThreadPool, isAvailable)
 #endif
 }
 
-static ZEND_METHOD(ThreadPool, close)
+static ZEND_METHOD(Thread, isWorker)
 {
-	async_thread_pool *pool;
-	async_thread_data *data;
+	ZEND_PARSE_PARAMETERS_NONE();
 	
-	zval *val;
-	zval error;
+	RETURN_BOOL(ASYNC_G(thread) != NULL);
+}
 
-	val = NULL;
+#ifdef PHP_WIN32
+
+ASYNC_CALLBACK ipc_connect_cb(uv_connect_t *req, int status)
+{
+	async_thread *thread;
 	
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
-	ZEND_PARSE_PARAMETERS_END();
+	thread = (async_thread *) req->data;
 	
-	pool = (async_thread_pool *) Z_OBJ_P(getThis());
-	data = pool->data;
+	ZEND_ASSERT(thread != NULL);
 	
-	if (data != NULL && data->shutdown.func) {
-		ASYNC_PREPARE_ERROR(&error, "Thread pool has been closed");
-		
-		if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
-			zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
-			GC_ADDREF(Z_OBJ_P(val));
-		}
-		
-		ASYNC_LIST_REMOVE(&data->scheduler->shutdown, &data->shutdown);
-		
-		data->shutdown.func(data, &error);
-		
-		zval_ptr_dtor(&error);
+	thread->connect.code = status;
+	
+	ASYNC_FINISH_OP(&thread->connect);
+}
+
+#endif
+
+static ZEND_METHOD(Thread, connect)
+{
+	async_thread *thread;
+	async_pipe *pipe;
+	
+	int code;
+	
+	ZEND_PARSE_PARAMETERS_NONE();
+	
+	ASYNC_CHECK_ERROR(ASYNC_G(thread) == NULL, "Only threads can connect to the parent process");
+	
+	thread = (async_thread *) ASYNC_G(thread);
+	
+	if (thread->slave != NULL) {
+		ASYNC_ADDREF(&thread->slave->std);
+		RETURN_OBJ(&thread->slave->std);
 	}
-}
-
-ASYNC_CALLBACK job_dispose_cb(async_deferred_custom_awaitable *defer)
-{
-	async_thread_job *job;
 	
-	job = (async_thread_job *) defer->arg;
+#ifdef PHP_WIN32
+	uv_connect_t *req;
 	
-	ZEND_ASSERT(job != NULL);
+	pipe = async_pipe_init_ipc();
 	
-	job->flags |= ASYNC_THREAD_POOL_JOB_FLAG_NO_RETURN;
-}
-
-static ZEND_METHOD(ThreadPool, submit)
-{
-	async_thread_pool *pool;
-	async_thread_job *job;
-	async_deferred_custom_awaitable *awaitable;
+	req = emalloc(sizeof(uv_connect_t));
+	req->data = thread;
 	
-	zend_execute_data *frame;
-	zend_function *func;
-	zend_bool returns;
+	uv_pipe_connect(req, &pipe->handle, thread->ipc, ipc_connect_cb);
 	
-	uint32_t i;
-	uint32_t argc;
-	
-	zval *closure;
-	zval *tmp;
-	zval *slot;
-	zval argv;
-	
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, -1)
-		Z_PARAM_OBJECT_OF_CLASS(closure, zend_ce_closure)
-		Z_PARAM_OPTIONAL
-		Z_PARAM_VARIADIC('+', tmp, argc)
-	ZEND_PARSE_PARAMETERS_END();
-	
-	pool = (async_thread_pool *) Z_OBJ_P(getThis());
-	
-	if (UNEXPECTED(pool->data->flags & ASYNC_THREAD_POOL_FLAG_CLOSED)) {
-		ASYNC_FORWARD_ERROR(&pool->data->error);
+	if (UNEXPECTED(FAILURE == async_await_op((async_op *) &thread->connect))) {
+		ASYNC_FORWARD_OP_ERROR(&thread->connect);
+		ASYNC_RESET_OP(&thread->connect);
+		ASYNC_DELREF(&pipe->std);
+		
 		return;
 	}
 	
-	func = (zend_function *) zend_get_closure_method_def(closure);
-	returns = 0;
+	code = thread->connect.code;
+	ASYNC_RESET_OP(&thread->connect);
 	
-	if (argc) {
-		array_init_size(&argv, argc);
+	if (UNEXPECTED(code < 0)) {
+		ASYNC_DELREF(&pipe->std);
 		
-		for (i = 0; i < argc; i++) {
-			zend_hash_index_update(Z_ARRVAL_P(&argv), i, &tmp[i]);
-		}
-	} else {
-		ZVAL_UNDEF(&argv);
+		zend_throw_error(NULL, "Failed to connect IPC pipe: %s", uv_strerror(code));
+		return;
 	}
+#else
+	pipe = async_pipe_init_ipc();
+	code = uv_pipe_open(&pipe->handle, thread->pipes[1]);
 	
-	if (!php_parallel_copy_check(EG(current_execute_data)->prev_execute_data, func, argc ? &argv : NULL, &returns)) {
-		zval_ptr_dtor(&argv);
+	if (UNEXPECTED(code < 0)) {
+		ASYNC_DELREF(&pipe->std);
+		
+		zend_throw_error(NULL, "Failed to open IPC pipe: %s", uv_strerror(code));
+		return;
+	}
+#endif
+
+	thread->slave = pipe;
+	
+	ASYNC_ADDREF(&pipe->std);
+	RETURN_OBJ(&pipe->std);
+}
+
+#ifdef PHP_WIN32
+
+ASYNC_CALLBACK ipc_listen_cb(uv_stream_t *handle, int status)
+{
+	async_thread *thread;
+	async_pipe *pipe;
+	
+	zval obj;
+	
+	thread = (async_thread *) handle->data;
+	
+	ZEND_ASSERT(thread != NULL);
+	
+	if (thread->accept.base.status != ASYNC_STATUS_RUNNING) {
 		return;
 	}
 	
-	zval_ptr_dtor(&argv);
+	thread->accept.code = status;
 	
-	frame = pecalloc(1, zend_vm_calc_used_stack(argc, func), 1);
-	frame->func = php_parallel_copy(func, 1);
-	frame->return_value = NULL;	
-	
-	if (argc) {
-		slot = ZEND_CALL_ARG(frame, 1);
-		
-		for (i = 0; i < argc; i++) {
-			php_parallel_copy_zval(&slot[i], &tmp[i], 1);
-		}
-	
-		ZEND_CALL_NUM_ARGS(frame) = argc;
+	if (UNEXPECTED(status < 0)) {
+		ASYNC_FINISH_OP(&thread->accept);
 	} else {
-		ZEND_CALL_NUM_ARGS(frame) = 0;
+		pipe = async_pipe_init_ipc();
+		uv_accept(handle, (uv_stream_t *) &pipe->handle);
+		
+		ZVAL_OBJ(&obj, &pipe->std);
+		ASYNC_RESOLVE_OP(&thread->accept, &obj);
+		zval_ptr_dtor(&obj);
 	}
-	
-	awaitable = ecalloc(1, sizeof(async_deferred_custom_awaitable));	
-	async_init_awaitable(awaitable, job_dispose_cb, async_context_get());
-	
-	job = pecalloc(1, sizeof(async_thread_job), 1);
-	job->awaitable = awaitable;
-	job->data = pool->data;
-	job->exec = frame;
-	
-	awaitable->arg = job;
-	
-	uv_mutex_lock(&pool->data->mutex);	
-	
-	if (pool->data->jobs.first == NULL) {
-		uv_ref((uv_handle_t *) &pool->data->handle);
-	}
-	
-	ASYNC_LIST_APPEND(&pool->data->jobs, job);
-	
-	uv_cond_signal(&pool->data->cond);
-	uv_mutex_unlock(&pool->data->mutex);
-	
-	RETURN_OBJ(&awaitable->base.std);
 }
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_thread_pool_ctor, 0, 0, 0)
-	ZEND_ARG_TYPE_INFO(0, size, IS_LONG, 1)
-	ZEND_ARG_TYPE_INFO(0, bootstrap, IS_STRING, 1)
+#endif
+
+static ZEND_METHOD(Thread, getIpc)
+{
+	async_thread *thread;
+	async_pipe *pipe;
+	
+	int code;
+	
+	ZEND_PARSE_PARAMETERS_NONE();
+	
+	thread = (async_thread *) Z_OBJ_P(getThis());
+	
+	if (thread->master != NULL) {
+		ASYNC_ADDREF(&thread->master->std);
+		RETURN_OBJ(&thread->master->std);
+	}
+	
+	ASYNC_CHECK_ERROR(thread->flags & ASYNC_THREAD_FLAG_TERMINATED, "Cannot access IPC pipe of a closed thread");
+	
+#ifdef PHP_WIN32
+	uv_ref((uv_handle_t *) &thread->server);
+	
+	code = uv_listen((uv_stream_t *) &thread->server, 0, ipc_listen_cb);
+	
+	if (UNEXPECTED(code < 0)) {
+		uv_unref((uv_handle_t *) &thread->server);
+		
+		zend_throw_error(NULL, "Failed to aquire IPC pipe: %s", uv_strerror(code));
+		return;
+	}
+	
+	if (UNEXPECTED(FAILURE == async_await_op((async_op *) &thread->accept))) {
+		uv_unref((uv_handle_t *) &thread->server);
+		
+		ASYNC_FORWARD_OP_ERROR(&thread->accept);
+		ASYNC_RESET_OP(&thread->accept);
+		
+		return;
+	}
+	
+	code = thread->accept.code;
+	
+	if (UNEXPECTED(code < 0)) {
+		ASYNC_RESET_OP(&thread->accept);
+		
+		if (!uv_is_closing((uv_handle_t *) &thread->server)) {
+			ASYNC_ADDREF(&thread->std);
+			
+			uv_close((uv_handle_t *) &thread->server, ipc_close_cb);
+		}
+		
+		zend_throw_error(NULL, "Failed to aquire IPC pipe: %s", uv_strerror(code));
+		return;
+	}
+	
+	pipe = (async_pipe *) Z_OBJ_P(&thread->accept.base.result);
+	
+	ASYNC_ADDREF(&pipe->std);	
+	ASYNC_RESET_OP(&thread->accept);
+	
+	if (!uv_is_closing((uv_handle_t *) &thread->server)) {
+		ASYNC_ADDREF(&thread->std);
+		
+		uv_close((uv_handle_t *) &thread->server, ipc_close_cb);
+	}
+#else
+	pipe = async_pipe_init_ipc();
+	code = uv_pipe_open(&pipe->handle, thread->pipes[0]);
+	
+	if (UNEXPECTED(code < 0)) {
+		ASYNC_DELREF(&pipe->std);
+		
+		zend_throw_error(NULL, "Failed to aquire IPC pipe: %s", uv_strerror(code));
+		return;
+	}
+#endif
+	
+	thread->master = pipe;
+	
+	ASYNC_ADDREF(&pipe->std);
+	RETURN_OBJ(&pipe->std);
+}
+
+static ZEND_METHOD(Thread, kill)
+{
+	async_thread *thread;
+	
+	ZEND_PARSE_PARAMETERS_NONE();
+	
+	thread = (async_thread *) Z_OBJ_P(getThis());
+	
+	// TODO: Improve kill support...
+	
+	if (thread->shutdown.func != NULL) {
+		thread->shutdown.func(thread, NULL);
+	}
+}
+
+static ZEND_METHOD(Thread, join)
+{
+	async_thread *thread;
+	async_op *op;
+	
+	ZEND_PARSE_PARAMETERS_NONE();
+	
+	thread = (async_thread *) Z_OBJ_P(getThis());
+	
+	if (!(thread->flags & ASYNC_THREAD_FLAG_TERMINATED)) {
+		ASYNC_ALLOC_OP(op);
+		ASYNC_APPEND_OP(&thread->join, op);
+		
+		if (UNEXPECTED(FAILURE == async_await_op(op))) {
+			ASYNC_FORWARD_OP_ERROR(op);
+		}
+		
+		ASYNC_FREE_OP(op);
+	}
+}
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_thread_ctor, 0, 0, 1)
+	ZEND_ARG_TYPE_INFO(0, file, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_thread_pool_is_available, 0, 0, _IS_BOOL, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_thread_is_available, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_thread_pool_close, 0, 0, IS_VOID, 0)
-	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_thread_is_worker, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_thread_pool_submit, 0, 1, Concurrent\\Awaitable, 0)
-	ZEND_ARG_OBJ_INFO(0, work, Closure, 0)
-	ZEND_ARG_VARIADIC_INFO(0, arguments)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_thread_connect, 0, 0, Concurrent\\Network\\Pipe, 0)
 ZEND_END_ARG_INFO()
 
-static const zend_function_entry thread_pool_funcs[] = {
-	ZEND_ME(ThreadPool, __construct, arginfo_thread_pool_ctor, ZEND_ACC_PUBLIC)
-	ZEND_ME(ThreadPool, isAvailable, arginfo_thread_pool_is_available, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(ThreadPool, close, arginfo_thread_pool_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(ThreadPool, submit, arginfo_thread_pool_submit, ZEND_ACC_PUBLIC)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_thread_get_ipc, 0, 0, Concurrent\\Network\\Pipe, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_thread_kill, 0, 0, IS_VOID, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_thread_join, 0, 0, IS_VOID, 0)
+ZEND_END_ARG_INFO()
+
+static const zend_function_entry thread_funcs[] = {
+	ZEND_ME(Thread, __construct, arginfo_thread_ctor, ZEND_ACC_PUBLIC)
+	ZEND_ME(Thread, isAvailable, arginfo_thread_is_available, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Thread, isWorker, arginfo_thread_is_worker, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Thread, connect, arginfo_thread_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Thread, getIpc, arginfo_thread_get_ipc, ZEND_ACC_PUBLIC)
+	ZEND_ME(Thread, kill, arginfo_thread_kill, ZEND_ACC_PUBLIC)
+	ZEND_ME(Thread, join, arginfo_thread_join, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
-
-static const zend_function_entry empty_funcs[] = {
-	ZEND_FE_END
-};
-
-zend_class_entry *php_parallel_runtime_error_illegal_function_ce;
-zend_class_entry *php_parallel_runtime_error_illegal_instruction_ce;
-zend_class_entry *php_parallel_runtime_error_illegal_parameter_ce;
-zend_class_entry *php_parallel_runtime_error_illegal_return_ce;
 
 void async_thread_ce_register()
 {
 	zend_class_entry ce;
-	
-	php_parallel_runtime_error_illegal_function_ce = NULL;
-	php_parallel_runtime_error_illegal_instruction_ce = NULL;
-	php_parallel_runtime_error_illegal_parameter_ce = NULL;
-	php_parallel_runtime_error_illegal_return_ce = NULL;
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\ThreadPool", thread_pool_funcs);
-	async_thread_pool_ce = zend_register_internal_class(&ce);
-	async_thread_pool_ce->ce_flags |= ZEND_ACC_FINAL;
-	async_thread_pool_ce->create_object = async_thread_pool_object_create;
-	async_thread_pool_ce->serialize = zend_class_serialize_deny;
-	async_thread_pool_ce->unserialize = zend_class_unserialize_deny;
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Thread", thread_funcs);
+	async_thread_ce = zend_register_internal_class(&ce);
+	async_thread_ce->ce_flags |= ZEND_ACC_FINAL;
+	async_thread_ce->create_object = async_thread_object_create;
+	async_thread_ce->serialize = zend_class_serialize_deny;
+	async_thread_ce->unserialize = zend_class_unserialize_deny;
 
-	memcpy(&async_thread_pool_handlers, &std_object_handlers, sizeof(zend_object_handlers));
-	async_thread_pool_handlers.free_obj = async_thread_pool_object_destroy;
-	async_thread_pool_handlers.dtor_obj = async_thread_pool_object_dtor;
-	async_thread_pool_handlers.clone_obj = NULL;
+	memcpy(&async_thread_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_thread_handlers.free_obj = async_thread_object_destroy;
+	async_thread_handlers.dtor_obj = async_thread_object_dtor;
+	async_thread_handlers.clone_obj = NULL;
 	
-	INIT_CLASS_ENTRY(ce, "Concurrent\\JobFailedException", empty_funcs);
-	async_job_failed_ce = zend_register_internal_class(&ce);
-
-	zend_do_inheritance(async_job_failed_ce, zend_ce_exception);
-	
-	php_parallel_runtime_main = zend_new_interned_string(zend_string_init(ZEND_STRL("main"), 1));
+	str_main = zend_new_interned_string(zend_string_init(ZEND_STRL("main"), 1));
 	
 #ifdef ZTS
 	if (ASYNC_G(cli)) {
 		sapi_deactivate_func = sapi_module.deactivate;
 		sapi_module.deactivate = NULL;
 	}
-#endif
-}
-
-void async_thread_init()
-{
-#ifdef ZTS
-	php_parallel_copy_startup();
-#endif
-}
-
-void async_thread_shutdown()
-{
-#ifdef ZTS
-	php_parallel_copy_shutdown();
 #endif
 }
 
@@ -928,5 +744,5 @@ void async_thread_ce_unregister()
 	}
 #endif
 
-	zend_string_release(php_parallel_runtime_main);
+	zend_string_release(str_main);
 }

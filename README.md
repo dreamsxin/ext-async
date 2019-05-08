@@ -287,28 +287,32 @@ final class CancellationHandler
 }
 ```
 
-### (experimental) ThreadPool (ZTS command line only)
+### Thread
 
-> This is based on code taken from [ext-parallel](https://github.com/krakjoe/parallel) by [Joe Watkins](https://github.com/krakjoe). It might be removed in the future if we are able to achieve some kind of integration between threads and libuv.
-
-You can make use of multiple PHP threads using a `ThreadPool`. The pool will load and run a bootstrap file for each thread. You have to supply closures to the pool that will be run in one of the pooled threads. Arguments and return values have to be PHP primitive types or (possibly nested) arrays containing these values. Passing objects is not supported because the loaded class definitions might differ from thread to thread.
+You can make use of multiple PHP threads using a `Thread` object. Each thread requires a PHP bootstrap file. You can think of a `Thread` as an embedded additional PHP process that executes in parallel within your process. Threads utilize the same IPC pipe API as forked processes (see `ProcessBuilder`). A worker thread may call `connect()` to obtain an IPC pipe connected to the parent process / thread. The master process / thread can obtain the other end of the pipe by calling `getIpc()`. A call to `join()` will await termination of the `Thread` and throw an error if the thread exited with a PHP error.
 
 > You need a thread-safe build (ZTS) of PHP in order to make use of threads. This requires PHP to be compiled with `--enable-maintainer-zts`. Usage of threads is also restricted to the `cli` SAPI (PHP running from the command line). An alternative to using threads is to use `ProcessBuilder::fork()` to create additional PHP worker processes and exchange data using IPC pipes.
-
-If a job fails it will resolve the awaitable with a `JobFailedException`. The exception exposes the same error message, file and line as the error thrown in the thread (trace inforamtion is not provided).
 
 ```php
 namespace Concurrent;
 
-final class ThreadPool
+use Concurrent\Network\Pipe;
+
+final class Thread
 {
-    public function __construct(?int $size = null, ?string $bootstrap = null) { }
+    public function __construct(string $file) { }
     
     public static function isAvailable(): bool { }
     
-    public function close(?\Throwable $e = null): void { }
+    public static function isWorker(): bool { }
     
-    public function submit(\Closure $work, ...$args): Awaitable { }
+    public static function connect(): Pipe { }
+    
+    public function getIpc(): Pipe { }
+    
+    public function kill(): void { }
+    
+    public function join(): void { }
 }
 ```
 
@@ -762,7 +766,7 @@ The process builder provides a convenient way to execute a shell command by usin
 
 > Running an interactive shell on Windows will (automatically) append `1>&3` to every command and start the shell with `STDOUT` redirected to `NUL`. This hack allows to avoid `cmd.exe` output and prompt line making there way into command output. You can obtain command output using `Process::getStdout()` as usual (just be careful when you are using output redirection in commands yourself as it might break).
 
-In case you want to create a PHP worker process there is the very handy `fork()` named constructor. It will create a process builder that launches another PHP process using the same PHP executable that is running the parent process. It will also make sure that the child process uses the same INI file and INI settings (passed to the parent process using PHP's `-d` command line option) as the parent process. The child process will have no `STDIN` and inherit both `STDOUT` and `STDERR` from the parent process by default. Using `fork()` has an additional benefit: It can establish an IPC pipe to allow full duplex communication between parent and child process (support for transferring TCP and pipe sockets & servers included). The parent process has access to the IPC pipe by calling `getIpc()` on the `Process` object created by `start()`. In your child process you need to call `Process::forked()` to gain access to the other end of the pipe.
+In case you want to create a PHP worker process there is the very handy `fork()` named constructor. It will create a process builder that launches another PHP process using the same PHP executable that is running the parent process. It will also make sure that the child process uses the same INI file and INI settings (passed to the parent process using PHP's `-d` command line option) as the parent process. The child process will have no `STDIN` and inherit both `STDOUT` and `STDERR` from the parent process by default. Using `fork()` has an additional benefit: It can establish an IPC pipe to allow full duplex communication between parent and child process (support for transferring TCP and pipe sockets & servers included). The parent process has access to the IPC pipe by calling `getIpc()` on the `Process` object created by `start()`. In your child process you need to call `Process::connect()` to gain access to the other end of the pipe.
 
 ```php
 namespace Concurrent\Process;
@@ -811,7 +815,7 @@ final class ProcessBuilder
 
 The `Process` class provides access to a started process. You can use `isRunning()` to check if the process has terminated yet. The process identifier can be accessed using `getPid()`. Iy any pipe was configured to be a pipe it will be accessible via the corresponding getter method. You can send a signal to the process using `signal()`, on Windows systems only `SIGHUP` and `SIGINT` are supported (you should use the class constants defined in `Signal` to avoid magic numbers). Calling `join()` will suspend the current task until the process has terminated and return the exit code of the process.
 
-You can check if the current process has been created using `ProcessBuilder::fork()` by calling `isForked()`. You need to call `forked()` in order to access the IPC pipe that allows a child process to communicate with it's parent process. The pipe can transfer string data and file descriptors, it is up to you to come up with some sort of IPC protocol on top of this (e.g. using binary framing).
+You can check if the current process has been created using `ProcessBuilder::fork()` by calling `isWorker()`. You need to call `connect()` in order to access the IPC pipe that allows a child process to communicate with it's parent process. The pipe can transfer string data and file descriptors, it is up to you to come up with some sort of IPC protocol on top of this (e.g. using binary framing).
 
 ```php
 namespace Concurrent\Process;
@@ -822,9 +826,9 @@ use Concurrent\Stream\WritableStream;
 
 final class Process
 {
-    public static function isForked(): bool { }
+    public static function isWorker(): bool { }
     
-    public static function forked(): Pipe { }
+    public static function connect(): Pipe { }
     
     public function isRunning(): bool { }
     

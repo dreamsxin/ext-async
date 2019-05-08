@@ -112,8 +112,7 @@ if test "$PHP_ASYNC" != "no"; then
     src/watcher/timer.c \
     src/xp/socket.c \
     src/xp/tcp.c \
-    src/xp/udp.c \
-    thirdparty/krakjoe/parallel/copy.c
+    src/xp/udp.c
   "
   
   if test "$async_cpu" = 'x86_64'; then

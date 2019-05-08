@@ -19,6 +19,8 @@
 #ifndef ASYNC_PIPE_H
 #define ASYNC_PIPE_H
 
+#include "async_stream.h"
+
 #define ASYNC_PIPE_FLAG_IPC 1
 #define ASYNC_PIPE_FLAG_LAZY (1 << 1)
 

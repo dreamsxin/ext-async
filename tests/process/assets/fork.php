@@ -10,8 +10,8 @@ ini_set('xdebug.overload_var_dump', '0');
 var_dump($_SERVER['argv'][1]);
 var_dump($_SERVER['argv'][2]);
 
-var_dump(Process::isForked());
-$ipc = Process::forked();
+var_dump(Process::isWorker());
+$ipc = Process::connect();
 
 var_dump($ipc->read());
 $ipc->write('World');

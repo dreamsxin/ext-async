@@ -472,14 +472,14 @@ zend_object *async_process_start(async_process_builder *builder, uint32_t argc, 
 	return &proc->std;
 }
 
-static ZEND_METHOD(Process, isForked)
+static ZEND_METHOD(Process, isWorker)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	RETURN_BOOL(ASYNC_G(forked));
 }
 
-static ZEND_METHOD(Process, forked)
+static ZEND_METHOD(Process, connect)
 {
 	async_pipe *pipe;
 	
@@ -661,10 +661,10 @@ static ZEND_METHOD(Process, join)
 ZEND_BEGIN_ARG_INFO(arginfo_process_debug_info, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_is_forked, 0, 0, _IS_BOOL, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_is_worker, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_forked, 0, 0, Concurrent\\Network\\Pipe, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_connect, 0, 0, Concurrent\\Network\\Pipe, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_is_running, 0, 0, _IS_BOOL, 0)
@@ -694,8 +694,8 @@ ZEND_END_ARG_INFO()
 
 static const zend_function_entry async_process_functions[] = {
 	ZEND_ME(Process, __debugInfo, arginfo_process_debug_info, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, isForked, arginfo_process_is_forked, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Process, forked, arginfo_process_forked, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Process, isWorker, arginfo_process_is_worker, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	ZEND_ME(Process, connect, arginfo_process_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	ZEND_ME(Process, isRunning, arginfo_process_is_running, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, getPid, arginfo_process_get_pid, ZEND_ACC_PUBLIC)
 	ZEND_ME(Process, getStdin, arginfo_process_get_stdin, ZEND_ACC_PUBLIC)
