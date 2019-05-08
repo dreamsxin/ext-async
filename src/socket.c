@@ -23,8 +23,12 @@
 
 ASYNC_API zend_class_entry *async_server_ce;
 ASYNC_API zend_class_entry *async_socket_ce;
+ASYNC_API zend_class_entry *async_socket_accept_exception_ce;
+ASYNC_API zend_class_entry *async_socket_bind_exception_ce;
+ASYNC_API zend_class_entry *async_socket_connect_exception_ce;
 ASYNC_API zend_class_entry *async_socket_disconnect_exception_ce;
 ASYNC_API zend_class_entry *async_socket_exception_ce;
+ASYNC_API zend_class_entry *async_socket_listen_exception_ce;
 ASYNC_API zend_class_entry *async_socket_stream_ce;
 
 
@@ -95,8 +99,28 @@ void async_socket_ce_register()
 
 	zend_do_inheritance(async_socket_exception_ce, async_stream_exception_ce);
 	
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\SocketAcceptException", empty_funcs);
+	async_socket_accept_exception_ce = zend_register_internal_class(&ce);
+
+	zend_do_inheritance(async_socket_accept_exception_ce, async_socket_exception_ce);
+	
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\SocketBindException", empty_funcs);
+	async_socket_bind_exception_ce = zend_register_internal_class(&ce);
+
+	zend_do_inheritance(async_socket_bind_exception_ce, async_socket_exception_ce);
+	
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\SocketConnectException", empty_funcs);
+	async_socket_connect_exception_ce = zend_register_internal_class(&ce);
+
+	zend_do_inheritance(async_socket_connect_exception_ce, async_socket_exception_ce);
+	
 	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\SocketDisconnectException", empty_funcs);
 	async_socket_disconnect_exception_ce = zend_register_internal_class(&ce);
 
 	zend_do_inheritance(async_socket_disconnect_exception_ce, async_socket_exception_ce);
+	
+	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\SocketListenException", empty_funcs);
+	async_socket_listen_exception_ce = zend_register_internal_class(&ce);
+
+	zend_do_inheritance(async_socket_listen_exception_ce, async_socket_exception_ce);
 }

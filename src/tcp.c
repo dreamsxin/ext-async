@@ -339,7 +339,7 @@ static ZEND_METHOD(TcpSocket, connect)
 	code = uv_tcp_connect(&req, &socket->handle, (const struct sockaddr *) &dest, connect_cb);
 
 	if (UNEXPECTED(code != 0)) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to intialize socket connect operation: %s", uv_strerror(code));
+		zend_throw_exception_ex(async_socket_connect_exception_ce, 0, "Failed to connect socket: %s", uv_strerror(code));
 		ASYNC_DELREF(&socket->std);
 		return;
 	}
@@ -373,7 +373,7 @@ static ZEND_METHOD(TcpSocket, connect)
 	ASYNC_FREE_OP(op);
 	
 	if (UNEXPECTED(code < 0)) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to connect socket: %s", uv_strerror(code));
+		zend_throw_exception_ex(async_socket_connect_exception_ce, 0, "Failed to connect socket: %s", uv_strerror(code));
 		ASYNC_DELREF(&socket->std);		
 		return;
 	}
@@ -1112,7 +1112,7 @@ static void create_server(async_tcp_server **result, zend_execute_data *execute_
 	code = uv_tcp_bind(&server->handle, (const struct sockaddr *) &addr, 0);
 
 	if (UNEXPECTED(code != 0)) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to bind server: %s", uv_strerror(code));
+		zend_throw_exception_ex(async_socket_bind_exception_ce, 0, "Failed to bind server: %s", uv_strerror(code));
 		ASYNC_DELREF(&server->std);
 		return;
 	}
@@ -1156,7 +1156,7 @@ static ZEND_METHOD(TcpServer, listen)
 		code = uv_listen((uv_stream_t *) &server->handle, 128, server_connected);
 
 		if (UNEXPECTED(code != 0)) {
-			zend_throw_exception_ex(async_socket_exception_ce, 0, "Server failed to listen: %s", uv_strerror(code));
+			zend_throw_exception_ex(async_socket_listen_exception_ce, 0, "Server failed to listen: %s", uv_strerror(code));
 			ASYNC_DELREF(&server->std);
 			return;
 		}
@@ -1319,7 +1319,7 @@ static ZEND_METHOD(TcpServer, accept)
 	if (server->flags & ASYNC_TCP_SERVER_FLAG_LAZY) {
 		code = uv_listen((uv_stream_t *) &server->handle, 128, server_connected);
 	
-		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Server failed to listen: %s", uv_strerror(code));
+		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_listen_exception_ce, "Server failed to listen: %s", uv_strerror(code));
 		
 		server->flags ^= ASYNC_TCP_SERVER_FLAG_LAZY;
 	}
@@ -1350,7 +1350,7 @@ static ZEND_METHOD(TcpServer, accept)
 		
 		ASYNC_FREE_OP(op);
 		
-		ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to await socket connection: %s", uv_strerror(code));
+		ASYNC_CHECK_EXCEPTION(code < 0, async_socket_accept_exception_ce, "Failed to accept socket connection: %s", uv_strerror(code));
 	} else {
 		server->pending--;
 	}
@@ -1360,7 +1360,7 @@ static ZEND_METHOD(TcpServer, accept)
 	code = uv_accept((uv_stream_t *) &server->handle, (uv_stream_t *) &socket->handle);
 
 	if (UNEXPECTED(code != 0)) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to accept socket connection: %s", uv_strerror(code));
+		zend_throw_exception_ex(async_socket_accept_exception_ce, 0, "Failed to accept socket connection: %s", uv_strerror(code));
 		ASYNC_DELREF(&socket->std);
 		
 		return;

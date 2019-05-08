@@ -257,7 +257,7 @@ static ZEND_METHOD(Pipe, connect)
 	ASYNC_FREE_OP(op);
 	
 	if (UNEXPECTED(code < 0)) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to connect pipe: %s", uv_strerror(code));
+		zend_throw_exception_ex(async_socket_connect_exception_ce, 0, "Failed to connect pipe: %s", uv_strerror(code));
 		ASYNC_DELREF(&pipe->std);		
 		return;
 	}
@@ -450,7 +450,7 @@ static ZEND_METHOD(Pipe, pair)
 		ASYNC_DELREF(&pipe->std);
 		ASYNC_DELREF(&client->std);
 		
-		zend_throw_exception_ex(async_stream_exception_ce, 0, "Failed to accept pipe: %s", uv_strerror(code));
+		zend_throw_exception_ex(async_socket_accept_exception_ce, 0, "Failed to accept pipe: %s", uv_strerror(code));
 		return;
 	}
 	
@@ -913,7 +913,7 @@ static void create_server(async_pipe_server **result, zend_execute_data *execute
 		zend_string_release(name);
 #endif
 
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to bind server: %s", uv_strerror(code));
+		zend_throw_exception_ex(async_socket_bind_exception_ce, 0, "Failed to bind server: %s", uv_strerror(code));
 		ASYNC_DELREF(&server->std);
 		return;
 	}
@@ -954,7 +954,7 @@ static ZEND_METHOD(PipeServer, listen)
 		code = uv_listen((uv_stream_t *) &server->handle, 128, listen_cb);
 	
 		if (UNEXPECTED(code != 0)) {
-			zend_throw_exception_ex(async_socket_exception_ce, 0, "Server failed to listen: %s", uv_strerror(code));
+			zend_throw_exception_ex(async_socket_listen_exception_ce, 0, "Server failed to listen: %s", uv_strerror(code));
 			ASYNC_DELREF(&server->std);
 			return;
 		}
@@ -1100,7 +1100,7 @@ static ZEND_METHOD(PipeServer, accept)
 	if (server->flags & ASYNC_PIPE_FLAG_LAZY) {
 		code = uv_listen((uv_stream_t *) &server->handle, 128, listen_cb);
 	
-		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_exception_ce, "Server failed to listen: %s", uv_strerror(code));
+		ASYNC_CHECK_EXCEPTION(code != 0, async_socket_listen_exception_ce, "Server failed to listen: %s", uv_strerror(code));
 		
 		server->flags ^= ASYNC_PIPE_FLAG_LAZY;
 	}
@@ -1131,7 +1131,7 @@ static ZEND_METHOD(PipeServer, accept)
 		
 		ASYNC_FREE_OP(op);
 		
-		ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to await pipe connection: %s", uv_strerror(code));
+		ASYNC_CHECK_EXCEPTION(code < 0, async_socket_accept_exception_ce, "Failed to accept pipe connection: %s", uv_strerror(code));
 	} else {
 		server->pending--;
 	}
@@ -1141,7 +1141,7 @@ static ZEND_METHOD(PipeServer, accept)
 	code = uv_accept((uv_stream_t *) &server->handle, (uv_stream_t *) &pipe->handle);
 
 	if (UNEXPECTED(code != 0)) {
-		zend_throw_exception_ex(async_socket_exception_ce, 0, "Failed to accept pipe connection: %s", uv_strerror(code));
+		zend_throw_exception_ex(async_socket_accept_exception_ce, 0, "Failed to accept pipe connection: %s", uv_strerror(code));
 		ASYNC_DELREF(&pipe->std);
 		
 		return;
