@@ -267,7 +267,7 @@ static int async_xp_socket_close(php_stream *stream, int close_handle)
 	data = (async_xp_socket_data *) stream->abstract;
 	
 	if (data->astream == NULL) {
-		if (uv_is_closing(&data->handle)) {
+		if (!(data->flags & ASYNC_XP_SOCKET_FLAG_INIT) || uv_is_closing(&data->handle)) {
 			if (data->peer != NULL) {
 				zend_string_release(data->peer);
 				data->peer = NULL;

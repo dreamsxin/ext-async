@@ -10,7 +10,7 @@ if (($_SERVER['argv'][1] ?? null)) {
     $tls = null;
 }
 
-$server = TcpServer::listen('localhost', 8080, $tls);
+$server = TcpServer::bind('localhost', 8080, $tls, true);
 
 try {
     var_dump($server->getAddress(), $server->getPort());

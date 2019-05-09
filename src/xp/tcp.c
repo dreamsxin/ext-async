@@ -44,6 +44,7 @@ ASYNC_CALLBACK free_cb(uv_handle_t *handle)
 static int tcp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam)
 {
 	php_sockaddr_storage dest;
+	php_socket_t sock;
 	unsigned int flags;
 	
 	char *ip;
@@ -67,7 +68,27 @@ static int tcp_socket_bind(php_stream *stream, async_xp_socket_data *data, php_s
 	
 	async_socket_set_port((struct sockaddr *) &dest, port);
 	
-	if (PHP_STREAM_CONTEXT(stream)) {
+	code = uv_tcp_init_ex(&data->scheduler->loop, (uv_tcp_t *) &data->handle, dest.ss_family);
+	
+	if (UNEXPECTED(code < 0)) {
+		return FAILURE;
+	}
+	
+	data->flags |= ASYNC_XP_SOCKET_FLAG_INIT;
+	
+	if (UNEXPECTED(0 != uv_fileno((const uv_handle_t *) &data->handle, (uv_os_fd_t *) &sock))) {
+		return FAILURE;
+	}
+	
+	async_socket_set_reuseaddr(sock, 1);
+	
+	if (PHP_STREAM_CONTEXT(stream)) {		
+		tmp = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream), "socket", "so_reuseport");
+		
+		if (tmp != NULL && Z_TYPE_P(tmp) != IS_NULL && zend_is_true(tmp)) {
+			async_socket_set_reuseport(sock, 1);
+		}
+	
 #ifdef HAVE_IPV6
 		if (dest.ss_family == AF_INET6) {
 			tmp = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream), "socket", "ipv6_v6only");
@@ -139,7 +160,9 @@ ASYNC_CALLBACK connect_timer_cb(uv_timer_t *timer)
 	tcp = (async_xp_socket_data_tcp *) timer->data;
 	
 	// Need to close the socket right here to cancel connect, anything else will segfault later...
-	uv_close((uv_handle_t *) &tcp->handle, NULL);
+	if (tcp->flags & ASYNC_XP_SOCKET_FLAG_INIT) {
+		uv_close((uv_handle_t *) &tcp->handle, NULL);
+	}
 }
 
 static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, php_stream_xport_param *xparam)
@@ -170,6 +193,10 @@ static int tcp_socket_connect(php_stream *stream, async_xp_socket_data *data, ph
 	}
 	
 	async_socket_set_port((struct sockaddr *) &dest, port);
+	
+	uv_tcp_init(&data->scheduler->loop, (uv_tcp_t *) &data->handle);
+	
+	data->flags |= ASYNC_XP_SOCKET_FLAG_INIT;
 	
 	code = uv_tcp_connect(&req, (uv_tcp_t *) &data->handle, (const struct sockaddr *) &dest, tcp_socket_connect_cb);
 	
@@ -292,6 +319,7 @@ static int tcp_socket_accept(php_stream *stream, async_xp_socket_data *data, php
 	
 	uv_tcp_init(&server->scheduler->loop, &client->handle);
 	
+	client->flags |= ASYNC_XP_SOCKET_FLAG_INIT;	
 	client->handle.data = client;
 
 	do {
@@ -425,8 +453,6 @@ static php_stream *tcp_socket_factory(const char *proto, size_t plen, const char
 	
 		return NULL;
 	}
- 	
- 	uv_tcp_init(&data->scheduler->loop, &data->handle);
  	
  	data->connect = tcp_socket_connect;
  	data->bind = tcp_socket_bind;

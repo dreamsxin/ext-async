@@ -631,9 +631,9 @@ final class TcpServer implements Server
 {
     public const SIMULTANEOUS_ACCEPTS;
     
-    public static function bind(string $host, int $port, ?TlsServerEncryption $tls = null): TcpServer { }
+    public static function bind(string $host, int $port, ?TlsServerEncryption $tls = null, ?bool $reuseport = null): TcpServer { }
     
-    public static function listen(string $host, int $port, ?TlsServerEncryption $tls = null): TcpServer { }
+    public static function listen(string $host, int $port, ?TlsServerEncryption $tls = null, ?bool $reuseport = null): TcpServer { }
     
     public static function import(Pipe $pipe, ?TlsServerEncryption $tls = null): TcpServer { }
     

@@ -16,7 +16,11 @@ if ($ssl) {
         ]
     ]));
 } else {
-    $server = @stream_socket_server('async-tcp://127.0.0.1:10008', $errno, $errstr, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN);
+    $server = @stream_socket_server('async-tcp://127.0.0.1:10008', $errno, $errstr, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN, stream_context_create([
+        'socket' => [
+            'so_reuseport' => true
+        ]
+    ]));
 }
 
 if ($server === false) {

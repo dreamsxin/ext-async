@@ -175,6 +175,32 @@ static zend_always_inline int async_socket_parse_ipv6(const char *address, uint1
 }
 #endif
 
+static zend_always_inline int async_socket_set_reuseaddr(php_socket_t sock, int yes)
+{
+#ifdef PHP_WIN32
+	if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char *) &yes, sizeof(yes))) {
+    	return uv_translate_sys_error(php_socket_errno());
+    }
+#else
+	if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes))) {
+    	return uv_translate_sys_error(php_socket_errno());
+    }
+#endif
+
+	return 0;
+}
+
+static zend_always_inline int async_socket_set_reuseport(php_socket_t sock, int yes)
+{
+#ifndef PHP_WIN32
+	if (setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes))) {
+    	return uv_translate_sys_error(php_socket_errno());
+    }
+#endif
+
+	return 0;
+}
+
 static zend_always_inline int async_socket_is_alive(async_stream *stream)
 {
 	php_socket_t sock;

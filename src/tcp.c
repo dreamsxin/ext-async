@@ -945,7 +945,7 @@ ASYNC_CALLBACK shutdown_server(void *obj, zval *error)
 	}
 }
 
-static async_tcp_server *async_tcp_server_object_create()
+static async_tcp_server *async_tcp_server_object_create(int domain)
 {
 	async_tcp_server *server;
 
@@ -960,8 +960,8 @@ static async_tcp_server *async_tcp_server_object_create()
 	server->cancel.func = shutdown_server;
 	
 	ASYNC_LIST_APPEND(&server->scheduler->shutdown, &server->cancel);
-
-	uv_tcp_init(&server->scheduler->loop, &server->handle);
+	
+	uv_tcp_init_ex(&server->scheduler->loop, &server->handle, domain);
 
 	server->handle.data = server;
 	
@@ -1082,20 +1082,23 @@ static void create_server(async_tcp_server **result, zend_execute_data *execute_
 	zend_long port;
 
 	zval *tls;
+	zend_bool reuseport;
 
 	php_sockaddr_storage addr;
-	uv_os_fd_t sock;
+	php_socket_t sock;
 	int code;
 
 	*result = NULL;
 	
 	tls = NULL;
+	reuseport = 0;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 3)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 4)
 		Z_PARAM_STR(name)
 		Z_PARAM_LONG(port)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_ZVAL(tls)
+		Z_PARAM_BOOL(reuseport)
 	ZEND_PARSE_PARAMETERS_END();
 
 	code = async_dns_lookup_ip(ZSTR_VAL(name), &addr, IPPROTO_TCP);
@@ -1104,12 +1107,30 @@ static void create_server(async_tcp_server **result, zend_execute_data *execute_
 	
 	async_socket_set_port((struct sockaddr *) &addr, port);
 
-	server = async_tcp_server_object_create();
+	server = async_tcp_server_object_create(addr.ss_family);
+	
+	if (UNEXPECTED(0 != uv_fileno((const uv_handle_t *) &server->handle, (uv_os_fd_t *) &sock))) {
+		zend_throw_exception_ex(async_socket_bind_exception_ce, 0, "Failed to create socket handle");
+		ASYNC_DELREF(&server->std);
+		return;
+	}
 	
 	server->name = zend_string_copy(name);
 	server->port = (uint16_t) port;
+	
+	async_socket_set_reuseaddr(sock, 1);
+	
+	if (reuseport) {
+		async_socket_set_reuseport(sock, 1);
+	}
+	
+#ifdef HAVE_IPV6
+	code = (addr.ss_family == AF_INET6) ? UV_TCP_IPV6ONLY : 0;
+#else
+	code = 0;
+#endif
 
-	code = uv_tcp_bind(&server->handle, (const struct sockaddr *) &addr, 0);
+	code = uv_tcp_bind(&server->handle, (const struct sockaddr *) &addr, code);
 
 	if (UNEXPECTED(code != 0)) {
 		zend_throw_exception_ex(async_socket_bind_exception_ce, 0, "Failed to bind server: %s", uv_strerror(code));
@@ -1119,13 +1140,11 @@ static void create_server(async_tcp_server **result, zend_execute_data *execute_
 
 	uv_unref((uv_handle_t *) &server->handle);
 
+	async_socket_get_local_peer((php_socket_t) sock, &server->addr, &server->port);
+
 	if (UNEXPECTED(SUCCESS != setup_server_tls(server, tls))) {
 		ASYNC_DELREF(&server->std);
 		return;
-	}
-	
-	if (EXPECTED(0 == uv_fileno((const uv_handle_t *) &server->handle, &sock))) {
-		async_socket_get_local_peer((php_socket_t) sock, &server->addr, &server->port);
 	}
 	
 	*result = server;
@@ -1181,7 +1200,7 @@ static ZEND_METHOD(TcpServer, import)
 		Z_PARAM_ZVAL(tls)
 	ZEND_PARSE_PARAMETERS_END();
 	
-	server = async_tcp_server_object_create();
+	server = async_tcp_server_object_create(AF_UNSPEC);
 	server->flags = ASYNC_TCP_SERVER_FLAG_LAZY;
 	
 	async_pipe_import_stream((async_pipe *) Z_OBJ_P(conn), (uv_stream_t *) &server->handle);
@@ -1382,12 +1401,14 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_listen, 0, 2, Concurre
 	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
 	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
+	ZEND_ARG_TYPE_INFO(0, reuseport, _IS_BOOL, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_bind, 0, 2, Concurrent\\Network\\TcpServer, 0)
 	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
 	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
+	ZEND_ARG_TYPE_INFO(0, reuseport, _IS_BOOL, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_import, 0, 1, Concurrent\\Network\\TcpServer, 0)
