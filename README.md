@@ -289,7 +289,7 @@ final class CancellationHandler
 
 ### Thread
 
-You can make use of multiple PHP threads using a `Thread` object. Each thread requires a PHP bootstrap file. You can think of a `Thread` as an embedded additional PHP process that executes in parallel within your process. Threads utilize the same IPC pipe API as forked processes (see `ProcessBuilder`). A worker thread may call `connect()` to obtain an IPC pipe connected to the parent process / thread. The master process / thread can obtain the other end of the pipe by calling `getIpc()`. A call to `join()` will await termination of the `Thread` and throw an error if the thread exited with a PHP error.
+You can make use of multiple PHP threads using a `Thread` object. Each thread requires a PHP bootstrap file. You can think of a `Thread` as an embedded additional PHP process that executes in parallel within your process. Threads utilize the same IPC pipe API as forked processes (see `ProcessBuilder`). A worker thread may call `connect()` to obtain an IPC pipe connected to the parent process / thread. The master process / thread can obtain the other end of the pipe by calling `getIpc()`. A call to `join()` will await termination of the `Thread` and return the exit status of the thread (0 on normal termination).
 
 > You need a thread-safe build (ZTS) of PHP in order to make use of threads. This requires PHP to be compiled with `--enable-maintainer-zts`. Usage of threads is also restricted to the `cli` SAPI (PHP running from the command line). An alternative to using threads is to use `ProcessBuilder::fork()` to create additional PHP worker processes and exchange data using IPC pipes.
 
@@ -312,7 +312,7 @@ final class Thread
     
     public function kill(): void { }
     
-    public function join(): void { }
+    public function join(): int { }
 }
 ```
 

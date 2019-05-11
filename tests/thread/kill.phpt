@@ -1,5 +1,5 @@
 --TEST--
-Thread will execute a script file in an isolated thread.
+Thread can be killed using interrupt.
 --SKIPIF--
 <?php
 if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
@@ -10,18 +10,18 @@ if (\Concurrent\Thread::isAvailable()) echo 'Test requires ZTS';
 
 namespace Concurrent;
 
-var_dump(Thread::isAvailable());
 var_dump('START');
 
-$thread = new Thread(__DIR__ . '/assets/fork.php');
-var_dump($thread->join());
+$thread = new Thread(__DIR__ . '/assets/kill.php');
+
+(new Timer(200))->awaitTimeout();
+
+$thread->kill();
+$thread->join();
 
 var_dump('DONE');
 
 --EXPECT--
-bool(true)
 string(5) "START"
-string(5) "READY"
-string(9) "TERMINATE"
-int(0)
+string(3) "RUN"
 string(4) "DONE"

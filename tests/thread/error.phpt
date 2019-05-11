@@ -12,17 +12,8 @@ namespace Concurrent;
 
 $thread = new Thread(__DIR__ . '/assets/error.php');
 
-try {
-    $thread->join();
-} catch (\Throwable $e) {
-    echo get_class($e), "\n";
-    echo $e->getMessage(), "\n";
-    echo $e->getFile(), "\n";
-    echo $e->getLine(), "\n";
-}
+var_dump($thread->join());
 
---EXPECTF--
-Error
-This is an error!
-%s
-6
+--EXPECT--
+string(8) "GO THROW"
+int(1)
