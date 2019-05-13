@@ -13,26 +13,25 @@ $channel = new Channel(4);
 
 $group = new ChannelGroup([
     $channel->getIterator()
-], 0);
+]);
 
-var_dump($group->select());
+var_dump($group->select(0));
 
 $channel->send('A');
 $channel->send('B');
 $channel->close();
 
 var_dump(count($group));
-$v = null;
 
-var_dump($group->select($v));
-var_dump($v);
+$val = $group->select(0);
+var_dump($val->key);
+var_dump($val->value);
 
-var_dump($group->select($v));
-var_dump($v);
+$val = $group->select(0);
+var_dump($val->key);
+var_dump($val->value);
 
-var_dump($group->select($v));
-var_dump($v);
-
+var_dump($group->select(0));
 var_dump($group->count());
 
 --EXPECT--
@@ -42,6 +41,5 @@ int(0)
 string(1) "A"
 int(0)
 string(1) "B"
-NULL
 NULL
 int(0)

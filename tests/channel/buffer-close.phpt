@@ -10,13 +10,13 @@ if (!extension_loaded('task')) echo 'Test requires the task extension to be load
 namespace Concurrent;
 
 $channel = new Channel(2);
-$group = new ChannelGroup([$channel], 0);
+$group = new ChannelGroup([$channel]);
 
 var_dump($channel->isClosed());
 
-var_dump($group->send('X'));
-var_dump($group->send('X'));
-var_dump($group->send('X'));
+var_dump($group->send('X', 0));
+var_dump($group->send('X', 0));
+var_dump($group->send('X', 0));
 
 $channel->close();
 

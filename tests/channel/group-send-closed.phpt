@@ -12,14 +12,14 @@ namespace Concurrent;
 $group = new ChannelGroup([
     'A' => ($a = new Channel()),
     'B' => ($b = new Channel())
-], 0, true);
+], true);
 
 $a->close();
 
 var_dump(count($group));
 
 try {
-    var_dump($group->send(1));
+    var_dump($group->send(1, 0));
 } catch (ChannelClosedException $e) {
     var_dump($e->getMessage());
 }

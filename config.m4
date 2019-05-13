@@ -107,6 +107,7 @@ if test "$PHP_ASYNC" != "no"; then
     src/tcp.c \
     src/thread.c \
     src/udp.c \
+    src/watcher/monitor.c \
     src/watcher/poll.c \
     src/watcher/signal.c \
     src/watcher/timer.c \

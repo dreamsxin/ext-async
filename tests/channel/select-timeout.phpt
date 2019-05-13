@@ -11,7 +11,7 @@ namespace Concurrent;
 
 $group = new ChannelGroup([
     3 => $channel = new Channel()
-], 50);
+]);
 
 Task::async(function () use ($channel) {
     (new Timer(80))->awaitTimeout();
@@ -20,18 +20,16 @@ Task::async(function () use ($channel) {
     $channel->close();
 });
 
-var_dump($group->select());
+var_dump($group->select(50));
 
-$v = null;
-var_dump($group->select($v));
-var_dump($v);
+$val = $group->select(50);
+var_dump($val->key);
+var_dump($val->value);
 
-var_dump($group->select($v));
-var_dump($v);
+var_dump($group->select(50));
 
 --EXPECT--
 NULL
 int(3)
 string(4) "DONE"
-NULL
 NULL

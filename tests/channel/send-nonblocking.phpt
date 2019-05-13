@@ -11,11 +11,11 @@ namespace Concurrent;
 
 $group = new ChannelGroup([
     $channel = new Channel(2)    
-], 0);
+]);
 
-var_dump($group->send('A'));
-var_dump($group->send('B'));
-var_dump($group->send('C'));
+var_dump($group->send('A', 0));
+var_dump($group->send('B', 0));
+var_dump($group->send('C', 0));
 
 $channel->close();
 

@@ -11,7 +11,7 @@ namespace Concurrent;
 
 $group = new ChannelGroup([
     $channel = new Channel()    
-], 50);
+]);
 
 Task::async(function (\Iterator $it) {
     $it->rewind();
@@ -22,9 +22,9 @@ Task::async(function (\Iterator $it) {
 
 (new Timer(10))->awaitTimeout();
 
-var_dump($group->send('A'));
-var_dump($group->send('B'));
-var_dump($group->send('C'));
+var_dump($group->send('A', 50));
+var_dump($group->send('B', 50));
+var_dump($group->send('C', 50));
 
 $channel->close();
 

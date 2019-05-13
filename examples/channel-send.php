@@ -24,10 +24,16 @@ Task::async(function (iterable $it) {
 $group = new ChannelGroup([
     'A' => $a,
     'B' => $b
-], (int) ($_SERVER['argv'][1] ?? 0) ?: null);
+]);
+
+if (empty($_SERVER['argv'][1])) {
+    $timeout = null;
+} else {
+    $timeout = (int) $_SERVER['argv'][1];
+}
 
 for ($i = 0; $i < 5; $i++) {
-    if (null !== ($t = $group->send($i))) {
+    if (null !== ($t = $group->send($i, $timeout))) {
         var_dump('SEND TO: ' . $t);
     } else {
         var_dump('DISCARD');

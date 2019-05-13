@@ -211,7 +211,7 @@ final class Channel implements \IteratorAggregate
 
 ### ChannelGroup
 
-Working with multiple channels at once can be done by using a `ChannelGroup`. The group provides the very useful `select()` call that allows to read from multiple channels concurrently, it will return once a message has been received from any channel that is part of the group. You can use the constructor's `$timeout` parameter to specify a maximum wait time (in milliseconds). If no message has been received `select()` will return `NULL`. Whenever a message has been received `select()` will return the index of the channel in the wrapped `$channel` array. You have to pass a variable by reference to `select()` if you want to receive the message payload (this is not necessary if you just want to know the origin of the message but you do not care about the actual payload).
+Working with multiple channels at once can be done by using a `ChannelGroup`. The group provides the very useful `select()` call that allows to read from multiple channels concurrently, it will return once a message has been received from any channel that is part of the group. You can use the `$timeout` argument to specify a maximum wait time (in milliseconds). If no message has been received `select()` will return `NULL`. Whenever a message has been received `select()` will return the index of the channel in the wrapped `$channel` array. You have to pass a variable by reference to `select()` if you want to receive the message payload (this is not necessary if you just want to know the origin of the message but you do not care about the actual payload).
 
 The constructor accepts a `$channels` array that must contain eighter `Channel` objects or objects that implement `IteratorAggregate` and return a `ChannelIterator` object when `getIterator()` is called. You can call `count()` to check how many of the wrapped channels are still open and therefore considered to be readable. Keep in mind that you need to call `select()` before checking the count because channels can only be checked for closed state during `select()` (consider using a `do / while` loop and check `count()` as the loop condition). Closed channels are silently removed from the group if they are not closed with an error. If any of the input channels is closed with an error it will be forwarded exactly once by `select()` after that the closed channel will be removed!
 
@@ -222,11 +222,17 @@ namespace Concurrent;
 
 final class ChannelGroup implements \Countable
 {
-    public function __construct(array $channels, ?int $timeout = null, bool $shuffle = false) { }
+    public function __construct(array $channels, bool $shuffle = false) { }
     
-    public function select(& $message = null): mixed { }
+    public function select(?int $timeout = null): ?ChannelSelect { }
     
-    public function send($message): mixed { }
+    public function send($message, ?int $timeout = null): mixed { }
+}
+
+final class ChannelSelect
+{
+    public string $key;
+    public string $value;
 }
 ```
 
@@ -338,6 +344,34 @@ final class Condition
 ```
 
 ## Watcher API
+
+### Monitor
+
+A `Monitor` can be used to watch the (local) filesystem for changes. You have to provide a valid filesystem path in the constructor. The `Monitor` will raise a `MonitorEvent` for each change of the monitored file or directory. One filesystem change may trigger multiple (possibly identical) events, be prepared to handle this case in your application.
+
+> Change detection is backed by native OS APIs, recursive monitoring is supported on Windows only.
+
+```php
+namespace Concurrent;
+
+final class Monitor
+{
+    public function __construct(string $path, ?bool $recursive = null) { }
+    
+    public function close(?\Throwable $e = null): void { }
+    
+    public function awaitEvent(): MonitorEvent { }
+}
+
+final class MonitorEvent
+{
+    public const RENAMED;
+    public const CHANGED;
+    
+    public int $events;
+    public string $path;
+}
+```
 
 ### Timer
 

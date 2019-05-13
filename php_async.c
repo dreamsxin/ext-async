@@ -188,6 +188,7 @@ PHP_MINIT_FUNCTION(async)
 	async_context_ce_register();
 	async_deferred_ce_register();
 	async_dns_ce_register();
+	async_monitor_ce_register();
 	async_pipe_ce_register();
 	async_poll_ce_register();
 	async_process_ce_register();
@@ -229,6 +230,9 @@ PHP_MINIT_FUNCTION(async)
 
 PHP_MSHUTDOWN_FUNCTION(async)
 {
+	async_channel_ce_unregister();
+	async_monitor_ce_unregister();
+
 	async_task_ce_unregister();
 	async_thread_ce_unregister();
 

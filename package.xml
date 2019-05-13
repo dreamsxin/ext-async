@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2019-05-11</date>
-  <time>06:08:45</time>
+  <date>2019-05-13</date>
+  <time>17:20:23</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -64,6 +64,7 @@
       <file role="src" name="src/tcp.c"/>
       <file role="src" name="src/thread.c"/>
       <file role="src" name="src/udp.c"/>
+      <file role="src" name="src/watcher/monitor.c"/>
       <file role="src" name="src/watcher/poll.c"/>
       <file role="src" name="src/watcher/signal.c"/>
       <file role="src" name="src/watcher/timer.c"/>
@@ -239,6 +240,7 @@
       <file role="test" name="tests/channel/close-reason-forwarding.phpt"/>
       <file role="test" name="tests/channel/concurrent-consumers.phpt"/>
       <file role="test" name="tests/channel/concurrent-producers.phpt"/>
+      <file role="test" name="tests/channel/debounce.phpt"/>
       <file role="test" name="tests/channel/group-cancel-send.phpt"/>
       <file role="test" name="tests/channel/group-ctor.phpt"/>
       <file role="test" name="tests/channel/group-send-closed.phpt"/>

@@ -30,15 +30,15 @@ $block = ((int) ($_SERVER['argv'][1] ?? '0')) ? true : false;
 $group = new ChannelGroup([
     'A' => $channel1,
     'B' => $channel2->getIterator()
-], $block ? null : 25);
-
-$v = null;
+]);
 
 do {
-    switch ($k = $group->select($v)) {
+    $select = $group->select($block ? null : 25);
+    
+    switch ($select->key ?? null) {
         case 'A':
         case 'B':
-            printf("%s >> %s\n", $k, $v);
+            printf("%s >> %s\n", $select->key, $select->value);
             break;
         default:
             if (!$block) {

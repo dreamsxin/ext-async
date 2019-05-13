@@ -35,13 +35,14 @@ foreach ($channels as $k => $v) {
     Task::async($producer, $v, $k, 100, ($k == 'A') ? 0 : 150);
 }
 
-$group = new ChannelGroup($channels, null, true);
-$v = null;
+$group = new ChannelGroup($channels, true);
 
 do {
-    $k = $group->select($v);
+    $val = $group->select();
     
-    var_dump($k, $v);
+    if ($val !== null) {
+        var_dump($val->key, $val->value);
+    }
 } while ($group->count());
 
 --EXPECT--
@@ -57,5 +58,3 @@ string(1) "B"
 string(2) "B1"
 string(1) "B"
 string(2) "B2"
-NULL
-NULL

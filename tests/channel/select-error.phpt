@@ -58,12 +58,11 @@ try {
     var_dump($e->getPrevious()->getMessage());
 }
 
-$v = null;
-var_dump($group->select($v));
-var_dump($v);
+$val = $group->select();
+var_dump($val->key);
+var_dump($val->value);
 
-var_dump($group->select($v));
-var_dump($v);
+var_dump($group->select());
 
 --EXPECT--
 string(23) "Channel has been closed"
@@ -76,5 +75,4 @@ string(23) "Channel has been closed"
 string(5) "FAIL!"
 int(0)
 string(2) "OK"
-NULL
 NULL
