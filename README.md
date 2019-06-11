@@ -397,12 +397,14 @@ final class Timer
 
 A `Poll` observes a PHP stream or socket for readability or writability. Only a single poll is allowed for any PHP resource. The poll should be closed when it is no longer needed to free internal resources. The `Poll` will suspend the current task during `awaitReadable()` and `awaitWritable()` and continue once the watched stream becomes readable or is closed by the remote peer. A `Poll` can be used simultaneously (by multiple tasks) to await both read and write events, all tasks will be continued (in the same order as they entered await) once the stream is readable / writable. A `Poll` can be closed by calling `close()` which will fail all pending read & write subscriptions and prevent any further operations.
 
+> Do not use polls unless you absolutely have to (always use specialized streams for sockets and pipes instead, they are a lot faster and safer to use). There can only be a single poll object for each resource, you have to enforce this constraint yourself, failing to do so will (most likely) crash your PHP process!!!
+
 ```php
 namespace Concurrent;
 
 final class Poll
 {
-    public function __construct($resource) { }
+    public function __construct(resource $resource) { }
     
     public function close(?\Throwable $e = null): void { }
     
