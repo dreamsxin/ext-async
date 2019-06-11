@@ -244,7 +244,7 @@ namespace Concurrent;
 
 final class Context
 {
-    public function isCcancelled(): bool { }
+    public function isCancelled(): bool { }
 
     public function with(ContextVar $var, $value): Context { }
     
