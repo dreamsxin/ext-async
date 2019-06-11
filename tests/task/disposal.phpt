@@ -1,9 +1,7 @@
 --TEST--
 Task will schedule an error if an awaited object is disposed before it is resolved.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 

@@ -1,9 +1,7 @@
 --TEST--
 Pipe can be created as connected pair.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
@@ -29,7 +27,7 @@ Task::async(function () use ($a) {
             $stream->close();
         }
         
-        $a->writeAsync('World!');
+        Task::async([$a, 'write'], 'World!');
         $a->flush();
         
         var_dump($a->getWriteQueueSize());

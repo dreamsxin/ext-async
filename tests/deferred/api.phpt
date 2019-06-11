@@ -1,15 +1,19 @@
 --TEST--
 Deferred basic API.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
 namespace Concurrent;
 
 $a = TaskScheduler::run(function () {
+    $line = __LINE__; $x = Deferred::value(321);
+    
+    var_dump($x->status == 'RESOLVED');
+    var_dump($x->file == __FILE__);
+    var_dump($x->line == $line);
+
 	return Task::await(Deferred::value(321));
 });
 
@@ -33,18 +37,36 @@ $a = TaskScheduler::run(function () {
     Task::async(function () use ($defer) {
         var_dump('B');
         
+        $x = $defer->awaitable();
         $defer->resolve(777);
         
-        var_dump($defer->__debugInfo()['status']);
-        var_dump($defer->awaitable()->__debugInfo()['status']);
+        print_r(get_object_vars($defer));
+        print_r(get_object_vars($x));
+        
+        var_dump($defer->status == $x->status);
+	    var_dump($defer->file == $x->file);
+	    var_dump($defer->line == $x->line);
     });
     
     var_dump('A');
     
-    var_dump($defer->__debugInfo()['status']);
-    var_dump($defer->awaitable()->__debugInfo()['status']);
+    $x = $defer->awaitable();
+    
+    var_dump(isset($defer->status));
+    var_dump(isset($x->status));
+    var_dump(isset($defer->file));
+    var_dump(isset($x->file));
+    var_dump(isset($defer->line));
+    var_dump(isset($x->line));
+    
+    print_r($defer);
+    print_r($x);
+    
+    var_dump($defer->status == $x->status);
+    var_dump($defer->file == $x->file);
+    var_dump($defer->line == $x->line);
         
-    return Task::await($defer->awaitable());
+    return Task::await($x);
 });
 
 var_dump($a);
@@ -57,15 +79,50 @@ var_dump(TaskScheduler::run(function () {
 }));
 
 ?>
---EXPECT--
+--EXPECTF--
+bool(true)
+bool(true)
+bool(true)
 int(321)
 string(1) "X"
 string(5) "Fail!"
 string(1) "A"
-string(7) "PENDING"
-string(7) "PENDING"
+bool(true)
+bool(true)
+bool(true)
+bool(true)
+bool(true)
+bool(true)
+Concurrent\Deferred Object
+(
+    [status] => PENDING
+    [file] => %s
+    [line] => %d
+)
+Concurrent\DeferredAwaitable Object
+(
+    [status] => PENDING
+    [file] => %s
+    [line] => %d
+)
+bool(true)
+bool(true)
+bool(true)
 string(1) "B"
-string(8) "RESOLVED"
-string(8) "RESOLVED"
+Array
+(
+    [status] => RESOLVED
+    [file] => %s
+    [line] => %d
+)
+Array
+(
+    [status] => RESOLVED
+    [file] => %s
+    [line] => %d
+)
+bool(true)
+bool(true)
+bool(true)
 int(777)
 NULL

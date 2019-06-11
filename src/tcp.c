@@ -41,7 +41,7 @@ static zend_object_handlers async_tcp_server_handlers;
 
 #define ASYNC_TCP_SERVER_FLAG_LAZY 1
 
-typedef struct {
+typedef struct _async_tcp_server {
 	/* PHP object handle. */
 	zend_object std;
 
@@ -84,7 +84,7 @@ typedef struct {
 #endif
 } async_tcp_server;
 
-typedef struct {
+typedef struct _async_tcp_socket {
 	/* PHP object handle. */
 	zend_object std;
 
@@ -130,7 +130,7 @@ static async_tcp_socket *async_tcp_socket_object_create();
 #define ASYNC_TCP_SERVER_CONST(name, value) \
 	zend_declare_class_constant_long(async_tcp_server_ce, name, sizeof(name)-1, (zend_long)value);
 
-typedef struct {
+typedef struct _async_tcp_write {
 	uv_write_t request;
 	async_tcp_socket *socket;
 	zend_string *data;
@@ -174,13 +174,9 @@ ASYNC_CALLBACK shutdown_socket(void *arg, zval *error)
 	}
 	
 	if (socket->stream == NULL) {
-		if (!uv_is_closing((uv_handle_t *) &socket->handle)) {
-			ASYNC_ADDREF(&socket->std);
-			
-			socket->handle.data = socket;
+		socket->handle.data = socket;
 
-			uv_close((uv_handle_t *) &socket->handle, socket_disposed);
-		}
+		ASYNC_UV_TRY_CLOSE_REF(&socket->std, &socket->handle, socket_disposed);
 	} else {
 		ZVAL_OBJ(&obj, &socket->std);
 		
@@ -302,7 +298,13 @@ static int setup_client_tls(async_tcp_socket *socket, zval *tls)
 	return SUCCESS;
 }
 
-static ZEND_METHOD(TcpSocket, connect)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_connect, 0, 2, Concurrent\\Network\\TcpSocket, 0)
+	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
+	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsClientEncryption, 1)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(TcpSocket, connect)
 {
 	async_tcp_socket *socket;
 	async_context *context;
@@ -324,7 +326,7 @@ static ZEND_METHOD(TcpSocket, connect)
 	    Z_PARAM_STR(name)
 		Z_PARAM_LONG(port)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(tls)
+		Z_PARAM_OBJECT_OF_CLASS_EX(tls, async_tls_client_encryption_ce, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 		
 	code = async_dns_lookup_ip(ZSTR_VAL(name), &dest, IPPROTO_TCP);
@@ -391,7 +393,12 @@ static ZEND_METHOD(TcpSocket, connect)
 	RETURN_OBJ(&socket->std);
 }
 
-static ZEND_METHOD(TcpSocket, import)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_import, 0, 1, Concurrent\\Network\\TcpSocket, 0)
+	ZEND_ARG_OBJ_INFO(0, pipe, Concurrent\\Network\\Pipe, 0)
+	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsClientEncryption, 1)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(TcpSocket, import)
 {
 	async_tcp_socket *socket;
 	uv_os_fd_t sock;
@@ -402,9 +409,9 @@ static ZEND_METHOD(TcpSocket, import)
 	tls = NULL;
 	
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
-		Z_PARAM_ZVAL(conn)
+		Z_PARAM_OBJECT_OF_CLASS(conn, async_pipe_ce)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(tls)
+		Z_PARAM_OBJECT_OF_CLASS_EX(tls, async_tls_client_encryption_ce, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	socket = async_tcp_socket_object_create();
@@ -434,14 +441,18 @@ static ZEND_METHOD(TcpSocket, import)
 	RETURN_OBJ(&socket->std);
 }
 
-static ZEND_METHOD(TcpSocket, export)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_export, 0, 1, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, pipe, Concurrent\\Network\\Pipe, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(TcpSocket, export)
 {
 	async_tcp_socket *socket;
 	
 	zval *ipc;
 	
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_ZVAL(ipc)
+		Z_PARAM_OBJECT_OF_CLASS(ipc, async_pipe_ce)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
@@ -519,7 +530,10 @@ error:
 
 #endif
 
-static ZEND_METHOD(TcpSocket, pair)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_pair, 0, 0, IS_ARRAY, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(TcpSocket, pair)
 {
 	async_tcp_socket *socket;
 
@@ -554,7 +568,7 @@ static ZEND_METHOD(TcpSocket, pair)
 	}
 }
 
-static ZEND_METHOD(TcpSocket, close)
+static PHP_METHOD(TcpSocket, close)
 {
 	async_tcp_socket *socket;
 
@@ -565,7 +579,7 @@ static ZEND_METHOD(TcpSocket, close)
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
+		Z_PARAM_OBJECT_OF_CLASS_EX(val, zend_ce_throwable, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
@@ -588,7 +602,7 @@ static ZEND_METHOD(TcpSocket, close)
 	zval_ptr_dtor(&error);
 }
 
-static ZEND_METHOD(TcpSocket, flush)
+static PHP_METHOD(TcpSocket, flush)
 {
 	async_tcp_socket *socket;
 	
@@ -604,7 +618,7 @@ static ZEND_METHOD(TcpSocket, flush)
 	async_stream_flush(socket->stream);
 }
 
-static ZEND_METHOD(TcpSocket, getAddress)
+static PHP_METHOD(TcpSocket, getAddress)
 {
 	async_tcp_socket *socket;
 
@@ -615,7 +629,7 @@ static ZEND_METHOD(TcpSocket, getAddress)
 	RETURN_STR_COPY(socket->local_addr);
 }
 
-static ZEND_METHOD(TcpSocket, getPort)
+static PHP_METHOD(TcpSocket, getPort)
 {
 	async_tcp_socket *socket;
 
@@ -626,7 +640,7 @@ static ZEND_METHOD(TcpSocket, getPort)
 	RETURN_LONG(socket->local_port);
 }
 
-static ZEND_METHOD(TcpSocket, getRemoteAddress)
+static PHP_METHOD(TcpSocket, getRemoteAddress)
 {
 	async_tcp_socket *socket;
 
@@ -637,7 +651,7 @@ static ZEND_METHOD(TcpSocket, getRemoteAddress)
 	RETURN_STR_COPY(socket->remote_addr);
 }
 
-static ZEND_METHOD(TcpSocket, getRemotePort)
+static PHP_METHOD(TcpSocket, getRemotePort)
 {
 	async_tcp_socket *socket;
 
@@ -648,7 +662,7 @@ static ZEND_METHOD(TcpSocket, getRemotePort)
 	RETURN_LONG(socket->remote_port);
 }
 
-static ZEND_METHOD(TcpSocket, setOption)
+static PHP_METHOD(TcpSocket, setOption)
 {
 	async_tcp_socket *socket;
 
@@ -677,7 +691,7 @@ static ZEND_METHOD(TcpSocket, setOption)
 	RETURN_BOOL((code < 0) ? 0 : 1);
 }
 
-static ZEND_METHOD(TcpSocket, isAlive)
+static PHP_METHOD(TcpSocket, isAlive)
 {
 	async_tcp_socket *socket;
 	
@@ -688,16 +702,16 @@ static ZEND_METHOD(TcpSocket, isAlive)
 	RETURN_BOOL(async_socket_is_alive(socket->stream));
 }
 
-static ZEND_METHOD(TcpSocket, read)
+static PHP_METHOD(TcpSocket, read)
 {
 	async_tcp_socket *socket;
 
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 
-	async_stream_call_read(socket->stream, &socket->read_error, return_value, execute_data);
+	async_stream_call_read(socket->stream, &socket->read_error, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
 
-static ZEND_METHOD(TcpSocket, getReadableStream)
+static PHP_METHOD(TcpSocket, getReadableStream)
 {
 	async_tcp_socket *socket;
 	async_stream_reader *reader;
@@ -710,48 +724,16 @@ static ZEND_METHOD(TcpSocket, getReadableStream)
 	RETURN_OBJ(&reader->std);
 }
 
-static ZEND_METHOD(TcpSocket, write)
+static PHP_METHOD(TcpSocket, write)
 {
 	async_tcp_socket *socket;
 
 	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
 
-	async_stream_call_write(socket->stream, &socket->write_error, return_value, execute_data);
+	async_stream_call_write(socket->stream, &socket->write_error, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
 
-static ZEND_METHOD(TcpSocket, writeAsync)
-{
-	async_tcp_socket *socket;
-	async_stream_write_req write;
-	
-	zend_string *data;
-	
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_STR(data)
-	ZEND_PARSE_PARAMETERS_END();
-	
-	socket = (async_tcp_socket *) Z_OBJ_P(getThis());
-
-	if (UNEXPECTED(Z_TYPE_P(&socket->write_error) != IS_UNDEF)) {
-		ASYNC_FORWARD_ERROR(&socket->write_error);
-		return;
-	}
-	
-	write.in.len = ZSTR_LEN(data);
-	write.in.buffer = ZSTR_VAL(data);
-	write.in.handle = NULL;
-	write.in.str = data;
-	write.in.ref = getThis();
-	write.in.flags = ASYNC_STREAM_WRITE_REQ_FLAG_ASYNC;
-	
-	if (UNEXPECTED(FAILURE == async_stream_write(socket->stream, &write))) {
-		forward_stream_write_error(socket->stream, &write);
-	} else {
-		RETURN_LONG(socket->handle.write_queue_size);
-	}
-}
-
-static ZEND_METHOD(TcpSocket, getWriteQueueSize)
+static PHP_METHOD(TcpSocket, getWriteQueueSize)
 {
 	async_tcp_socket *socket;
 	
@@ -762,7 +744,7 @@ static ZEND_METHOD(TcpSocket, getWriteQueueSize)
 	RETURN_LONG((Z_TYPE_P(&socket->write_error) == IS_UNDEF) ? socket->handle.write_queue_size : 0);
 }
 
-static ZEND_METHOD(TcpSocket, getWritableStream)
+static PHP_METHOD(TcpSocket, getWritableStream)
 {
 	async_tcp_socket *socket;
 	async_stream_writer *writer;
@@ -775,7 +757,10 @@ static ZEND_METHOD(TcpSocket, getWritableStream)
 	RETURN_OBJ(&writer->std);
 }
 
-static ZEND_METHOD(TcpSocket, encrypt)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_encrypt, 0, 0, Concurrent\\Network\\TlsInfo, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(TcpSocket, encrypt)
 {
 #ifndef HAVE_ASYNC_SSL
 	zend_throw_exception_ex(async_socket_exception_ce, 0, "Async extension was not compiled with SSL support");
@@ -855,48 +840,26 @@ static ZEND_METHOD(TcpSocket, encrypt)
 #endif
 }
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_connect, 0, 2, Concurrent\\Network\\TcpSocket, 0)
-	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
-	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
-	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsClientEncryption, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_import, 0, 1, Concurrent\\Network\\TcpSocket, 0)
-	ZEND_ARG_OBJ_INFO(0, pipe, Concurrent\\Network\\Pipe, 0)
-	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsClientEncryption, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_pair, 0, 0, IS_ARRAY, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_socket_export, 0, 1, IS_VOID, 0)
-	ZEND_ARG_OBJ_INFO(0, pipe, Concurrent\\Network\\Pipe, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_socket_encrypt, 0, 0, Concurrent\\Network\\TlsInfo, 0)
-ZEND_END_ARG_INFO()
-
 static const zend_function_entry async_tcp_socket_functions[] = {
-	ZEND_ME(TcpSocket, connect, arginfo_tcp_socket_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(TcpSocket, import, arginfo_tcp_socket_import, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(TcpSocket, pair, arginfo_tcp_socket_pair, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(TcpSocket, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, flush, arginfo_socket_stream_flush, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getAddress, arginfo_socket_get_address, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getPort, arginfo_socket_get_port, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getRemoteAddress, arginfo_socket_stream_get_remote_address, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getRemotePort, arginfo_socket_stream_get_remote_port, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, isAlive, arginfo_socket_stream_is_alive, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getReadableStream, arginfo_duplex_stream_get_readable_stream, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, writeAsync, arginfo_socket_stream_write_async, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getWriteQueueSize, arginfo_socket_get_write_queue_size, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, getWritableStream, arginfo_duplex_stream_get_writable_stream, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, export, arginfo_tcp_socket_export, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpSocket, encrypt, arginfo_tcp_socket_encrypt, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
+	PHP_ME(TcpSocket, connect, arginfo_tcp_socket_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(TcpSocket, import, arginfo_tcp_socket_import, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(TcpSocket, pair, arginfo_tcp_socket_pair, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(TcpSocket, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, flush, arginfo_socket_stream_flush, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, getAddress, arginfo_socket_get_address, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, getPort, arginfo_socket_get_port, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, getRemoteAddress, arginfo_socket_stream_get_remote_address, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, getRemotePort, arginfo_socket_stream_get_remote_port, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, isAlive, arginfo_socket_stream_is_alive, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, getReadableStream, arginfo_duplex_stream_get_readable_stream, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, getWriteQueueSize, arginfo_socket_get_write_queue_size, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, getWritableStream, arginfo_duplex_stream_get_writable_stream, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, export, arginfo_tcp_socket_export, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpSocket, encrypt, arginfo_tcp_socket_encrypt, ZEND_ACC_PUBLIC)
+	PHP_FE_END
 };
 
 
@@ -937,12 +900,8 @@ ASYNC_CALLBACK shutdown_server(void *obj, zval *error)
 			ASYNC_FINISH_OP(op);
 		}
 	}
-	
-	if (!uv_is_closing((uv_handle_t *) &server->handle)) {
-		ASYNC_ADDREF(&server->std);
 
-		uv_close((uv_handle_t *) &server->handle, server_disposed);
-	}
+	ASYNC_UV_TRY_CLOSE_REF(&server->std, &server->handle, server_disposed);
 }
 
 static async_tcp_server *async_tcp_server_object_create(int domain)
@@ -1074,7 +1033,7 @@ static int setup_server_tls(async_tcp_server *server, zval *tls)
 	return SUCCESS;
 }
 
-static void create_server(async_tcp_server **result, zend_execute_data *execute_data, zval *return_value)
+static void create_server(async_tcp_server **result, INTERNAL_FUNCTION_PARAMETERS)
 {
 	async_tcp_server *server;
 
@@ -1097,7 +1056,7 @@ static void create_server(async_tcp_server **result, zend_execute_data *execute_
 		Z_PARAM_STR(name)
 		Z_PARAM_LONG(port)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(tls)
+		Z_PARAM_OBJECT_OF_CLASS_EX(tls, async_tls_server_encryption_ce, 1, 0)
 		Z_PARAM_BOOL(reuseport)
 	ZEND_PARSE_PARAMETERS_END();
 
@@ -1150,11 +1109,18 @@ static void create_server(async_tcp_server **result, zend_execute_data *execute_
 	*result = server;
 }
 
-static ZEND_METHOD(TcpServer, bind)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_bind, 0, 2, Concurrent\\Network\\TcpServer, 0)
+	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
+	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
+	ZEND_ARG_TYPE_INFO(0, reuseport, _IS_BOOL, 1)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(TcpServer, bind)
 {
 	async_tcp_server *server;
 	
-	create_server(&server, execute_data, return_value);
+	create_server(&server, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 	
 	if (EXPECTED(server)) {
 		server->flags = ASYNC_TCP_SERVER_FLAG_LAZY;
@@ -1163,13 +1129,20 @@ static ZEND_METHOD(TcpServer, bind)
 	}
 }
 
-static ZEND_METHOD(TcpServer, listen)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_listen, 0, 2, Concurrent\\Network\\TcpServer, 0)
+	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
+	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
+	ZEND_ARG_TYPE_INFO(0, reuseport, _IS_BOOL, 1)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(TcpServer, listen)
 {
 	async_tcp_server *server;
 	
 	int code;
 	
-	create_server(&server, execute_data, return_value);
+	create_server(&server, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 	
 	if (EXPECTED(server)) {
 		code = uv_listen((uv_stream_t *) &server->handle, 128, server_connected);
@@ -1184,7 +1157,12 @@ static ZEND_METHOD(TcpServer, listen)
 	}
 }
 
-static ZEND_METHOD(TcpServer, import)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_import, 0, 1, Concurrent\\Network\\TcpServer, 0)
+	ZEND_ARG_OBJ_INFO(0, pipe, Concurrent\\Network\\Pipe, 0)
+	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(TcpServer, import)
 {
 	async_tcp_server *server;
 	uv_os_fd_t sock;
@@ -1195,9 +1173,9 @@ static ZEND_METHOD(TcpServer, import)
 	tls = NULL;
 	
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
-		Z_PARAM_ZVAL(conn)
+		Z_PARAM_OBJECT_OF_CLASS(conn, async_pipe_ce)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(tls)
+		Z_PARAM_OBJECT_OF_CLASS_EX(tls, async_tls_server_encryption_ce, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	server = async_tcp_server_object_create(AF_UNSPEC);
@@ -1223,14 +1201,18 @@ static ZEND_METHOD(TcpServer, import)
 	RETURN_OBJ(&server->std);
 }
 
-static ZEND_METHOD(TcpServer, export)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_export, 0, 1, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, pipe, Concurrent\\Network\\Pipe, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(TcpServer, export)
 {
 	async_tcp_server *server;
 	
 	zval *ipc;
 	
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_ZVAL(ipc)
+		Z_PARAM_OBJECT_OF_CLASS(ipc, async_pipe_ce)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	server = (async_tcp_server *) Z_OBJ_P(getThis());
@@ -1238,7 +1220,7 @@ static ZEND_METHOD(TcpServer, export)
 	async_pipe_export_stream((async_pipe *) Z_OBJ_P(ipc), (uv_stream_t *) &server->handle);
 }
 
-static ZEND_METHOD(TcpServer, close)
+static PHP_METHOD(TcpServer, close)
 {
 	async_tcp_server *server;
 
@@ -1249,7 +1231,7 @@ static ZEND_METHOD(TcpServer, close)
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
+		Z_PARAM_OBJECT_OF_CLASS_EX(val, zend_ce_throwable, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
 	server = (async_tcp_server *) Z_OBJ_P(getThis());
@@ -1272,7 +1254,7 @@ static ZEND_METHOD(TcpServer, close)
 	zval_ptr_dtor(&error);
 }
 
-static ZEND_METHOD(TcpServer, getAddress)
+static PHP_METHOD(TcpServer, getAddress)
 {
 	async_tcp_server *server;
 
@@ -1283,7 +1265,7 @@ static ZEND_METHOD(TcpServer, getAddress)
 	RETURN_STR_COPY(server->name);
 }
 
-static ZEND_METHOD(TcpServer, getPort)
+static PHP_METHOD(TcpServer, getPort)
 {
 	async_tcp_server *server;
 
@@ -1294,7 +1276,7 @@ static ZEND_METHOD(TcpServer, getPort)
 	RETURN_LONG(server->port);
 }
 
-static ZEND_METHOD(TcpServer, setOption)
+static PHP_METHOD(TcpServer, setOption)
 {
 	async_tcp_server *server;
 
@@ -1320,7 +1302,7 @@ static ZEND_METHOD(TcpServer, setOption)
 	RETURN_BOOL((code < 0) ? 0 : 1);
 }
 
-static ZEND_METHOD(TcpServer, accept)
+static PHP_METHOD(TcpServer, accept)
 {
 	async_tcp_server *server;
 	async_tcp_socket *socket;
@@ -1397,48 +1379,96 @@ static ZEND_METHOD(TcpServer, accept)
 	RETURN_OBJ(&socket->std);
 }
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_listen, 0, 2, Concurrent\\Network\\TcpServer, 0)
-	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
-	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
-	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
-	ZEND_ARG_TYPE_INFO(0, reuseport, _IS_BOOL, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_bind, 0, 2, Concurrent\\Network\\TcpServer, 0)
-	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
-	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
-	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
-	ZEND_ARG_TYPE_INFO(0, reuseport, _IS_BOOL, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_import, 0, 1, Concurrent\\Network\\TcpServer, 0)
-	ZEND_ARG_OBJ_INFO(0, pipe, Concurrent\\Network\\Pipe, 0)
-	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_tcp_server_export, 0, 1, IS_VOID, 0)
-	ZEND_ARG_OBJ_INFO(0, pipe, Concurrent\\Network\\Pipe, 0)
-ZEND_END_ARG_INFO()
-
 static const zend_function_entry async_tcp_server_functions[] = {
-	ZEND_ME(TcpServer, bind, arginfo_tcp_server_bind, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(TcpServer, listen, arginfo_tcp_server_listen, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(TcpServer, import, arginfo_tcp_server_import, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(TcpServer, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpServer, getAddress, arginfo_socket_get_address, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpServer, getPort, arginfo_socket_get_port, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpServer, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpServer, accept, arginfo_server_accept, ZEND_ACC_PUBLIC)
-	ZEND_ME(TcpServer, export, arginfo_tcp_server_export, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
+	PHP_ME(TcpServer, bind, arginfo_tcp_server_bind, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(TcpServer, listen, arginfo_tcp_server_listen, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(TcpServer, import, arginfo_tcp_server_import, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(TcpServer, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpServer, getAddress, arginfo_socket_get_address, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpServer, getPort, arginfo_socket_get_port, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpServer, setOption, arginfo_socket_set_option, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpServer, accept, arginfo_server_accept, ZEND_ACC_PUBLIC)
+	PHP_ME(TcpServer, export, arginfo_tcp_server_export, ZEND_ACC_PUBLIC)
+	PHP_FE_END
 };
 
+
+ASYNC_CALLBACK finish_async_write(async_op *op)
+{
+	async_awaitable_impl *awaitable;
+
+	awaitable = (async_awaitable_impl *) op->arg;
+
+	ZEND_ASSERT(awaitable != NULL);
+
+	if (op->status == ASYNC_STATUS_FAILED) {
+		async_awaitable_fail(awaitable, &op->result);
+	} else {
+		async_awaitable_resolve(awaitable, NULL);
+	}
+
+	ASYNC_DELREF((zend_object *) awaitable->arg);
+	ASYNC_DELREF(&awaitable->std);
+}
+
+static void intercept_write(async_context *context, zend_object *obj, INTERNAL_FUNCTION_PARAMETERS)
+{
+	async_tcp_socket *socket;
+	async_stream_write_req write;
+	async_awaitable_impl *awaitable;
+
+	zend_string *data;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_STR(data)
+	ZEND_PARSE_PARAMETERS_END();
+
+	socket = (async_tcp_socket *) obj;
+
+	if (UNEXPECTED(Z_TYPE_P(&socket->write_error) != IS_UNDEF)) {
+		ASYNC_FORWARD_ERROR(&socket->write_error);
+		return;
+	}
+
+	memset(&write, 0, sizeof(async_stream_write_req));
+
+	write.in.str = data;
+	write.in.len = ZSTR_LEN(data);
+	write.in.buffer = ZSTR_VAL(data);
+	write.in.context = context;
+	write.in.flags = ASYNC_STREAM_WRITE_REQ_FLAG_ASYNC;
+
+	if (return_value) {
+		awaitable = async_create_awaitable(EX(prev_execute_data)->prev_execute_data, socket);
+
+		write.in.callback = finish_async_write;
+		write.in.arg = awaitable;
+
+		ASYNC_ADDREF(&awaitable->std);
+	} else {
+		awaitable = NULL;
+	}
+
+	if (UNEXPECTED(FAILURE == async_stream_write(socket->stream, &write))) {
+		if (awaitable) {
+			ASYNC_DELREF(&awaitable->std);
+			ASYNC_DELREF(&awaitable->std);
+		}
+
+		forward_stream_write_error(socket->stream, &write);
+	} else if (return_value) {
+		ASYNC_ADDREF(&socket->std);
+
+		RETVAL_OBJ(&awaitable->std);
+	}
+}
 
 void async_tcp_ce_register()
 {
 	zend_class_entry ce;
+	zend_function *func;
 	
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\TcpSocket", async_tcp_socket_functions);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent\\Network", "TcpSocket", async_tcp_socket_functions);
 	async_tcp_socket_ce = zend_register_internal_class(&ce);
 	async_tcp_socket_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_tcp_socket_ce->serialize = zend_class_serialize_deny;
@@ -1454,7 +1484,7 @@ void async_tcp_ce_register()
 	ASYNC_TCP_SOCKET_CONST("NODELAY", ASYNC_SOCKET_TCP_NODELAY);
 	ASYNC_TCP_SOCKET_CONST("KEEPALIVE", ASYNC_SOCKET_TCP_KEEPALIVE);
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Network\\TcpServer", async_tcp_server_functions);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent\\Network", "TcpServer", async_tcp_server_functions);
 	async_tcp_server_ce = zend_register_internal_class(&ce);
 	async_tcp_server_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_tcp_server_ce->serialize = zend_class_serialize_deny;
@@ -1468,4 +1498,8 @@ void async_tcp_ce_register()
 	async_tcp_server_handlers.clone_obj = NULL;
 
 	ASYNC_TCP_SERVER_CONST("SIMULTANEOUS_ACCEPTS", ASYNC_SOCKET_TCP_SIMULTANEOUS_ACCEPTS);
+
+	if (NULL != (func = (zend_function *) zend_hash_str_find_ptr(&async_tcp_socket_ce->function_table, ZEND_STRL("write")))) {
+		async_register_interceptor(func, intercept_write);
+	}
 }

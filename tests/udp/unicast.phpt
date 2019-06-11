@@ -1,9 +1,7 @@
 --TEST--
 UDP unicast send and receive.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
@@ -42,9 +40,7 @@ try {
     
     var_dump(@$data->foo);
     
-    var_dump($data->data);
-    var_dump($data->address);
-    var_dump($data->__debugInfo()['port'] == $a->getPort());
+    print_r($data);
 } finally {
     $b->close();
 }
@@ -54,7 +50,7 @@ $data = $data->withPeer('127.0.0.2', 8080);
 var_dump($data->address);
 var_dump($data->port);
 
---EXPECT--
+--EXPECTF--
 string(4) "Test"
 string(9) "127.0.0.1"
 bool(true)
@@ -62,8 +58,11 @@ bool(true)
 bool(true)
 bool(false)
 NULL
-string(9) "RECEIVED!"
-string(9) "127.0.0.1"
-bool(true)
+Concurrent\Network\UdpDatagram Object
+(
+    [data] => RECEIVED!
+    [address] => 127.0.0.1
+    [port] => %d
+)
 string(9) "127.0.0.2"
 int(8080)

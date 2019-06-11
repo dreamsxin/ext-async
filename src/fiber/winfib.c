@@ -25,7 +25,7 @@
 
 static int counter = 0;
 
-typedef struct {
+typedef struct _async_fiber_win32 {
 	async_fiber base;
 	void *fiber;
 	int id;

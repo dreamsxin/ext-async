@@ -1,9 +1,7 @@
 --TEST--
 Poll can be closed while being awaited within a task.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 

@@ -34,11 +34,17 @@ $count = 100000;
 
 Task::async(function () use ($a, $async, $chunkSize, $count) {
     try {
-        $method = $async ? 'writeAsync' : 'write';
         $chunk = str_repeat('A', $chunkSize);
 
         for ($i = 0; $i < $count; $i++) {
-            $a->$method($chunk);
+            if ($async) {
+                Task::async([
+                    $a,
+                    'write'
+                ], $chunk);
+            } else {
+                $a->write($chunk);
+            }
         }
         
         $a->flush();

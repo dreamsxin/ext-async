@@ -115,7 +115,7 @@ struct _async_dirstream_entry {
 	char name[1];
 };
 
-typedef struct {
+typedef struct _async_dirstream_data {
 	async_dirstream_entry *first;
 	async_dirstream_entry *last;
 	async_dirstream_entry *entry;
@@ -124,7 +124,7 @@ typedef struct {
 	async_task_scheduler *scheduler;
 } async_dirstream_data;
 
-typedef struct {
+typedef struct _async_filestream_data {
 	uv_file file;
 	char fmode[8];
 	int mode;

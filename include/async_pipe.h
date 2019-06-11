@@ -24,7 +24,7 @@
 #define ASYNC_PIPE_FLAG_IPC 1
 #define ASYNC_PIPE_FLAG_LAZY (1 << 1)
 
-typedef struct {
+typedef struct _async_pipe_server {
 	/* PHP object handle. */
 	zend_object std;
 	
@@ -54,7 +54,7 @@ typedef struct {
 	async_cancel_cb cancel;
 } async_pipe_server;
 
-typedef struct {
+typedef struct _async_pipe {
 	/* PHP object handle. */
 	zend_object std;
 

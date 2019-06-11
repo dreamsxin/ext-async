@@ -27,7 +27,7 @@ static php_stream_transport_factory orig_tls_factory;
 
 static php_stream_ops tcp_socket_ops;
 
-typedef struct {
+typedef struct _async_xp_socket_data_tcp {
 	ASYNC_XP_SOCKET_DATA_BASE
     uv_tcp_t handle;
     uint16_t pending;
@@ -161,7 +161,7 @@ ASYNC_CALLBACK connect_timer_cb(uv_timer_t *timer)
 	
 	// Need to close the socket right here to cancel connect, anything else will segfault later...
 	if (tcp->flags & ASYNC_XP_SOCKET_FLAG_INIT) {
-		uv_close((uv_handle_t *) &tcp->handle, NULL);
+		ASYNC_UV_CLOSE(&tcp->handle, NULL);
 	}
 }
 
@@ -355,7 +355,7 @@ static int tcp_socket_accept(php_stream *stream, async_xp_socket_data *data, php
 	} while (xparam->outputs.client == NULL);
 	
 	if (UNEXPECTED(xparam->outputs.client == NULL)) {
-		uv_close((uv_handle_t *) &client->handle, free_cb);
+		ASYNC_UV_CLOSE(&client->handle, free_cb);
 	
 		return code;
 	}

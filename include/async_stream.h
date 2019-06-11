@@ -44,7 +44,7 @@ typedef void (* async_stream_dispose_cb)(void *arg);
 
 #define ASYNC_STREAM_READ_REQ_FLAG_IMPORT 1
 
-typedef struct {
+typedef struct _async_stream_read_req {
 	struct {
 		size_t len;
 		char *buffer;
@@ -65,7 +65,7 @@ typedef struct {
 #define ASYNC_STREAM_WRITE_REQ_FLAG_ASYNC 1
 #define ASYNC_STREAM_WRITE_REQ_FLAG_EXPORT (1 << 1)
 
-typedef struct {
+typedef struct _async_stream_write_req {
 	struct {
 		size_t len;
 		char *buffer;
@@ -73,6 +73,9 @@ typedef struct {
 		zend_string *str;
 		zval *ref;
 		uint8_t flags;
+		async_context *context;
+		void (* callback)(async_op *);
+		void *arg;
 	} in;
 	struct {
 		int error;
@@ -82,12 +85,12 @@ typedef struct {
 	} out;
 } async_stream_write_req;
 
-typedef struct {
+typedef struct _async_stream_read_op {
 	async_op base;
 	async_stream_read_req *req;
 } async_stream_read_op;
 
-typedef struct {
+typedef struct _async_stream_shutdown_request {
 	uv_shutdown_t req;
 	zval ref;
 } async_stream_shutdown_request;
@@ -116,14 +119,15 @@ struct _async_stream {
 #define ASYNC_STREAM_WRITE_OP_FLAG_ASYNC (1 << 1)
 #define ASYNC_STREAM_WRITE_OP_FLAG_STARTED (1 << 2)
 #define ASYNC_STREAM_WRITE_OP_FLAG_EXPORT (1 << 3)
+#define ASYNC_STREAM_WRITE_OP_FLAG_CALLBACK (1 << 4)
 
-typedef struct {
+typedef struct _async_stream_write_buf {
 	size_t size;
 	size_t offset;
 	char *data;
 } async_stream_write_buf;
 
-typedef struct {
+typedef struct _async_stream_write_op {
 	async_op base;
 	async_stream *stream;
 	async_context *context;
@@ -140,14 +144,14 @@ typedef struct {
 	async_stream_write_buf out;
 } async_stream_write_op;
 
-typedef struct {
+typedef struct _async_stream_reader {
 	zend_object std;
 	zend_object *ref;
 	async_stream *stream;
 	zval *error;
 } async_stream_reader;
 
-typedef struct {
+typedef struct _async_stream_writer {
 	zend_object std;
 	zend_object *ref;
 	async_stream *stream;
@@ -263,7 +267,7 @@ static zend_always_inline void forward_stream_write_error(async_stream *stream, 
 	}
 }
 
-static zend_always_inline void async_stream_call_read(async_stream *stream, zval *error, zval *return_value, zend_execute_data *execute_data)
+static zend_always_inline void async_stream_call_read(async_stream *stream, zval *error, INTERNAL_FUNCTION_PARAMETERS)
 {
 	async_stream_read_req read;
 
@@ -308,7 +312,7 @@ static zend_always_inline void async_stream_call_read(async_stream *stream, zval
 	forward_stream_read_error(stream, &read);
 }
 
-static zend_always_inline void async_stream_call_write(async_stream *stream, zval *error, zval *return_value, zend_execute_data *execute_data)
+static zend_always_inline void async_stream_call_write(async_stream *stream, zval *error, INTERNAL_FUNCTION_PARAMETERS)
 {
 	async_stream_write_req write;
 
@@ -329,6 +333,7 @@ static zend_always_inline void async_stream_call_write(async_stream *stream, zva
 	write.in.str = data;
 	write.in.ref = getThis();
 	write.in.flags = 0;
+	write.in.callback = NULL;
 
 	if (UNEXPECTED(FAILURE == async_stream_write(stream, &write))) {
 		forward_stream_write_error(stream, &write);
@@ -340,26 +345,26 @@ async_stream_writer *async_stream_writer_create(async_stream *stream, zend_objec
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_stream_close, 0, 0, IS_VOID, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
 // ReadableStream
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_readable_stream_read, 0, 0, IS_STRING, 1)
 	ZEND_ARG_TYPE_INFO(0, length, IS_LONG, 1)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
 // WritableStream
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_writable_stream_write, 0, 1, IS_VOID, 0)
 	ZEND_ARG_TYPE_INFO(0, data, IS_STRING, 0)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
 // DuplexStream
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_duplex_stream_get_readable_stream, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_duplex_stream_get_writable_stream, 0, 0, Concurrent\\Stream\\WritableStream, 0)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
 #endif

@@ -17,8 +17,9 @@
 */
 
 #include "php_async.h"
-#include "zend_inheritance.h"
+#include "async_helper.h"
 
+#include "zend_inheritance.h"
 #include "ext/standard/php_mt_rand.h"
 
 ASYNC_API zend_class_entry *async_channel_ce;
@@ -37,7 +38,7 @@ static zend_string *str_value;
 
 #define ASYNC_CHANNEL_FLAG_CLOSED 1
 
-typedef struct {
+typedef struct _async_channel_state {
 	/* Refcount being used by channel and ietartor objects to share the state. */
 	uint32_t refcount;
 
@@ -69,7 +70,7 @@ typedef struct {
 	} buffer;
 } async_channel_state;
 
-typedef struct {
+typedef struct _async_channel {
 	/* PHP object handle. */
 	zend_object std;
 	
@@ -79,7 +80,7 @@ typedef struct {
 
 #define ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING 1
 
-typedef struct {
+typedef struct _async_channel_iterator {
 	/* PHP object handle. */
 	zend_object std;
 	
@@ -99,7 +100,7 @@ typedef struct {
 	async_op op;
 } async_channel_iterator;
 
-typedef struct {
+typedef struct _async_channel_group_entry {
 	/* Base async op data. */
 	async_op base;
 	
@@ -110,13 +111,13 @@ typedef struct {
 	zval key;
 } async_channel_group_entry;
 
-typedef struct {
+typedef struct _async_channel_send_op {
 	async_op base;
 	zval value;
 	async_channel_group_entry *entry;
 } async_channel_send_op;
 
-typedef struct {
+typedef struct _async_channel_group_select_op {
 	/* Base async op data. */
 	async_op base;
 	
@@ -127,7 +128,7 @@ typedef struct {
 	async_channel_group_entry *entry;
 } async_channel_group_select_op;
 
-typedef struct {
+typedef struct _async_channel_group_send_op {
 	/* Base async op data. */
 	async_op base;
 	
@@ -150,7 +151,7 @@ typedef struct {
 #define ASYNC_CHANNEL_GROUP_FLAG_SHUFFLE 1
 #define ASYNC_CHANNEL_GROUP_FLAG_CHECK_CLOSED (1 << 1)
 
-typedef struct {
+typedef struct _async_channel_group {
 	/* PHP object handle. */
 	zend_object std;
 	
@@ -173,10 +174,7 @@ typedef struct {
 	uv_timer_t timer;
 } async_channel_group;
 
-typedef struct {
-	zval key;
-	zval value;
-	
+typedef struct _async_channel_select {
 	zend_object std;
 } async_channel_select;
 
@@ -365,9 +363,9 @@ static void async_channel_object_destroy(zend_object *object)
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_channel_ctor, 0, 0, 0)
 	ZEND_ARG_TYPE_INFO(0, capacity, IS_LONG, 0)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
-static ZEND_METHOD(Channel, __construct)
+static PHP_METHOD(Channel, __construct)
 {
 	async_channel *channel;
 	
@@ -393,9 +391,9 @@ static ZEND_METHOD(Channel, __construct)
 }
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_channel_get_iterator, 0, 0, 0)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
-static ZEND_METHOD(Channel, getIterator)
+static PHP_METHOD(Channel, getIterator)
 {
 	async_channel *channel;
 	async_channel_iterator *it;
@@ -411,9 +409,9 @@ static ZEND_METHOD(Channel, getIterator)
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_close, 0, 0, IS_VOID, 0)
 	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
-static ZEND_METHOD(Channel, close)
+static PHP_METHOD(Channel, close)
 {
 	async_channel_state *state;
 	
@@ -423,7 +421,7 @@ static ZEND_METHOD(Channel, close)
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
+		Z_PARAM_OBJECT_OF_CLASS_EX(val, zend_ce_throwable, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	state = ((async_channel *) Z_OBJ_P(getThis()))->state;
@@ -436,9 +434,9 @@ static ZEND_METHOD(Channel, close)
 }
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_is_closed, 0, 0, _IS_BOOL, 0)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
-static ZEND_METHOD(Channel, isClosed)
+static PHP_METHOD(Channel, isClosed)
 {
 	async_channel_state *state;
 	
@@ -451,9 +449,9 @@ static ZEND_METHOD(Channel, isClosed)
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_send, 0, 1, IS_VOID, 0)
 	ZEND_ARG_INFO(0, message)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
-static ZEND_METHOD(Channel, send)
+static PHP_METHOD(Channel, send)
 {
 	async_channel_state *state;
 	async_context *context;
@@ -518,12 +516,12 @@ static ZEND_METHOD(Channel, send)
 }
 
 static const zend_function_entry channel_functions[] = {
-	ZEND_ME(Channel, __construct, arginfo_channel_ctor, ZEND_ACC_PUBLIC)
-	ZEND_ME(Channel, getIterator, arginfo_channel_get_iterator, ZEND_ACC_PUBLIC)
-	ZEND_ME(Channel, close, arginfo_channel_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(Channel, isClosed, arginfo_channel_is_closed, ZEND_ACC_PUBLIC)
-	ZEND_ME(Channel, send, arginfo_channel_send, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
+	PHP_ME(Channel, __construct, arginfo_channel_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(Channel, getIterator, arginfo_channel_get_iterator, ZEND_ACC_PUBLIC)
+	PHP_ME(Channel, close, arginfo_channel_close, ZEND_ACC_PUBLIC)
+	PHP_ME(Channel, isClosed, arginfo_channel_is_closed, ZEND_ACC_PUBLIC)
+	PHP_ME(Channel, send, arginfo_channel_send, ZEND_ACC_PUBLIC)
+	PHP_FE_END
 };
 
 
@@ -548,9 +546,6 @@ static async_channel_select *async_channel_select_object_create(zval *key, zval 
 	
 	object_properties_init(&select->std, async_channel_select_ce);
 	
-	ZVAL_COPY(&select->key, key);
-	ZVAL_COPY(&select->value, value);
-	
 	ZVAL_COPY(OBJ_PROP(&select->std, async_monitor_event_prop_offset(str_key)), key);
 	ZVAL_COPY(OBJ_PROP(&select->std, async_monitor_event_prop_offset(str_value)), value);
 	
@@ -562,9 +557,6 @@ static void async_channel_select_object_destroy(zend_object *object)
 	async_channel_select *select;
 	
 	select = async_channel_select_obj(object);
-	
-	zval_ptr_dtor(&select->key);
-	zval_ptr_dtor(&select->value);
 	
 	zend_object_std_dtor(&select->std);
 }
@@ -644,11 +636,7 @@ static void async_channel_group_object_dtor(zend_object *object)
 	
 	group = (async_channel_group *) object;
 	
-	if (!uv_is_closing((uv_handle_t *) &group->timer)) {
-		ASYNC_ADDREF(&group->std);
-		
-		uv_close((uv_handle_t *) &group->timer, dispose_group_timer);
-	}
+	ASYNC_UV_TRY_CLOSE_REF(&group->std, &group->timer, dispose_group_timer);
 }
 
 static void async_channel_group_object_destroy(zend_object *object)
@@ -676,9 +664,9 @@ static void async_channel_group_object_destroy(zend_object *object)
 ZEND_BEGIN_ARG_INFO_EX(arginfo_channel_group_ctor, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, channels, IS_ARRAY, 0)
 	ZEND_ARG_TYPE_INFO(0, shuffle, _IS_BOOL, 0)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
-static ZEND_METHOD(ChannelGroup, __construct)
+static PHP_METHOD(ChannelGroup, __construct)
 {
 	async_channel_group *group;
 	
@@ -753,9 +741,9 @@ static ZEND_METHOD(ChannelGroup, __construct)
 }
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_channel_group_count, 0, 0, 0)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
-static ZEND_METHOD(ChannelGroup, count)
+static PHP_METHOD(ChannelGroup, count)
 {
 	async_channel_group *group;
 	
@@ -814,9 +802,9 @@ ASYNC_CALLBACK timeout_select(uv_timer_t *timer)
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_channel_group_select, 0, 0, Concurrent\\ChannelSelect, 1)
 	ZEND_ARG_TYPE_INFO(0, timeout, IS_LONG, 1)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
-static ZEND_METHOD(ChannelGroup, select)
+static PHP_METHOD(ChannelGroup, select)
 {
 	async_channel_group *group;
 	async_channel_select *select;
@@ -1045,9 +1033,9 @@ ASYNC_CALLBACK continue_send_cb(async_op *op)
 ZEND_BEGIN_ARG_INFO_EX(arginfo_channel_group_send, 0, 0, 1)
 	ZEND_ARG_INFO(0, value)
 	ZEND_ARG_TYPE_INFO(0, timeout, IS_LONG, 1)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
-static ZEND_METHOD(ChannelGroup, send)
+static PHP_METHOD(ChannelGroup, send)
 {
 	async_channel_group *group;
 	async_channel_group_entry *entry;
@@ -1208,18 +1196,18 @@ static ZEND_METHOD(ChannelGroup, send)
 	}
 	
 	if (timeout > 0) {
-		uv_close((uv_handle_t *) &send->timer, dispose_send_timer_cb);
+		ASYNC_UV_CLOSE(&send->timer, dispose_send_timer_cb);
 	} else {
 		ASYNC_FREE_OP(send);
 	}
 }
 
 static const zend_function_entry channel_group_functions[] = {
-	ZEND_ME(ChannelGroup, __construct, arginfo_channel_group_ctor, ZEND_ACC_PUBLIC)
-	ZEND_ME(ChannelGroup, count, arginfo_channel_group_count, ZEND_ACC_PUBLIC)
-	ZEND_ME(ChannelGroup, select, arginfo_channel_group_select, ZEND_ACC_PUBLIC)
-	ZEND_ME(ChannelGroup, send, arginfo_channel_group_send, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
+	PHP_ME(ChannelGroup, __construct, arginfo_channel_group_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(ChannelGroup, count, arginfo_channel_group_count, ZEND_ACC_PUBLIC)
+	PHP_ME(ChannelGroup, select, arginfo_channel_group_select, ZEND_ACC_PUBLIC)
+	PHP_ME(ChannelGroup, send, arginfo_channel_group_send, ZEND_ACC_PUBLIC)
+	PHP_FE_END
 };
 
 
@@ -1307,7 +1295,7 @@ static void async_channel_iterator_object_destroy(zend_object *object)
 	zend_object_std_dtor(&it->std);
 }
 
-static ZEND_METHOD(ChannelIterator, rewind)
+static PHP_METHOD(ChannelIterator, rewind)
 {
 	async_channel_iterator *it;
 	
@@ -1318,7 +1306,7 @@ static ZEND_METHOD(ChannelIterator, rewind)
 	advance_iterator(it);
 }
 
-static ZEND_METHOD(ChannelIterator, valid)
+static PHP_METHOD(ChannelIterator, valid)
 {
 	async_channel_iterator *it;
 	
@@ -1331,7 +1319,7 @@ static ZEND_METHOD(ChannelIterator, valid)
 	RETURN_BOOL(Z_TYPE_P(&it->entry) != IS_UNDEF);
 }
 
-static ZEND_METHOD(ChannelIterator, current)
+static PHP_METHOD(ChannelIterator, current)
 {
 	async_channel_iterator *it;
 	
@@ -1346,7 +1334,7 @@ static ZEND_METHOD(ChannelIterator, current)
 	}
 }
 
-static ZEND_METHOD(ChannelIterator, key)
+static PHP_METHOD(ChannelIterator, key)
 {
 	async_channel_iterator *it;
 	
@@ -1361,7 +1349,7 @@ static ZEND_METHOD(ChannelIterator, key)
 	}
 }
 
-static ZEND_METHOD(ChannelIterator, next)
+static PHP_METHOD(ChannelIterator, next)
 {
 	async_channel_iterator *it;
 
@@ -1382,27 +1370,30 @@ static ZEND_METHOD(ChannelIterator, next)
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_channel_iterator_void, 0)
-ZEND_END_ARG_INFO()
+ZEND_END_ARG_INFO();
 
 static const zend_function_entry channel_iterator_functions[] = {
-	ZEND_ME(ChannelIterator, rewind, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
-	ZEND_ME(ChannelIterator, valid, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
-	ZEND_ME(ChannelIterator, current, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
-	ZEND_ME(ChannelIterator, key, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
-	ZEND_ME(ChannelIterator, next, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
+	PHP_ME(ChannelIterator, rewind, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
+	PHP_ME(ChannelIterator, valid, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
+	PHP_ME(ChannelIterator, current, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
+	PHP_ME(ChannelIterator, key, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
+	PHP_ME(ChannelIterator, next, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
+	PHP_FE_END
 };
 
 
 static const zend_function_entry empty_funcs[] = {
-	ZEND_FE_END
+	PHP_FE_END
 };
 
 void async_channel_ce_register()
 {
 	zend_class_entry ce;
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Channel", channel_functions);
+	str_key = zend_new_interned_string(zend_string_init(ZEND_STRL("key"), 1));
+	str_value = zend_new_interned_string(zend_string_init(ZEND_STRL("value"), 1));
+
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent", "Channel", channel_functions);
 	async_channel_ce = zend_register_internal_class(&ce);
 	async_channel_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_channel_ce->create_object = async_channel_object_create;
@@ -1416,7 +1407,7 @@ void async_channel_ce_register()
 	
 	zend_class_implements(async_channel_ce, 1, zend_ce_aggregate);
 	
-	INIT_CLASS_ENTRY(ce, "Concurrent\\ChannelGroup", channel_group_functions);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent", "ChannelGroup", channel_group_functions);
 	async_channel_group_ce = zend_register_internal_class(&ce);
 	async_channel_group_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_channel_group_ce->create_object = async_channel_group_object_create;
@@ -1430,7 +1421,7 @@ void async_channel_ce_register()
 	
 	zend_class_implements(async_channel_group_ce, 1, zend_ce_countable);
 	
-	INIT_CLASS_ENTRY(ce, "Concurrent\\ChannelIterator", channel_iterator_functions);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent", "ChannelIterator", channel_iterator_functions);
 	async_channel_iterator_ce = zend_register_internal_class(&ce);
 	async_channel_iterator_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_channel_iterator_ce->serialize = zend_class_serialize_deny;
@@ -1442,7 +1433,7 @@ void async_channel_ce_register()
 	
 	zend_class_implements(async_channel_iterator_ce, 1, zend_ce_iterator);
 	
-	INIT_CLASS_ENTRY(ce, "Concurrent\\ChannelSelect", empty_funcs);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent", "ChannelSelect", empty_funcs);
 	async_channel_select_ce = zend_register_internal_class(&ce);
 	async_channel_select_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_channel_select_ce->create_object = NULL;
@@ -1453,17 +1444,15 @@ void async_channel_ce_register()
 	async_channel_select_handlers.offset = XtOffsetOf(async_channel_select, std);
 	async_channel_select_handlers.free_obj = async_channel_select_object_destroy;
 	async_channel_select_handlers.clone_obj = NULL;
+	async_channel_select_handlers.write_property = async_prop_write_handler_readonly;
 	
-	INIT_CLASS_ENTRY(ce, "Concurrent\\ChannelClosedException", empty_funcs);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent", "ChannelClosedException", empty_funcs);
 	async_channel_closed_exception_ce = zend_register_internal_class(&ce);
 
 	zend_do_inheritance(async_channel_closed_exception_ce, zend_ce_exception);
 	
 	zend_declare_property_null(async_channel_select_ce, ZEND_STRL("key"), ZEND_ACC_PUBLIC);
 	zend_declare_property_null(async_channel_select_ce, ZEND_STRL("value"), ZEND_ACC_PUBLIC);
-	
-	str_key = zend_new_interned_string(zend_string_init(ZEND_STRL("key"), 1));
-	str_value = zend_new_interned_string(zend_string_init(ZEND_STRL("value"), 1));
 }
 
 void async_channel_ce_unregister()

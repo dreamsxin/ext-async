@@ -1,9 +1,7 @@
 --TEST--
 UDP async send operations.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
@@ -24,7 +22,7 @@ Task::async(function () use ($a) {
         for ($i = 0; $i < 3; $i++) {
             $timer->awaitTimeout();
             
-            $b->sendAsync(new UdpDatagram((string) $i, $a->getAddress(), $a->getPort()));
+            Task::async([$b, 'send'], new UdpDatagram((string) $i, $a->getAddress(), $a->getPort()));
         }
         
         $b->flush();

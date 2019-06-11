@@ -1,9 +1,7 @@
 --TEST--
 Console can write to STDOUT.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --STDIN--
 Hello World
 --FILE--

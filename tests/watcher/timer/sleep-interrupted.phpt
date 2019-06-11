@@ -1,10 +1,7 @@
 --TEST--
 Sleep interrupted.
 --SKIPIF--
-<?php
-if (DIRECTORY_SEPARATOR == '\\') die('Test does not make sense on a Windows OS');
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; if (DIRECTORY_SEPARATOR == '\\') die('skip'); ?>
 --INI--
 async.timer=1
 --FILE--

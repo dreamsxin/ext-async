@@ -60,7 +60,7 @@
 #define ASYNC_XP_SOCKET_SHUT_WR 1
 #define ASYNC_XP_SOCKET_SHUT_RDWR 2
 
-typedef struct {
+typedef struct _async_xp_socket_ssl {
 	uint32_t refcount;
 #ifdef HAVE_ASYNC_SSL
 	SSL_CTX *ctx;

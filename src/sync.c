@@ -22,7 +22,7 @@ ASYNC_API zend_class_entry *async_sync_condition_ce;
 
 static zend_object_handlers async_sync_condition_handlers;
 
-typedef struct {
+typedef struct _async_sync_condition {
 	zend_object std;
 	
 	async_task_scheduler *scheduler;
@@ -100,7 +100,11 @@ static void async_sync_condition_object_destroy(zend_object *object)
 	zend_object_std_dtor(&cond->std);
 }
 
-static ZEND_METHOD(Condition, close)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_sync_condition_close, 0, 0, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Condition, close)
 {
 	async_sync_condition *cond;
 	
@@ -111,7 +115,7 @@ static ZEND_METHOD(Condition, close)
 	
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
+		Z_PARAM_OBJECT_OF_CLASS_EX(val, zend_ce_throwable, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	cond = (async_sync_condition *) Z_OBJ_P(getThis());
@@ -132,7 +136,10 @@ static ZEND_METHOD(Condition, close)
 	}
 }
 
-static ZEND_METHOD(Condition, wait)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_sync_condition_wait, 0, 0, IS_VOID, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Condition, wait)
 {
 	async_sync_condition *cond;
 	async_context *context;
@@ -171,7 +178,10 @@ static ZEND_METHOD(Condition, wait)
 	ASYNC_FREE_OP(op);
 }
 
-static ZEND_METHOD(Condition, signal)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_sync_condition_signal, 0, 0, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Condition, signal)
 {
 	async_sync_condition *cond;
 	
@@ -198,7 +208,10 @@ static ZEND_METHOD(Condition, signal)
 	RETURN_LONG(0);
 }
 
-static ZEND_METHOD(Condition, broadcast)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_sync_condition_broadcast, 0, 0, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Condition, broadcast)
 {
 	async_sync_condition *cond;
 	
@@ -227,25 +240,12 @@ static ZEND_METHOD(Condition, broadcast)
 	RETURN_LONG(count);
 }
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_sync_condition_close, 0, 0, IS_VOID, 0)
-	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_sync_condition_wait, 0, 0, IS_VOID, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_sync_condition_signal, 0, 0, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_sync_condition_broadcast, 0, 0, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
 static const zend_function_entry sync_condition_funcs[] = {
-	ZEND_ME(Condition, close, arginfo_sync_condition_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(Condition, wait, arginfo_sync_condition_wait, ZEND_ACC_PUBLIC)
-	ZEND_ME(Condition, signal, arginfo_sync_condition_signal, ZEND_ACC_PUBLIC)
-	ZEND_ME(Condition, broadcast, arginfo_sync_condition_broadcast, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
+	PHP_ME(Condition, close, arginfo_sync_condition_close, ZEND_ACC_PUBLIC)
+	PHP_ME(Condition, wait, arginfo_sync_condition_wait, ZEND_ACC_PUBLIC)
+	PHP_ME(Condition, signal, arginfo_sync_condition_signal, ZEND_ACC_PUBLIC)
+	PHP_ME(Condition, broadcast, arginfo_sync_condition_broadcast, ZEND_ACC_PUBLIC)
+	PHP_FE_END
 };
 
 
@@ -253,7 +253,7 @@ void async_sync_init()
 {
 	zend_class_entry ce;
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Sync\\Condition", sync_condition_funcs);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent\\Sync", "Condition", sync_condition_funcs);
 	async_sync_condition_ce = zend_register_internal_class(&ce);
 	async_sync_condition_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_sync_condition_ce->create_object = async_sync_condition_object_create;

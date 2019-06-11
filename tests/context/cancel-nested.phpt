@@ -1,9 +1,7 @@
 --TEST--
 Context cancellation of nested context does not affect unrelated context.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
@@ -43,7 +41,7 @@ Task::asyncWithContext($c3, function () {
     
     $context->throwIfCancelled();
     
-    var_dump($context->cancelled);
+    var_dump($context->isCancelled());
     var_dump('DONE UNRELATED');
 });
 

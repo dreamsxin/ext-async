@@ -1,9 +1,7 @@
 --TEST--
 TCP async send operations.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
@@ -21,7 +19,7 @@ Task::async(function (TcpSocket $socket) use ($len, $count) {
         $chunk = str_repeat('A', $len);
 
         for ($i = 0; $i < $count; $i++) {
-            $socket->writeAsync($chunk);
+            Task::async([$socket, 'write'], $chunk);
         }
         
         $socket->flush();

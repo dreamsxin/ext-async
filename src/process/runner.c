@@ -17,6 +17,7 @@
 */
 
 #include "php_async.h"
+#include "async_helper.h"
 #include "async_process.h"
 #include "async_stream.h"
 #include "async_pipe.h"
@@ -36,7 +37,7 @@ static zend_object_handlers async_writable_process_pipe_handlers;
 
 typedef struct _async_process async_process;
 
-typedef struct {
+typedef struct _async_writable_process_pipe_state {
 	async_process *process;
 
 	uv_pipe_t handle;
@@ -48,7 +49,7 @@ typedef struct {
 	zval error;
 } async_writable_process_pipe_state;
 
-typedef struct {
+typedef struct _async_readable_process_pipe_state {
 	async_process *process;
 
 	uv_pipe_t handle;
@@ -96,14 +97,14 @@ struct _async_process {
 	async_op_list observers;
 };
 
-typedef struct {
+typedef struct _async_readable_process_pipe {
 	/* Fiber PHP object handle. */
 	zend_object std;
 
 	async_readable_process_pipe_state *state;
 } async_readable_process_pipe;
 
-typedef struct {
+typedef struct _async_writable_process_pipe {
 	/* Fiber PHP object handle. */
 	zend_object std;
 
@@ -155,9 +156,7 @@ ASYNC_CALLBACK shutdown_process(void *obj, zval *error)
 	uv_process_kill(&proc->handle, ASYNC_SIGNAL_SIGKILL);
 #endif
 
-	ASYNC_ADDREF(&proc->std);
-
-	uv_close((uv_handle_t *) &proc->handle, dispose_process);
+	ASYNC_UV_CLOSE_REF(&proc->std, &proc->handle, dispose_process);
 }
 
 static zend_always_inline void create_readable_state(async_process *process, async_readable_process_pipe_state *state, int i)
@@ -472,14 +471,20 @@ zend_object *async_process_start(async_process_builder *builder, uint32_t argc, 
 	return &proc->std;
 }
 
-static ZEND_METHOD(Process, isWorker)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_is_worker, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Process, isWorker)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	RETURN_BOOL(ASYNC_G(forked));
 }
 
-static ZEND_METHOD(Process, connect)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_connect, 0, 0, Concurrent\\Network\\Pipe, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Process, connect)
 {
 	async_pipe *pipe;
 	
@@ -498,24 +503,28 @@ static ZEND_METHOD(Process, connect)
 	RETURN_OBJ(&pipe->std);
 }
 
-static ZEND_METHOD(Process, __debugInfo)
+static ASYNC_DEBUG_INFO_HANDLER(process_debug_info)
 {
 	async_process *proc;
+	zval info;
 
-	ZEND_PARSE_PARAMETERS_NONE();
+	*temp = 1;
 
-	if (USED_RET()) {
-		proc = (async_process *) Z_OBJ_P(getThis());
-		
-		array_init(return_value);
-		
-		add_assoc_long(return_value, "pid", proc->pid);
-		add_assoc_long(return_value, "exit_code", proc->status);
-		add_assoc_bool(return_value, "running", proc->status < 0);
-	}
+	proc = (async_process *) ASYNC_DEBUG_INFO_OBJ();
+
+	array_init(&info);
+
+	add_assoc_long(&info, "pid", proc->pid);
+	add_assoc_long(&info, "exit_code", proc->status);
+	add_assoc_bool(&info, "running", proc->status < 0);
+
+	return Z_ARRVAL(info);
 }
 
-static ZEND_METHOD(Process, isRunning)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_is_running, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Process, isRunning)
 {
 	async_process *proc;
 
@@ -526,7 +535,10 @@ static ZEND_METHOD(Process, isRunning)
 	RETURN_BOOL(proc->status < 0);
 }
 
-static ZEND_METHOD(Process, getPid)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_get_pid, 0, 0, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Process, getPid)
 {
 	async_process *proc;
 
@@ -537,7 +549,10 @@ static ZEND_METHOD(Process, getPid)
 	RETURN_LONG(proc->pid);
 }
 
-static ZEND_METHOD(Process, getStdin)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_stdin, 0, 0, Concurrent\\Stream\\WritableStream, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Process, getStdin)
 {
 	async_process *proc;
 	async_writable_process_pipe *pipe;
@@ -553,7 +568,10 @@ static ZEND_METHOD(Process, getStdin)
 	RETURN_OBJ(&pipe->std);
 }
 
-static ZEND_METHOD(Process, getStdout)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_stdout, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Process, getStdout)
 {
 	async_process *proc;
 	async_readable_process_pipe *pipe;
@@ -569,7 +587,10 @@ static ZEND_METHOD(Process, getStdout)
 	RETURN_OBJ(&pipe->std);
 }
 
-static ZEND_METHOD(Process, getStderr)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_stderr, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Process, getStderr)
 {
 	async_process *proc;
 	async_readable_process_pipe *pipe;
@@ -585,7 +606,10 @@ static ZEND_METHOD(Process, getStderr)
 	RETURN_OBJ(&pipe->std);
 }
 
-static ZEND_METHOD(Process, getIpc)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_ipc, 0, 0, Concurrent\\Network\\Pipe, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Process, getIpc)
 {
 	async_process *proc;
 	
@@ -600,7 +624,11 @@ static ZEND_METHOD(Process, getIpc)
 	RETURN_OBJ(&proc->ipc->std);
 }
 
-static ZEND_METHOD(Process, signal)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_signal, 0, 1, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Process, signal)
 {
 	async_process *proc;
 
@@ -620,7 +648,10 @@ static ZEND_METHOD(Process, signal)
 	ASYNC_CHECK_ERROR(code != 0, "Failed to signal process: %s", uv_strerror(code));
 }
 
-static ZEND_METHOD(Process, join)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_join, 0, 0, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(Process, join)
 {
 	async_process *proc;
 	async_context *context;
@@ -658,53 +689,18 @@ static ZEND_METHOD(Process, join)
 	}
 }
 
-ZEND_BEGIN_ARG_INFO(arginfo_process_debug_info, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_is_worker, 0, 0, _IS_BOOL, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_connect, 0, 0, Concurrent\\Network\\Pipe, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_is_running, 0, 0, _IS_BOOL, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_get_pid, 0, 0, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_stdin, 0, 0, Concurrent\\Stream\\WritableStream, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_stdout, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_stderr, 0, 0, Concurrent\\Stream\\ReadableStream, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_process_get_ipc, 0, 0, Concurrent\\Network\\Pipe, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_signal, 0, 1, IS_VOID, 0)
-	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_process_join, 0, 0, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
 static const zend_function_entry async_process_functions[] = {
-	ZEND_ME(Process, __debugInfo, arginfo_process_debug_info, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, isWorker, arginfo_process_is_worker, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Process, connect, arginfo_process_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Process, isRunning, arginfo_process_is_running, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, getPid, arginfo_process_get_pid, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, getStdin, arginfo_process_get_stdin, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, getStdout, arginfo_process_get_stdout, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, getStderr, arginfo_process_get_stderr, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, getIpc, arginfo_process_get_ipc, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, signal, arginfo_process_signal, ZEND_ACC_PUBLIC)
-	ZEND_ME(Process, join, arginfo_process_join, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
+	PHP_ME(Process, isWorker, arginfo_process_is_worker, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(Process, connect, arginfo_process_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(Process, isRunning, arginfo_process_is_running, ZEND_ACC_PUBLIC)
+	PHP_ME(Process, getPid, arginfo_process_get_pid, ZEND_ACC_PUBLIC)
+	PHP_ME(Process, getStdin, arginfo_process_get_stdin, ZEND_ACC_PUBLIC)
+	PHP_ME(Process, getStdout, arginfo_process_get_stdout, ZEND_ACC_PUBLIC)
+	PHP_ME(Process, getStderr, arginfo_process_get_stderr, ZEND_ACC_PUBLIC)
+	PHP_ME(Process, getIpc, arginfo_process_get_ipc, ZEND_ACC_PUBLIC)
+	PHP_ME(Process, signal, arginfo_process_signal, ZEND_ACC_PUBLIC)
+	PHP_ME(Process, join, arginfo_process_join, ZEND_ACC_PUBLIC)
+	PHP_FE_END
 };
 
 
@@ -740,7 +736,7 @@ static void async_readable_process_pipe_object_destroy(zend_object *object)
 	zend_object_std_dtor(&pipe->std);
 }
 
-static ZEND_METHOD(ReadablePipe, close)
+static PHP_METHOD(ReadablePipe, close)
 {
 	async_readable_process_pipe *pipe;
 
@@ -750,7 +746,7 @@ static ZEND_METHOD(ReadablePipe, close)
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
+		Z_PARAM_OBJECT_OF_CLASS_EX(val, zend_ce_throwable, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
 	pipe = (async_readable_process_pipe *) Z_OBJ_P(getThis());
@@ -773,7 +769,7 @@ static ZEND_METHOD(ReadablePipe, close)
 	}
 }
 
-static ZEND_METHOD(ReadablePipe, read)
+static PHP_METHOD(ReadablePipe, read)
 {
 	async_readable_process_pipe *pipe;
 	async_stream_read_req read;
@@ -822,9 +818,9 @@ static ZEND_METHOD(ReadablePipe, read)
 }
 
 static const zend_function_entry async_readable_process_pipe_functions[] = {
-	ZEND_ME(ReadablePipe, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(ReadablePipe, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
+	PHP_ME(ReadablePipe, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	PHP_ME(ReadablePipe, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
+	PHP_FE_END
 };
 
 
@@ -860,7 +856,7 @@ static void async_writable_process_pipe_object_destroy(zend_object *object)
 	zend_object_std_dtor(&pipe->std);
 }
 
-static ZEND_METHOD(WritablePipe, close)
+static PHP_METHOD(WritablePipe, close)
 {
 	async_writable_process_pipe *pipe;
 
@@ -870,7 +866,7 @@ static ZEND_METHOD(WritablePipe, close)
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
+		Z_PARAM_OBJECT_OF_CLASS_EX(val, zend_ce_throwable, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
 	pipe = (async_writable_process_pipe *) Z_OBJ_P(getThis());
@@ -888,7 +884,7 @@ static ZEND_METHOD(WritablePipe, close)
 	}
 }
 
-static ZEND_METHOD(WritablePipe, write)
+static PHP_METHOD(WritablePipe, write)
 {
 	async_writable_process_pipe *pipe;
 	async_stream_write_req write;
@@ -957,12 +953,12 @@ static ZEND_METHOD(WritablePipe, write)
 	}
 #endif
 	
+	memset(&write, 0, sizeof(async_stream_write_req));
+
 	write.in.len = ZSTR_LEN(data);
 	write.in.buffer = ZSTR_VAL(data);
-	write.in.handle = NULL;
 	write.in.str = data;
 	write.in.ref = getThis();
-	write.in.flags = 0;
 
 	if (UNEXPECTED(FAILURE == async_stream_write(pipe->state->stream, &write))) {
 		forward_stream_write_error(pipe->state->stream, &write);
@@ -976,9 +972,9 @@ static ZEND_METHOD(WritablePipe, write)
 }
 
 static const zend_function_entry async_writable_process_pipe_functions[] = {
-	ZEND_ME(WritablePipe, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(WritablePipe, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
+	PHP_ME(WritablePipe, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	PHP_ME(WritablePipe, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
+	PHP_FE_END
 };
 
 
@@ -988,7 +984,7 @@ void async_process_ce_register()
 	
 	async_process_builder_ce_register();
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Process\\Process", async_process_functions);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent\\Process", "Process", async_process_functions);
 	async_process_ce = zend_register_internal_class(&ce);
 	async_process_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_process_ce->serialize = zend_class_serialize_deny;
@@ -998,8 +994,9 @@ void async_process_ce_register()
 	async_process_handlers.dtor_obj = async_process_object_dtor;
 	async_process_handlers.free_obj = async_process_object_destroy;
 	async_process_handlers.clone_obj = NULL;
+	async_process_handlers.get_debug_info = process_debug_info;
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Process\\ReadablePipe", async_readable_process_pipe_functions);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent\\Process", "ReadablePipe", async_readable_process_pipe_functions);
 	async_readable_process_pipe_ce = zend_register_internal_class(&ce);
 	async_readable_process_pipe_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_readable_process_pipe_ce->serialize = zend_class_serialize_deny;
@@ -1011,7 +1008,7 @@ void async_process_ce_register()
 
 	zend_class_implements(async_readable_process_pipe_ce, 1, async_readable_stream_ce);
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Process\\WritablePipe", async_writable_process_pipe_functions);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent\\Process", "WritablePipe", async_writable_process_pipe_functions);
 	async_writable_process_pipe_ce = zend_register_internal_class(&ce);
 	async_writable_process_pipe_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_writable_process_pipe_ce->serialize = zend_class_serialize_deny;

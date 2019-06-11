@@ -12,13 +12,6 @@ The `async` extension is not published as `pecl` extension (yet).
 
 ### Linux / MacOS
 
-You have to install `libuv` using Homebrew in order to install the extension for Mac OS. It is advisable to also install `openssl` in order to establish encrypted TCP socket connections.
-
-```shell
-brew install libuv
-brew install openssl
-```
-
 Installing `ext-async` from source works like this (assuming you have PHP 7.3 installed):
 ```shell
 mkdir ext-async
@@ -35,7 +28,7 @@ These are the options supported by `configure`:
 
 | Option | Description |
 | --- | --- |
-| **--with-openssl-dir=DIR** | Allows you to specify the directory where `libssl-dev` is installed. |
+| **--with-openssl[=DIR]** | Allows you to specify the directory where `libssl-dev` is installed. |
 | **--with-valgrind[=DIR]** | Can be used to enable Valgrind support and (optional) specify the valgrind directory. |
 
 You can use `make` to run all test cases (or test from a specific directory only):
@@ -44,7 +37,7 @@ make test
 make test TESTS=test/{DIR}/
 ```
 
-> Warning: If you want to compile the extension on different machines (local, docker, vagrant, ...) be sure to use a fresh copy of the extensions's source code for each machine. The compile process will (if linux machines are involved) compile libuv into the local file `thirdparty/lib/libuv.a` and use it with the linker. This file cannot be shared across different machines, be sure to delete it if you (re)compile the extension using another machine!
+> Warning: If you want to compile the extension on different machines (local, docker, vagrant, ...) be sure to use a fresh copy of the extensions's source code for each machine. If that is not possible make sure that you use `make install -B` for the first compilation after a machine switch as the generated object files will not be portable between different machines.
 
 ### Windows
 
@@ -125,6 +118,12 @@ namespace Concurrent;
 
 final class Deferred
 {
+    public readonly string $status;
+    
+    public readonly ?string $file;
+    
+    public readonly ?int $line;
+
     public function __construct(callable $cancel = null) { }
     
     public function awaitable(): Awaitable { }
@@ -156,15 +155,15 @@ final class Task implements Awaitable
 {
     public readonly string $status;
     
-    public readonly string $file;
+    public readonly ?string $file;
     
-    public readonly int $file;
+    public readonly ?int $line;
 
     /* Should be replaced with async keyword if merged into PHP core. */
-    public static function async(callable $callback, ...$args): Task { }
+    public static function async(callable $callback, ...$args): Awaitable { }
     
     /* Should be replaced with extended async keyword expression if merged into PHP core. */
-    public static function asyncWithContext(Context $context, callable $callback, ...$args): Task { }
+    public static function asyncWithContext(Context $context, callable $callback, ...$args): Awaitable { }
     
     /* Should be replaced with await keyword if merged into PHP core. */
     public static function await(Awaitable $awaitable): mixed { }
@@ -175,7 +174,7 @@ final class Task implements Awaitable
 
 The task scheduler manages a queue of ready-to-run tasks and a (shared) event loop that provides support for timers and async IO. It will also keep track of suspended tasks to allow for proper cleanup on shutdown. There is an implicit default scheduler that will be used when `Task::async()` or `Task::asyncWithContext()` is used in PHP code that is not run using one of the public scheduler methods. It is neighter necessary (nor advisable) to create a task scheduler instance yourself. The only exception to that rule are unit tests, each test should use a dedicated task scheduler to ensure proper test isolation.
 
-You can use `run()` or `runWithContext()` to have the given callback be executed as root task within an isolated task scheduler. The run methods will return the value returned from your task callback or throw an error if your task callback throws. The scheduler will allways run all scheduled tasks to completion, even if the callback task you passed is completed before other tasks. The optional inspection callback will be called as soon as the root task (= the callback) is completed and receive an array containing information about all tasks that have not been completed yet.
+You can use `run()` or `runWithContext()` to have the given callback be executed as root task within an isolated task scheduler. The run methods will return the value returned from your task callback or throw an error if your task callback throws. The scheduler will allways run all scheduled tasks to completion, even if the callback task you passed is completed before other tasks. The optional inspection callback will be called as soon as the root task (= the callback) is completed and receives an array containing all tasks that have not been completed yet.
 
 ```php
 namespace Concurrent;
@@ -245,7 +244,7 @@ namespace Concurrent;
 
 final class Context
 {
-    public readonly bool $cancelled;
+    public function isCcancelled(): bool { }
 
     public function with(ContextVar $var, $value): Context { }
     
@@ -569,8 +568,6 @@ interface SocketStream extends Socket, DuplexStream
     
     public function isAlive(): bool;
     
-    public function writeAsync(string $data): int;
-    
     public function getWriteQueueSize(): int;
 }
 ```
@@ -688,7 +685,7 @@ final class TlsInfo
     
     public readonly int $cipher_bits;
     
-    public readonly string $alpn_protocol;
+    public readonly ?string $alpn_protocol;
 }
 ```
 
@@ -756,8 +753,6 @@ final class UdpSocket implements Socket
     public function receive(): UdpDatagram { }
     
     public function send(UdpDatagram $datagram): void { }
-    
-    public function sendAsync(UdpDatagram $datagram): int { }
 }
 ```
 
@@ -884,7 +879,7 @@ final class Process
 
 ## Async / Await Keyword Transformation
 
-The extension provides `Task::async()` and `Task::await()` static methods that are implemented in a way that allows for a very simple transformation to the keywords `async` and `await` which could be introduced into PHP some time in the future.
+The extension provides `Task::async()` and `Task::await()` static methods that are implemented in a way that allows for a very simple transformation to the keywords `async` and `await` which could be introduced into PHP some time in the future. Keywords increase code readability by avoiding static method calls and paranthesis around arguments. The `async` keyword has another big advantage: it avoids the need for creating callbacks in code. You just write your function / method calls as usual and prepend the keyword. This makes it easier to perform static analysis of the source code and IDEs can provide code completion.
 
 ```php
 $task = async $this->sendRequest($request, $timeout);
@@ -898,44 +893,18 @@ $response = Task::await($task);
 The example shows a possible syntax for a keyword-based async execution model. The `async` keyword can be prepended to any function or method call to create a `Task` object instead of executing the call directly. The calling scope should be preserved by this operation, hence being consistent with the way method calls work in PHP (no need to create a closure in userland code). The `await` keyword is equivalent to calling `Task::await()` but does not require a function call, it can be implemented as an opcode handler in the Zend VM.
 
 ```php
-$context = Context::inherit(['foo' => 'bar']);
+$var = new ContextVar();
+$context = Context::current()->with($var, 'foo');
 
 $task = async $context => doSomething($a, $b);
 $result = await $task;
 
 // The above code would be equivalent to the following:
-$task = Task::asyncWithContext($context, 'doSomething', [$a, $b]);
+$task = Task::asyncWithContext($context, 'doSomething', $a, $b);
 $result = Task::await($task);
 ```
 
 The second example shows how passing a new context to a task would also be possible using the `async` keyword. This would allow for a very simple and readable way to setup tasks in a specific context using a keyword-based syntax.
-
-### PHP with support for async & await keywords
-
-You can install a patched version of PHP that provides native support for `async` and `await` as described in the transformation section. To get up and running with it you can execute this in your shell:
-
-```shell
-mkdir php-src
-curl -LSs https://github.com/concurrent-php/php-src/archive/async.tar.gz | tar -xz -C "php-src" --strip-components 1
-
-pushd php-src
-./buildconf --force
-./configure --prefix=/usr/local/php/cli --with-config-file-path=/usr/local/php/cli --without-pear
-make -j4
-make install
-popd
-
-mkdir ext-async
-curl -LSs https://github.com/concurrent-php/ext-async/archive/master.tar.gz | tar -xz -C "ext-async" --strip-components 1
-
-pushd ext-async
-phpize
-./configure
-make install
-popd
-```
-
-This will install a modified version of PHP's master branch that has full support for `async` and `await`. It will also install the `async` extension that is required for the actual async execution model.
 
 ### Source Transformation Examples
 

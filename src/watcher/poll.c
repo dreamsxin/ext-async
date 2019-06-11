@@ -22,7 +22,7 @@ ASYNC_API zend_class_entry *async_poll_ce;
 
 static zend_object_handlers async_poll_handlers;
 
-typedef struct {
+typedef struct _async_poll {
 	/* PHP object handle. */
 	zend_object std;
 
@@ -196,13 +196,9 @@ ASYNC_CALLBACK shutdown_poll(void *obj, zval *error)
 	if (error != NULL && Z_TYPE_P(&poll->error) == IS_UNDEF) {
 		ZVAL_COPY(&poll->error, error);
 	}
-
-	if (!uv_is_closing((uv_handle_t *) &poll->handle)) {
-		ASYNC_ADDREF(&poll->std);
-
-		uv_close((uv_handle_t *) &poll->handle, close_poll);
-	}
 	
+	ASYNC_UV_TRY_CLOSE_REF(&poll->std, &poll->handle, close_poll);
+
 	if (error != NULL) {
 		while (poll->reads.first != NULL) {
 			ASYNC_NEXT_OP(&poll->reads, op);
@@ -311,7 +307,11 @@ static void async_poll_object_destroy(zend_object *object)
 	zend_object_std_dtor(&poll->std);
 }
 
-ZEND_METHOD(Poll, __construct)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_poll_ctor, 0, 0, 1)
+	ZEND_ARG_TYPE_INFO(0, resource, IS_RESOURCE, 0)
+ZEND_END_ARG_INFO();
+
+PHP_METHOD(Poll, __construct)
 {
 	async_poll *poll;
 	php_socket_t fd;
@@ -319,7 +319,7 @@ ZEND_METHOD(Poll, __construct)
 	zval *val;
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
-		Z_PARAM_ZVAL(val)
+		Z_PARAM_RESOURCE(val)
 	ZEND_PARSE_PARAMETERS_END();
 
 	poll = (async_poll *) Z_OBJ_P(getThis());
@@ -345,7 +345,11 @@ ZEND_METHOD(Poll, __construct)
 	ASYNC_LIST_APPEND(&poll->scheduler->shutdown, &poll->cancel);
 }
 
-ZEND_METHOD(Poll, close)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_poll_close, 0, 0, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
+ZEND_END_ARG_INFO();
+
+PHP_METHOD(Poll, close)
 {
 	async_poll *poll;
 
@@ -356,7 +360,7 @@ ZEND_METHOD(Poll, close)
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
+		Z_PARAM_OBJECT_OF_CLASS_EX(val, zend_ce_throwable, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
 	poll = (async_poll *) Z_OBJ_P(getThis());
@@ -379,7 +383,10 @@ ZEND_METHOD(Poll, close)
 	zval_ptr_dtor(&error);
 }
 
-ZEND_METHOD(Poll, awaitReadable)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_poll_await_readable, 0, 0, IS_VOID, 0)
+ZEND_END_ARG_INFO();
+
+PHP_METHOD(Poll, awaitReadable)
 {
 	async_poll *poll;
 
@@ -397,7 +404,10 @@ ZEND_METHOD(Poll, awaitReadable)
 	suspend(poll, &poll->reads);
 }
 
-ZEND_METHOD(Poll, awaitWritable)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_poll_await_writable, 0, 0, IS_VOID, 0)
+ZEND_END_ARG_INFO();
+
+PHP_METHOD(Poll, awaitWritable)
 {
 	async_poll *poll;
 
@@ -415,26 +425,12 @@ ZEND_METHOD(Poll, awaitWritable)
 	suspend(poll, &poll->writes);
 }
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_poll_ctor, 0, 0, 1)
-	ZEND_ARG_INFO(0, resource)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_poll_close, 0, 0, IS_VOID, 0)
-	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_poll_await_readable, 0, 0, IS_VOID, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_poll_await_writable, 0, 0, IS_VOID, 0)
-ZEND_END_ARG_INFO()
-
 static const zend_function_entry async_poll_functions[] = {
-	ZEND_ME(Poll, __construct, arginfo_poll_ctor, ZEND_ACC_PUBLIC)
-	ZEND_ME(Poll, close, arginfo_poll_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(Poll, awaitReadable, arginfo_poll_await_readable, ZEND_ACC_PUBLIC)
-	ZEND_ME(Poll, awaitWritable, arginfo_poll_await_writable, ZEND_ACC_PUBLIC)
-	ZEND_FE_END
+	PHP_ME(Poll, __construct, arginfo_poll_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(Poll, close, arginfo_poll_close, ZEND_ACC_PUBLIC)
+	PHP_ME(Poll, awaitReadable, arginfo_poll_await_readable, ZEND_ACC_PUBLIC)
+	PHP_ME(Poll, awaitWritable, arginfo_poll_await_writable, ZEND_ACC_PUBLIC)
+	PHP_FE_END
 };
 
 
@@ -446,7 +442,7 @@ void async_poll_ce_register()
 
 	zend_class_entry ce;
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Poll", async_poll_functions);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent", "Poll", async_poll_functions);
 	async_poll_ce = zend_register_internal_class(&ce);
 	async_poll_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_poll_ce->create_object = async_poll_object_create;

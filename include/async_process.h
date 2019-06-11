@@ -28,7 +28,7 @@
 #define ASYNC_PROCESS_FLAG_INHERIT_ENV (1 << 1)
 #define ASYNC_PROCESS_FLAG_INTERACTIVE_SHELL (1 << 2)
 
-typedef struct {
+typedef struct _async_process_builder {
 	/* Fiber PHP object handle. */
 	zend_object std;
 

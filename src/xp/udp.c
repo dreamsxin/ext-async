@@ -25,7 +25,7 @@ static php_stream_ops udp_socket_ops;
 #define ASYNC_XP_SOCKET_UDP_FLAG_RECEIVING (1 << 7)
 #define ASYNC_XP_SOCKET_UDP_FLAG_CONNECTED (1 << 6)
 
-typedef struct {
+typedef struct _async_xp_socket_data_udp {
 	ASYNC_XP_SOCKET_DATA_BASE
     uv_udp_t handle;
     php_sockaddr_storage dest;
@@ -33,7 +33,7 @@ typedef struct {
     async_op_list receivers;
 } async_xp_socket_data_udp;
 
-typedef struct {
+typedef struct _async_xp_udp_receive_op {
 	async_op base;
 	int code;
 	unsigned int flags;

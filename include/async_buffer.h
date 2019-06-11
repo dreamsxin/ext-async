@@ -19,7 +19,7 @@
 #ifndef ASYNC_BUFFER_H
 #define ASYNC_BUFFER_H
 
-typedef struct {
+typedef struct _async_ring_buffer {
 	/* Base pointer being used to allocate and free buffer memory. */
 	char *base;
 	

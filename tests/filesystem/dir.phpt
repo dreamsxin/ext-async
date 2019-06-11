@@ -1,9 +1,7 @@
 --TEST--
 Filesystem provides access to directory contents.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --INI--
 async.filesystem=1
 --FILE--

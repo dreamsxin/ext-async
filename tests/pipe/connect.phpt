@@ -1,9 +1,7 @@
 --TEST--
 Pipe can connect to server.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
@@ -54,7 +52,8 @@ var_dump($b->getPort());
 Task::async(function () use ($a) {
     try {
         var_dump($a->read());
-        $a->writeAsync('World!');
+        
+        Task::async([$a, 'write'], 'World!');
         $a->flush();
     } finally {
         $a->close();

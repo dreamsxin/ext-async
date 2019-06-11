@@ -7,62 +7,110 @@ if (PHP_ASYNC != 'no') {
 	
 	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname);
 	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\include');
-	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\thirdparty\\libuv\\include');
-	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\thirdparty\\krakjoe\\parallel');
 	
 	ADD_FLAG('LDFLAGS', '/NODEFAULTLIB:LIBCMT');
 		
 	var async_source_files = [
-		'php_async.c',
-		'src\\channel.c',
-		'src\\console.c',
-		'src\\context.c',
-		'src\\deferred.c',
-		'src\\dns.c',
-		'src\\fiber\\winfib.c',
-		'src\\filesystem.c',
-		'src\\pipe.c',
-		'src\\process\\builder.c',
-		'src\\process\\env.c',
-		'src\\process\\runner.c',
-		'src\\socket.c',
-		'src\\ssl\\api.c',
-		'src\\ssl\\bio.c',
-		'src\\ssl\\engine.c',
-		'src\\stream.c',
-		'src\\sync.c',
-		'src\\task.c',
-		'src\\tcp.c',
-		'src\\thread.c',
-		'src\\udp.c',
-		'src\\watcher\\monitor.c',
-		'src\\watcher\\poll.c',
-		'src\\watcher\\signal.c',
-		'src\\watcher\\timer.c',
-		'src\\xp\\socket.c',
-		'src\\xp\\tcp.c',
-		'src\\xp\\udp.c'
+		'php_async.c'
 	];
 	
-	var async_header_files = [
-		'php_async.h',
-		'thirdparty\\libuv\\include\\uv.h'
+	var async_src = [
+		'channel.c',
+		'console.c',
+		'context.c',
+		'deferred.c',
+		'dns.c',
+		'fiber\\winfib.c',
+		'filesystem.c',
+		'helper.c',
+		'pipe.c',
+		'process\\builder.c',
+		'process\\env.c',
+		'process\\runner.c',
+		'socket.c',
+		'ssl\\api.c',
+		'ssl\\bio.c',
+		'ssl\\engine.c',
+		'stream.c',
+		'sync.c',
+		'task.c',
+		'tcp.c',
+		'thread.c',
+		'udp.c',
+		'watcher\\monitor.c',
+		'watcher\\poll.c',
+		'watcher\\signal.c',
+		'watcher\\timer.c',
+		'xp\\socket.c',
+		'xp\\tcp.c',
+		'xp\\udp.c'
 	];
 	
-	// Do static linking against included libuv.
-	if (X64) {
-		CHECK_LIB('libuv-x64.lib', 'async', configure_module_dirname + '\\thirdparty');
-	} else {
-		CHECK_LIB('libuv-x86.lib', 'async', configure_module_dirname + '\\thirdparty');
+	for (var i = 0; i < async_src.length; i++) {
+		async_source_files.push('src\\' + async_src[i]);
 	}
 	
-	// Required in order to link against libuv.
-	CHECK_LIB("Ws2_32.lib", 'async');
+	// Build libuv as part of the extension.
+	
+	CHECK_LIB("advapi32.lib", 'async');
+	CHECK_LIB("iphlpapi.lib", 'async');
 	CHECK_LIB("psapi.lib", 'async');
-	CHECK_LIB("Iphlpapi.lib", 'async');
-	CHECK_LIB('Userenv.lib', 'async');
+	CHECK_LIB("shell32.lib", 'async');
+	CHECK_LIB("user32.lib", 'async');
+	CHECK_LIB("userenv.lib", 'async');
+	CHECK_LIB("ws2_32.lib", 'async');
+	
+	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\thirdparty\\libuv\\include');
+	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\thirdparty\\libuv\\src');
+	
+	var uv_src = [
+		'fs-poll.c',
+		'idna.c',
+		'inet.c',
+		'strscpy.c',
+		'threadpool.c',
+		'timer.c',
+		'uv-data-getter-setters.c',
+		'uv-common.c',
+		'version.c'
+	];
+	
+	for (var i = 0; i < uv_src.length; i++) {
+		async_source_files.push('thirdparty\\libuv\\src\\' + uv_src[i]);
+	}
+	
+	var uv_win = [
+		'async.c',
+		'core.c',
+		'detect-wakeup.c',
+		'dl.c',
+		'error.c',
+		'fs-event.c',
+		'fs.c',
+		'getaddrinfo.c',
+		'getnameinfo.c',
+		'handle.c',
+		'loop-watcher.c',
+		'pipe.c',
+		'poll.c',
+		'process-stdio.c',
+		'process.c',
+		'signal.c',
+		'stream.c',
+		'tcp.c',
+		'thread.c',
+		'tty.c',
+		'udp.c',
+		'util.c',
+		'winapi.c',
+		'winsock.c'
+	];
+	
+	for (var i = 0; i < uv_win.length; i++) {
+		async_source_files.push('thirdparty\\libuv\\src\\win\\' + uv_win[i]);
+	}
 
-	PHP_INSTALL_HEADERS('ext/async', async_header_files.join(' '));
+	PHP_INSTALL_HEADERS('ext/async', 'php_async.h thirdparty\\libuv\\include\\uv.h');
 
 	var ret = SETUP_OPENSSL('async', PHP_ASYNC);
 	

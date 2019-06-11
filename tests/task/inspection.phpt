@@ -1,9 +1,7 @@
 --TEST--
 Task exposes meta data.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
@@ -25,8 +23,11 @@ var_dump($t->status);
 var_dump($file == $t->file);
 var_dump($line == $t->line);
 
+print_r(get_object_vars($t));
+print_r($t);
+
 ?>
---EXPECT--
+--EXPECTF--
 bool(true)
 bool(false)
 bool(false)
@@ -35,3 +36,15 @@ string(7) "PENDING"
 string(8) "RESOLVED"
 bool(true)
 bool(true)
+Array
+(
+    [status] => RESOLVED
+    [file] => %s
+    [line] => %d
+)
+Concurrent\Task Object
+(
+    [status] => RESOLVED
+    [file] => %s
+    [line] => %d
+)

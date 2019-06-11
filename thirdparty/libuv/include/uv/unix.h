@@ -49,8 +49,6 @@
 # include "uv/linux.h"
 #elif defined (__MVS__)
 # include "uv/os390.h"
-#elif defined(__PASE__)
-# include "uv/posix.h"
 #elif defined(_AIX)
 # include "uv/aix.h"
 #elif defined(__sun)
@@ -63,9 +61,10 @@
       defined(__OpenBSD__)         || \
       defined(__NetBSD__)
 # include "uv/bsd.h"
-#elif defined(__CYGWIN__) || defined(__MSYS__)
-# include "uv/posix.h"
-#elif defined(__GNU__)
+#elif defined(__PASE__)   || \
+      defined(__CYGWIN__) || \
+      defined(__MSYS__)   || \
+      defined(__GNU__)
 # include "uv/posix.h"
 #endif
 
@@ -165,6 +164,9 @@ typedef gid_t uv_gid_t;
 typedef uid_t uv_uid_t;
 
 typedef struct dirent uv__dirent_t;
+
+#define UV_DIR_PRIVATE_FIELDS \
+  DIR* dir;
 
 #if defined(DT_UNKNOWN)
 # define HAVE_DIRENT_TYPES

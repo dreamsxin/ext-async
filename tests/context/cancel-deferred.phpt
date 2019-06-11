@@ -1,9 +1,7 @@
 --TEST--
 Context cancellation will trigger deferred cancellation callback.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
@@ -20,10 +18,10 @@ Task::asyncWithContext($context, function (Context $context) {
     });
     
     var_dump('AWAIT DEFERRED');
-    var_dump($context->cancelled);
+    var_dump($context->isCancelled());
     
     var_dump(Task::await($defer->awaitable()));
-    var_dump($context->cancelled);
+    var_dump($context->isCancelled());
     
     try {
         $context->throwIfCancelled();

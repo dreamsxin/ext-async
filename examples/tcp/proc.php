@@ -36,8 +36,12 @@ for ($i = 0; $i < 4; $i++) {
     $procs[] = $process = $builder->start();
     $ipc = $process->getIpc();
 
-    $server->export($ipc);    
-    $ipc->writeAsync($id++);
+    $server->export($ipc);
+
+    Task::async([
+        $ipc,
+        'write'
+    ], $id++);
 }
 
 $server->close();

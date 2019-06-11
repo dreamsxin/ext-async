@@ -2,6 +2,8 @@
 
 namespace Concurrent\Network;
 
+use Concurrent\Task;
+
 $socket = UdpSocket::multicast('239.255.255.250', 1900);
 
 try {
@@ -19,8 +21,11 @@ try {
             'ST: upnp:rootdevice',
             'USN: uuid:3a06277c-5888-4a7d-b66b-20d914d168bd::upnp:rootdevice'
         ]) . "\r\n\r\n");
-        
-        var_dump($socket->sendAsync($datagram));
+
+        Task::async([
+            $socket,
+            'send'
+        ], $datagram);
     }
 } finally {
     $socket->close();

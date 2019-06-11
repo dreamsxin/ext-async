@@ -29,10 +29,27 @@ typedef LPFIBER_START_ROUTINE async_fiber_cb;
 typedef void (* async_fiber_cb)(void *arg);
 #endif
 
+struct _async_fiber {
+	uint8_t flags;
+	async_fiber *next;
+	async_fiber *prev;
+
+	async_task_scheduler *scheduler;
+	async_context *context;
+	async_task *task;
+	zend_execute_data *current_execute_data;
+	zend_vm_stack vm_stack;
+	size_t vm_stack_page_size;
+	zend_class_entry *exception_class;
+	zend_error_handling_t error_handling;
+	int error_reporting;
+	JMP_BUF *bailout;
+};
+
 #define BACKUP_EG(name) (fiber)->name = EG(name)
 #define RESTORE_EG(name) EG(name) = (fiber)->name
 
-typedef enum {
+typedef enum _async_fiber_suspend_type {
 	ASYNC_FIBER_SUSPEND_NONE,
 	ASYNC_FIBER_SUSPEND_PREPEND,
 	ASYNC_FIBER_SUSPEND_APPEND

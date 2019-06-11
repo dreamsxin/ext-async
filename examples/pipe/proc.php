@@ -12,7 +12,11 @@ $ipc = $process->getIpc();
 
 try {
     $tcp = TcpSocket::connect('httpbin.org', 80);
-    $tcp->writeAsync("GET /json HTTP/1.0\r\nHost: httpbin.org\r\nConnection: close\r\n\r\n");
+    
+    Task::async([
+        $tcp,
+        'write'
+    ], "GET /json HTTP/1.0\r\nHost: httpbin.org\r\nConnection: close\r\n\r\n");
     
     var_dump('SEND HANDLE');
     $tcp->export($ipc);

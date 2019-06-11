@@ -1,9 +1,7 @@
 --TEST--
 Task scheduling and running using the scheduler API.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
@@ -13,10 +11,7 @@ $result = TaskScheduler::run(function () {
 	$t1 = Task::async('var_dump', 'B');
 	$line = __LINE__ - 1;
 	
-	var_dump($t1->__debugInfo()['status']);
-	var_dump($t1->__debugInfo()['suspended']);
-	var_dump($t1->__debugInfo()['file'] == __FILE__);
-	var_dump($t1->__debugInfo()['line'] == $line);
+	print_r($t1);
 	
 	var_dump('A');
 	
@@ -26,11 +21,13 @@ $result = TaskScheduler::run(function () {
 var_dump($result);
 
 ?>
---EXPECT--
-string(7) "PENDING"
-bool(false)
-bool(true)
-bool(true)
+--EXPECTF--
+Concurrent\Task Object
+(
+    [status] => PENDING
+    [file] => %s
+    [line] => %d
+)
 string(1) "A"
 string(1) "B"
 string(1) "C"

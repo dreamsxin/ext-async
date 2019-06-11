@@ -20,3 +20,5 @@ Task::asyncWithContext($context, function () {
 (new Timer(200))->awaitTimeout();
 
 $cancel(new \Error('This is taking too long...'));
+
+echo "\n";

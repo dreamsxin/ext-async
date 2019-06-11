@@ -1,9 +1,7 @@
 --TEST--
 Task scheduler provides access to pending tasks.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
@@ -21,13 +19,11 @@ TaskScheduler::run(function () {
         Task::await($a);
     });
 }, function (array $tasks) {
-    array_map(function (array $info) {
-        var_dump($info['status']);
-        var_dump($info['suspended']);
+    array_map(function (Task $task) {
+        var_dump($task->status);
     }, $tasks);
 });
 
 --EXPECT--
 bool(true)
 string(7) "PENDING"
-bool(false)

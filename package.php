@@ -123,21 +123,11 @@ foreach ($xpath->query('/p:package/p:contents') as $contents) {
         'license',
         's'
     ]));
-    
-    $files = array_merge($files, collect_files(__DIR__ . '/thirdparty/krakjoe', [
-        'c',
-        'h'
-    ]));
 
     $files = array_merge($files, collect_files(__DIR__ . '/thirdparty/libuv', [
         'h',
         'c',
-        'm4',
-        'sh',
-        'ac',
-        'in',
         'md',
-        'am',
         'license'
     ]));
     

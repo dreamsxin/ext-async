@@ -1,9 +1,7 @@
 --TEST--
 Process can fork TCP server and listen in multiple processes.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 

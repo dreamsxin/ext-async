@@ -23,7 +23,7 @@
 #include "config.h"
 #endif
 
-typedef struct {
+typedef struct _async_fiber_stack {
 	void *pointer;
 	size_t size;
 

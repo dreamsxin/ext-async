@@ -13,16 +13,16 @@ Vagrant.configure("2") do |config|
   config.ssh.password = 'vagrant'
   config.ssh.insert_key = 'true'
 
-  config.vm.define "ubuntu18", primary: true do |ubuntu18|
-    ubuntu18.vm.box = "bento/ubuntu-18.10"
-    ubuntu18.vm.network :forwarded_port, guest: 22, host: 2222, id: "ssh"
-    ubuntu18.vm.provision "shell", path: "vagrant-nts.sh"
+  config.vm.define "php73", primary: true do |php73|
+    php73.vm.box = "bento/ubuntu-18.10"
+    php73.vm.network :forwarded_port, guest: 22, host: 2222, id: "ssh"
+    php73.vm.provision "shell", path: "vagrant-73.sh"
   end
   
-  config.vm.define "ubuntu14", autostart: false do |ubuntu14|
-    ubuntu14.vm.box = "ubuntu/trusty64"
-    ubuntu14.vm.network :forwarded_port, guest: 22, host: 2220, id: "ssh"
-    ubuntu14.vm.provision "shell", path: "vagrant-nts.sh"
+  config.vm.define "php74", autostart: false do |php74|
+    php74.vm.box = "bento/ubuntu-18.10"
+    php74.vm.network :forwarded_port, guest: 22, host: 2220, id: "ssh"
+    php74.vm.provision "shell", path: "vagrant-74.sh"
   end
   
 end

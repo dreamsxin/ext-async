@@ -26,7 +26,7 @@
 static int counter = 0;
 static size_t record_size = 0;
 
-typedef struct {
+typedef struct _async_fiber_ucontext {
 	ucontext_t ctx;
 	async_fiber_stack stack;
 	int id;
@@ -34,7 +34,7 @@ typedef struct {
 	zend_bool root;
 } async_fiber_ucontext;
 
-typedef struct {
+typedef struct _async_fiber_record_ucontext {
 	async_fiber_ucontext *fiber;
 	async_fiber_cb func;
 	void *arg;

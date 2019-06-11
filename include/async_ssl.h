@@ -38,7 +38,7 @@
 #define BIO_TYPE_PHP (98 | BIO_TYPE_SOURCE_SINK)
 #define ASYNC_SSL_BIO_OVERHEAD (2 * sizeof(size_t))
 
-typedef struct {
+typedef struct _async_ssl_bio_php {
 	size_t size;
 	size_t len;
 	char buf[1];
@@ -89,7 +89,7 @@ static zend_always_inline void async_ssl_bio_expose_buffer(BIO *b, char **buf, u
 
 #endif
 
-typedef struct {
+typedef struct _async_ssl_settings {
 	/* SSL mode (ASYNC_SSL_MODE_SERVER or ASYNC_SSL_MODE_CLIENT). */
 	zend_bool mode;
 
@@ -106,13 +106,13 @@ typedef struct {
 	int verify_depth;
 } async_ssl_settings;
 
-typedef struct {
+typedef struct _async_ssl_op {
 	async_op base;
 	int uv_error;
 	int ssl_error;
 } async_ssl_op;
 
-typedef struct {
+typedef struct _async_ssl_handshake_data {
 	async_ssl_settings *settings;
 	zend_string *host;
 	int uv_error;
@@ -120,7 +120,7 @@ typedef struct {
 	zend_string *error;
 } async_ssl_handshake_data;
 
-typedef struct {
+typedef struct _async_ssl_engine {
 #ifdef HAVE_ASYNC_SSL
 	/* SSL context.*/
 	SSL_CTX *ctx;
@@ -162,12 +162,12 @@ struct _async_tls_cert {
 #endif
 };
 
-typedef struct {
+typedef struct _async_tls_cert_list {
 	async_tls_cert *first;
 	async_tls_cert *last;
 } async_tls_cert_list;
 
-typedef struct {
+typedef struct _async_tls_client_encryption {
 	/* PHP object handle. */
 	zend_object std;
 
@@ -179,7 +179,7 @@ typedef struct {
 	zend_string *capath;
 } async_tls_client_encryption;
 
-typedef struct {
+typedef struct _async_tls_server_encryption {
 	/* PHP object handle. */
 	zend_object std;
 
@@ -192,15 +192,8 @@ typedef struct {
 	zend_string *capath;
 } async_tls_server_encryption;
 
-typedef struct {
-	/* PHP object handle. */
+typedef struct _async_tls_info {
 	zend_object std;
-	
-	const char *protocol;
-	const char *cipher_name;
-	int cipher_bits;
-	
-	zend_string *alpn;
 } async_tls_info;
 
 #ifdef HAVE_ASYNC_SSL

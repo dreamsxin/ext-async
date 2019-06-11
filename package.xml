@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2019-05-13</date>
-  <time>17:20:23</time>
+  <date>2019-06-11</date>
+  <time>20:24:26</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -33,6 +33,7 @@
       <file role="src" name="php_async.h"/>
       <file role="src" name="include/async_buffer.h"/>
       <file role="src" name="include/async_fiber.h"/>
+      <file role="src" name="include/async_helper.h"/>
       <file role="src" name="include/async_pipe.h"/>
       <file role="src" name="include/async_process.h"/>
       <file role="src" name="include/async_socket.h"/>
@@ -50,6 +51,7 @@
       <file role="src" name="src/fiber/ucontext.c"/>
       <file role="src" name="src/fiber/winfib.c"/>
       <file role="src" name="src/filesystem.c"/>
+      <file role="src" name="src/helper.c"/>
       <file role="src" name="src/pipe.c"/>
       <file role="src" name="src/process/builder.c"/>
       <file role="src" name="src/process/env.c"/>
@@ -81,6 +83,7 @@
       <file role="src" name="thirdparty/boost/asm/jump_i386_sysv_macho_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/jump_i386_x86_64_sysv_macho_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/jump_mips32_o32_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/jump_mips64_n64_elf_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/jump_ppc32_ppc64_sysv_macho_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/jump_ppc32_sysv_elf_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/jump_ppc32_sysv_macho_gas.S"/>
@@ -99,6 +102,7 @@
       <file role="src" name="thirdparty/boost/asm/make_i386_sysv_macho_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/make_i386_x86_64_sysv_macho_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/make_mips32_o32_elf_gas.S"/>
+      <file role="src" name="thirdparty/boost/asm/make_mips64_n64_elf_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/make_ppc32_ppc64_sysv_macho_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/make_ppc32_sysv_elf_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/make_ppc32_sysv_macho_gas.S"/>
@@ -108,14 +112,7 @@
       <file role="src" name="thirdparty/boost/asm/make_ppc64_sysv_xcoff_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/make_x86_64_sysv_elf_gas.S"/>
       <file role="src" name="thirdparty/boost/asm/make_x86_64_sysv_macho_gas.S"/>
-      <file role="doc" name="thirdparty/libuv/CONTRIBUTING.md"/>
       <file role="src" name="thirdparty/libuv/LICENSE"/>
-      <file role="doc" name="thirdparty/libuv/MAINTAINERS.md"/>
-      <file role="src" name="thirdparty/libuv/Makefile.am"/>
-      <file role="doc" name="thirdparty/libuv/README.md"/>
-      <file role="doc" name="thirdparty/libuv/SUPPORTED_PLATFORMS.md"/>
-      <file role="src" name="thirdparty/libuv/autogen.sh"/>
-      <file role="src" name="thirdparty/libuv/configure.ac"/>
       <file role="src" name="thirdparty/libuv/include/uv/aix.h"/>
       <file role="src" name="thirdparty/libuv/include/uv/android-ifaddrs.h"/>
       <file role="src" name="thirdparty/libuv/include/uv/bsd.h"/>
@@ -132,9 +129,6 @@
       <file role="src" name="thirdparty/libuv/include/uv/version.h"/>
       <file role="src" name="thirdparty/libuv/include/uv/win.h"/>
       <file role="src" name="thirdparty/libuv/include/uv.h"/>
-      <file role="src" name="thirdparty/libuv/libuv.pc.in"/>
-      <file role="src" name="thirdparty/libuv/m4/as_case.m4"/>
-      <file role="src" name="thirdparty/libuv/m4/libuv-check-flags.m4"/>
       <file role="src" name="thirdparty/libuv/src/fs-poll.c"/>
       <file role="src" name="thirdparty/libuv/src/heap-inl.h"/>
       <file role="src" name="thirdparty/libuv/src/idna.c"/>
@@ -256,7 +250,9 @@
       <file role="test" name="tests/channel/send-into-closed-channel.phpt"/>
       <file role="test" name="tests/channel/send-nonblocking.phpt"/>
       <file role="test" name="tests/channel/send-timeout.phpt"/>
+      <file role="test" name="tests/channel/skipif.inc"/>
       <file role="test" name="tests/channel/unbuffered.phpt"/>
+      <file role="test" name="tests/console/skipif.inc"/>
       <file role="test" name="tests/console/stdin.phpt"/>
       <file role="test" name="tests/console/stdout.phpt"/>
       <file role="test" name="tests/context/cancel-chain.phpt"/>
@@ -270,6 +266,7 @@
       <file role="test" name="tests/context/ouput-isolation.phpt"/>
       <file role="test" name="tests/context/output-discarded.phpt"/>
       <file role="test" name="tests/context/output-switching.phpt"/>
+      <file role="test" name="tests/context/skipif.inc"/>
       <file role="test" name="tests/context/var-access.phpt"/>
       <file role="test" name="tests/deferred/api.phpt"/>
       <file role="test" name="tests/deferred/combinator-fail.phpt"/>
@@ -279,6 +276,7 @@
       <file role="test" name="tests/deferred/combine-tasks.phpt"/>
       <file role="test" name="tests/deferred/disposal.phpt"/>
       <file role="test" name="tests/deferred/rejects-awaitable-params.phpt"/>
+      <file role="test" name="tests/deferred/skipif.inc"/>
       <file role="test" name="tests/deferred/suspend-during-continuation.phpt"/>
       <file role="test" name="tests/deferred/transform-task.phpt"/>
       <file role="test" name="tests/deferred/transform.phpt"/>
@@ -292,6 +290,7 @@
       <file role="test" name="tests/filesystem/mkdir.phpt"/>
       <file role="test" name="tests/filesystem/read.phpt"/>
       <file role="test" name="tests/filesystem/rename.phpt"/>
+      <file role="test" name="tests/filesystem/skipif.inc"/>
       <file role="test" name="tests/filesystem/stat.phpt"/>
       <file role="test" name="tests/filesystem/touch.phpt"/>
       <file role="test" name="tests/filesystem/write.phpt"/>
@@ -300,6 +299,7 @@
       <file role="test" name="tests/pipe/server-cancel-accept.phpt"/>
       <file role="test" name="tests/pipe/server-close-during-accept.phpt"/>
       <file role="test" name="tests/pipe/server-close.phpt"/>
+      <file role="test" name="tests/pipe/skipif.inc"/>
       <file role="test" name="tests/process/assets/env-foo.php"/>
       <file role="test" name="tests/process/assets/env.php"/>
       <file role="test" name="tests/process/assets/env2.php"/>
@@ -325,8 +325,11 @@
       <file role="test" name="tests/process/output-pipe.phpt"/>
       <file role="test" name="tests/process/shell.phpt"/>
       <file role="test" name="tests/process/signal.phpt"/>
+      <file role="test" name="tests/process/skipif.inc"/>
+      <file role="test" name="tests/skipif.inc"/>
       <file role="test" name="tests/sync/broadcast.phpt"/>
       <file role="test" name="tests/sync/close.phpt"/>
+      <file role="test" name="tests/sync/skipif.inc"/>
       <file role="test" name="tests/sync/wait-and-notify.phpt"/>
       <file role="test" name="tests/task/await-pending-task.phpt"/>
       <file role="test" name="tests/task/await-return-refcount.phpt"/>
@@ -349,6 +352,7 @@
       <file role="test" name="tests/task/scheduler-pending-tasks.phpt"/>
       <file role="test" name="tests/task/scheduler-stacking.phpt"/>
       <file role="test" name="tests/task/scheduling.phpt"/>
+      <file role="test" name="tests/task/skipif.inc"/>
       <file role="test" name="tests/task/static-scheduling.phpt"/>
       <file role="test" name="tests/task/suspend.phpt"/>
       <file role="test" name="tests/task/will-await-returned-awaitable.phpt"/>
@@ -365,6 +369,7 @@
       <file role="test" name="tests/tcp/pair.phpt"/>
       <file role="test" name="tests/tcp/send-async-ssl.phpt"/>
       <file role="test" name="tests/tcp/send-async.phpt"/>
+      <file role="test" name="tests/tcp/skipif.inc"/>
       <file role="test" name="tests/tcp/slow-receiver.phpt"/>
       <file role="test" name="tests/tcp/ssl-connection.phpt"/>
       <file role="test" name="tests/tcp/ssl-slow-receiver.phpt"/>
@@ -380,34 +385,44 @@
       <file role="test" name="tests/thread/ipc-no-connection.phpt"/>
       <file role="test" name="tests/thread/ipc.phpt"/>
       <file role="test" name="tests/thread/kill.phpt"/>
+      <file role="test" name="tests/thread/skipif.inc"/>
       <file role="test" name="tests/udp/async-send.phpt"/>
       <file role="test" name="tests/udp/cancel-receiver.phpt"/>
+      <file role="test" name="tests/udp/readonly-dgram-props.phpt"/>
+      <file role="test" name="tests/udp/skipif.inc"/>
       <file role="test" name="tests/udp/unicast.phpt"/>
       <file role="test" name="tests/watcher/poll/closed-root-level.phpt"/>
       <file role="test" name="tests/watcher/poll/closed-within-task.phpt"/>
       <file role="test" name="tests/watcher/poll/disposed-within-task.phpt"/>
       <file role="test" name="tests/watcher/poll/read-write.phpt"/>
       <file role="test" name="tests/watcher/poll/root-level.phpt"/>
+      <file role="test" name="tests/watcher/poll/skipif.inc"/>
       <file role="test" name="tests/watcher/poll/within-task.phpt"/>
       <file role="test" name="tests/watcher/signal/raise-and-catch.phpt"/>
+      <file role="test" name="tests/watcher/signal/skipif.inc"/>
       <file role="test" name="tests/watcher/signal/support.phpt"/>
+      <file role="test" name="tests/watcher/skipif.inc"/>
       <file role="test" name="tests/watcher/timer/close-root-level.phpt"/>
       <file role="test" name="tests/watcher/timer/close-within-task.phpt"/>
       <file role="test" name="tests/watcher/timer/disposed-within-task.phpt"/>
       <file role="test" name="tests/watcher/timer/root-level.phpt"/>
+      <file role="test" name="tests/watcher/timer/skipif.inc"/>
       <file role="test" name="tests/watcher/timer/sleep-arg.phpt"/>
       <file role="test" name="tests/watcher/timer/sleep-interrupted.phpt"/>
       <file role="test" name="tests/watcher/timer/sleep.phpt"/>
       <file role="test" name="tests/watcher/timer/timeout-unref.phpt"/>
       <file role="test" name="tests/watcher/timer/timeout.phpt"/>
       <file role="test" name="tests/watcher/timer/within-task.phpt"/>
+      <file role="test" name="tests/xp/skipif.inc"/>
       <file role="test" name="tests/xp/tcp/assets/functions.php"/>
       <file role="test" name="tests/xp/tcp/connection.phpt"/>
       <file role="test" name="tests/xp/tcp/read-after-shutdown.phpt"/>
       <file role="test" name="tests/xp/tcp/read-slow-receiver.phpt"/>
       <file role="test" name="tests/xp/tcp/read-timeout.phpt"/>
       <file role="test" name="tests/xp/tcp/select.phpt"/>
+      <file role="test" name="tests/xp/tcp/skipif.inc"/>
       <file role="test" name="tests/xp/tcp/ssl-connection.phpt"/>
+      <file role="test" name="tests/xp/udp/skipif.inc"/>
       <file role="test" name="tests/xp/udp/unicast.phpt"/>
     </dir>
   </contents>

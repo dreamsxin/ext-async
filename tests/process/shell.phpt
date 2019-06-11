@@ -1,9 +1,7 @@
 --TEST--
 Process can inherit and change env.
 --SKIPIF--
-<?php
-if (!extension_loaded('task')) echo 'Test requires the task extension to be loaded';
-?>
+<?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
 
@@ -20,11 +18,18 @@ if (DIRECTORY_SEPARATOR == '\\') {
     $process = $builder->start('sleep 1 && echo DONE');
 }
 
-var_dump($process->__debugInfo()['running']);
+
+print_r($process);
+
 var_dump($process->join());
 
---EXPECT--
+--EXPECTF--
 string(5) "START"
-bool(true)
+Concurrent\Process\Process Object
+(
+    [pid] => %d
+    [exit_code] => -1
+    [running] => 1
+)
 DONE
 int(0)

@@ -26,7 +26,7 @@ static zend_object_handlers async_signal_handlers;
 	zend_declare_class_constant_long(async_signal_ce, const_name, sizeof(const_name)-1, (zend_long)value);
 
 
-typedef struct {
+typedef struct _async_signal {
 	/* PHP object handle. */
 	zend_object std;
 
@@ -108,11 +108,7 @@ ASYNC_CALLBACK shutdown_signal(void *obj, zval *error)
 		ZVAL_COPY(&signal->error, error);
 	}
 
-	if (!uv_is_closing((uv_handle_t *) &signal->handle)) {
-		ASYNC_ADDREF(&signal->std);
-
-		uv_close((uv_handle_t *) &signal->handle, close_signal);
-	}
+	ASYNC_UV_TRY_CLOSE_REF(&signal->std, &signal->handle, close_signal);
 	
 	if (error != NULL) {
 		while (signal->observers.first != NULL) {
@@ -168,7 +164,11 @@ static void async_signal_object_destroy(zend_object *object)
 	zend_object_std_dtor(&signal->std);
 }
 
-ZEND_METHOD(Signal, __construct)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_signal_ctor, 0, 0, 1)
+	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+
+PHP_METHOD(Signal, __construct)
 {
 	async_signal *signal;
 	zend_long signum;
@@ -193,7 +193,11 @@ ZEND_METHOD(Signal, __construct)
 	ASYNC_LIST_APPEND(&signal->scheduler->shutdown, &signal->cancel);
 }
 
-ZEND_METHOD(Signal, close)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_close, 0, 0, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
+ZEND_END_ARG_INFO();
+
+PHP_METHOD(Signal, close)
 {
 	async_signal *signal;
 
@@ -204,7 +208,7 @@ ZEND_METHOD(Signal, close)
 
 	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(val)
+		Z_PARAM_OBJECT_OF_CLASS_EX(val, zend_ce_throwable, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
 	signal = (async_signal *) Z_OBJ_P(getThis());
@@ -227,7 +231,10 @@ ZEND_METHOD(Signal, close)
 	zval_ptr_dtor(&error);
 }
 
-ZEND_METHOD(Signal, awaitSignal)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_await_signal, 0, 0, IS_VOID, 0)
+ZEND_END_ARG_INFO();
+
+PHP_METHOD(Signal, awaitSignal)
 {
 	async_signal *signal;
 	async_op *op;
@@ -279,7 +286,11 @@ static int is_signal_supported(int signum)
 	return 0;
 }
 
-ZEND_METHOD(Signal, isSupported)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_is_supported, 0, 1, _IS_BOOL, 0)
+	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+
+PHP_METHOD(Signal, isSupported)
 {
 	zend_long tmp;
 
@@ -294,7 +305,11 @@ ZEND_METHOD(Signal, isSupported)
 	RETURN_FALSE;
 }
 
-ZEND_METHOD(Signal, raise)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_raise, 0, 1, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+
+PHP_METHOD(Signal, raise)
 {
 	zend_long tmp;
 	
@@ -313,7 +328,12 @@ ZEND_METHOD(Signal, raise)
 #endif
 }
 
-ZEND_METHOD(Signal, signal)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_signal, 0, 2, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, pid, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
+ZEND_END_ARG_INFO();
+
+PHP_METHOD(Signal, signal)
 {
 	zend_long pid;
 	zend_long sig;
@@ -337,38 +357,14 @@ ZEND_METHOD(Signal, signal)
 	}
 }
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_signal_ctor, 0, 0, 1)
-	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_close, 0, 0, IS_VOID, 0)
-	ZEND_ARG_OBJ_INFO(0, error, Throwable, 1)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_await_signal, 0, 0, IS_VOID, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_is_supported, 0, 1, _IS_BOOL, 0)
-	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_raise, 0, 1, IS_VOID, 0)
-	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_signal_signal, 0, 2, IS_VOID, 0)
-	ZEND_ARG_TYPE_INFO(0, pid, IS_LONG, 0)
-	ZEND_ARG_TYPE_INFO(0, signum, IS_LONG, 0)
-ZEND_END_ARG_INFO()
-
 static const zend_function_entry async_signal_functions[] = {
-	ZEND_ME(Signal, __construct, arginfo_signal_ctor, ZEND_ACC_PUBLIC)
-	ZEND_ME(Signal, close, arginfo_signal_close, ZEND_ACC_PUBLIC)
-	ZEND_ME(Signal, awaitSignal, arginfo_signal_await_signal, ZEND_ACC_PUBLIC)
-	ZEND_ME(Signal, isSupported, arginfo_signal_is_supported, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Signal, raise, arginfo_signal_raise, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_ME(Signal, signal, arginfo_signal_signal, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-	ZEND_FE_END
+	PHP_ME(Signal, __construct, arginfo_signal_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(Signal, close, arginfo_signal_close, ZEND_ACC_PUBLIC)
+	PHP_ME(Signal, awaitSignal, arginfo_signal_await_signal, ZEND_ACC_PUBLIC)
+	PHP_ME(Signal, isSupported, arginfo_signal_is_supported, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(Signal, raise, arginfo_signal_raise, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(Signal, signal, arginfo_signal_signal, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_FE_END
 };
 
 
@@ -376,7 +372,7 @@ void async_signal_ce_register()
 {
 	zend_class_entry ce;
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Signal", async_signal_functions);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent", "Signal", async_signal_functions);
 	async_signal_ce = zend_register_internal_class(&ce);
 	async_signal_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_signal_ce->create_object = async_signal_object_create;

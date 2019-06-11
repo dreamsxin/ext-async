@@ -114,12 +114,11 @@ static size_t async_xp_socket_write(php_stream *stream, const char *buf, size_t 
 	
 	ZVAL_RES(&ref, stream->res);
 	
+	memset(&write, 0, sizeof(async_stream_write_req));
+
 	write.in.len = count;
 	write.in.buffer = (char *) buf;
-	write.in.handle = NULL;
-	write.in.str = NULL;
 	write.in.ref = &ref;
-	write.in.flags = 0;
 	
 	if (UNEXPECTED(FAILURE == async_stream_write(data->astream, &write))) {
 		return 0;
@@ -230,7 +229,7 @@ ASYNC_CALLBACK close_cb(void *arg)
 		
 		efree(data);
 	} else {
-		uv_close((uv_handle_t *) &data->timer, dispose_timer);
+		ASYNC_UV_CLOSE(&data->timer, dispose_timer);
 	}
 }
 
@@ -256,7 +255,7 @@ ASYNC_CALLBACK close_dgram_cb(uv_handle_t *handle)
 		
 		efree(data);
 	} else {
-		uv_close((uv_handle_t *) &data->timer, dispose_timer);
+		ASYNC_UV_CLOSE(&data->timer, dispose_timer);
 	}
 }
 
@@ -273,9 +272,9 @@ static int async_xp_socket_close(php_stream *stream, int close_handle)
 				data->peer = NULL;
 			}
 
-			uv_close((uv_handle_t *) &data->timer, dispose_timer);
+			ASYNC_UV_CLOSE(&data->timer, dispose_timer);
 		} else {
-			uv_close(&data->handle, close_dgram_cb);
+			ASYNC_UV_CLOSE(&data->handle, close_dgram_cb);
 		}
 	} else {
 		async_stream_close_cb(data->astream, close_cb, data);

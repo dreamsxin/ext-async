@@ -34,7 +34,7 @@
 
 typedef void* fcontext_t;
 
-typedef struct {
+typedef struct _transfer_t {
     fcontext_t ctx;
     void *data;
 } transfer_t;
@@ -45,7 +45,7 @@ extern transfer_t ASM_CALLDECL jump_fcontext(fcontext_t to, void *vp);
 static int counter = 0;
 static size_t record_size = 0;
 
-typedef struct {
+typedef struct _async_fiber_asm {
 	async_fiber base;
 	fcontext_t ctx;
 	async_fiber_stack stack;
@@ -54,7 +54,7 @@ typedef struct {
 	zend_bool root;
 } async_fiber_asm;
 
-typedef struct {
+typedef struct _async_fiber_record_asm {
 	async_fiber_asm *fiber;
 	async_fiber_cb func;
 	void *arg;
@@ -63,7 +63,7 @@ typedef struct {
 
 const char *async_fiber_backend_info()
 {
-	return "asm (boost.context v1.69.0)";
+	return "asm (boost.context 1.70.0)";
 }
 
 async_fiber *async_fiber_create_root()

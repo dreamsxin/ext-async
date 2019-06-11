@@ -17,6 +17,7 @@
 */
 
 #include "php_async.h"
+#include "async_helper.h"
 #include "async_fiber.h"
 #include "async_ssl.h"
 
@@ -25,35 +26,9 @@
 
 ZEND_DECLARE_MODULE_GLOBALS(async)
 
-ASYNC_API zend_class_entry *async_awaitable_ce;
-
 static void async_execute_ex(zend_execute_data *exec);
 static void (*orig_execute_ex)(zend_execute_data *exec);
 
-static int implements_awaitable(zend_class_entry *entry, zend_class_entry *implementor)
-{
-	if (implementor == async_deferred_awaitable_ce) {
-		return SUCCESS;
-	}
-
-	if (implementor == async_task_ce) {
-		return SUCCESS;
-	}
-
-	zend_error_noreturn(
-		E_CORE_ERROR,
-		"Class %s must not implement interface %s, create an awaitable using %s instead",
-		ZSTR_VAL(implementor->name),
-		ZSTR_VAL(entry->name),
-		ZSTR_VAL(async_deferred_ce->name)
-	);
-
-	return FAILURE;
-}
-
-static const zend_function_entry empty_funcs[] = {
-	ZEND_FE_END
-};
 
 static void execute_root(zend_execute_data *exec)
 {
@@ -146,7 +121,6 @@ ASYNC_CALLBACK after_init_threads(uv_work_t *req, int status)
 
 PHP_MINIT_FUNCTION(async)
 {
-	zend_class_entry ce;
 	uv_work_t *req;
 
 	char entry[4];
@@ -176,10 +150,7 @@ PHP_MINIT_FUNCTION(async)
 #endif
 #endif
 
-	INIT_CLASS_ENTRY(ce, "Concurrent\\Awaitable", empty_funcs);
-	async_awaitable_ce = zend_register_internal_interface(&ce);
-	async_awaitable_ce->interface_gets_implemented = implements_awaitable;
-
+	async_task_ce_register();
 	async_stream_ce_register();
 	async_socket_ce_register();
 
@@ -195,7 +166,6 @@ PHP_MINIT_FUNCTION(async)
 	async_signal_ce_register();
 	async_ssl_ce_register();
 	async_sync_init();
-	async_task_ce_register();
 	async_tcp_ce_register();
 	async_thread_ce_register();
 	async_timer_ce_register();
@@ -231,7 +201,10 @@ PHP_MINIT_FUNCTION(async)
 PHP_MSHUTDOWN_FUNCTION(async)
 {
 	async_channel_ce_unregister();
+	async_deferred_ce_unregister();
 	async_monitor_ce_unregister();
+	async_ssl_ce_unregister();
+	async_udp_socket_ce_unregister();
 
 	async_task_ce_unregister();
 	async_thread_ce_unregister();
@@ -251,7 +224,7 @@ PHP_MINFO_FUNCTION(async)
 {
 	char uv_version[20];
 
-	sprintf(uv_version, "%d.%d", UV_VERSION_MAJOR, UV_VERSION_MINOR);
+	sprintf(uv_version, "%d.%d.%d", UV_VERSION_MAJOR, UV_VERSION_MINOR, UV_VERSION_PATCH);
 
 	php_info_print_table_start();
 	php_info_print_table_row(2, "Fiber backend", async_fiber_backend_info());
