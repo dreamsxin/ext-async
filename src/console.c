@@ -112,7 +112,7 @@ ASYNC_CALLBACK readable_pipe_shutdown(void *object, zval *error)
 
 	if (Z_TYPE_P(&pipe->error) == IS_UNDEF) {
 		if (error == NULL) {
-			ASYNC_PREPARE_EXCEPTION(&pipe->error, async_stream_closed_exception_ce, "Console stream has been closed");
+			ASYNC_PREPARE_SCHEDULER_EXCEPTION(&pipe->error, async_stream_closed_exception_ce, "Console stream has been closed");
 		} else {
 			ZVAL_COPY(&pipe->error, error);
 		}
@@ -298,7 +298,7 @@ static PHP_METHOD(ReadablePipe, close)
 		return;
 	}
 	
-	ASYNC_PREPARE_EXCEPTION(&error, async_stream_closed_exception_ce, "Console stream has been closed");
+	ASYNC_PREPARE_EXCEPTION(&error, execute_data, async_stream_closed_exception_ce, "Console stream has been closed");
 
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
@@ -433,7 +433,14 @@ static PHP_METHOD(ReadablePipe, read)
 	forward_stream_read_error(stream, &read);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(ReadablePipe, async_readable_pipe_ce)
+ASYNC_METHOD_NO_WAKEUP(ReadablePipe, async_readable_pipe_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_readable_pipe_functions[] = {
+	PHP_ME(ReadablePipe, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(ReadablePipe, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(ReadablePipe, getStdin, arginfo_readable_console_stream_get_stdin, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(ReadablePipe, isTerminal, arginfo_readable_console_stream_is_terminal, ZEND_ACC_PUBLIC)
 	PHP_ME(ReadablePipe, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
@@ -470,7 +477,7 @@ ASYNC_CALLBACK writable_pipe_shutdown(void *object, zval *error)
 
 	if (Z_TYPE_P(&pipe->error) == IS_UNDEF) {
 		if (error == NULL) {
-			ASYNC_PREPARE_EXCEPTION(&pipe->error, async_stream_closed_exception_ce, "Console stream has been closed");
+			ASYNC_PREPARE_SCHEDULER_EXCEPTION(&pipe->error, async_stream_closed_exception_ce, "Console stream has been closed");
 		} else {
 			ZVAL_COPY(&pipe->error, error);
 		}
@@ -663,7 +670,7 @@ static PHP_METHOD(WritablePipe, close)
 		return;
 	}
 	
-	ASYNC_PREPARE_EXCEPTION(&error, async_stream_closed_exception_ce, "Console stream has been closed");
+	ASYNC_PREPARE_EXCEPTION(&error, execute_data, async_stream_closed_exception_ce, "Console stream has been closed");
 
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
@@ -761,7 +768,14 @@ static PHP_METHOD(WritablePipe, write)
 	}
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(WritablePipe, async_writable_pipe_ce)
+ASYNC_METHOD_NO_WAKEUP(WritablePipe, async_writable_pipe_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_writable_pipe_functions[] = {
+	PHP_ME(WritablePipe, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(WritablePipe, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(WritablePipe, getStdout, arginfo_writable_console_stream_get_stdout, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(WritablePipe, getStderr, arginfo_writable_console_stream_get_stderr, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(WritablePipe, isTerminal, arginfo_writable_console_stream_is_terminal, ZEND_ACC_PUBLIC)

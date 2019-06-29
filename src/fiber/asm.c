@@ -191,7 +191,7 @@ void async_fiber_suspend(async_task_scheduler *scheduler)
 	ZEND_ASSERT(from->initialized);
 	ZEND_ASSERT(to->initialized);
 	
-	// ASYNC_DEBUG_LOG("SUSPEND: %d -> %d\n", from->id, to->id);
+//	ASYNC_DEBUG_LOG("SUSPEND: %d -> %d\n", from->id, to->id);
 	
 	async_fiber_capture_state(current);
 	ASYNC_G(fiber) = next;
@@ -217,21 +217,14 @@ void async_fiber_switch(async_task_scheduler *scheduler, async_fiber *next, asyn
 	
 	current = ASYNC_G(fiber);
 	
-	if (current == NULL) {
-		current = ASYNC_G(root);
-	}
-	
 	ZEND_ASSERT(current != NULL);
-
-	if (UNEXPECTED(current == next)) {
-		return;
-	}
 
 	from = (async_fiber_asm *) current;
 	to = (async_fiber_asm *) next;
 
 	ZEND_ASSERT(from->initialized);
 	ZEND_ASSERT(to->initialized);
+	ZEND_ASSERT(from != to);
 	
 	if (EXPECTED(!(current->flags & ASYNC_FIBER_FLAG_QUEUED))) {
 		switch (suspend) {
@@ -248,7 +241,7 @@ void async_fiber_switch(async_task_scheduler *scheduler, async_fiber *next, asyn
 		}
 	}
 	
-	// ASYNC_DEBUG_LOG("SWITCH: %d -> %d\n", from->id, to->id);
+//	ASYNC_DEBUG_LOG("SWITCH: %d -> %d\n", from->id, to->id);
 	
 	async_fiber_capture_state(current);	
 	ASYNC_G(fiber) = next;

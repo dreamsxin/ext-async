@@ -29,6 +29,13 @@ $a = TaskScheduler::run(function () {
 
 var_dump($a);
 
+Deferred::combine([
+    Deferred::value(1)
+], function () {
+    var_dump('END');
+    exit();
+});
+
 ?>
 --EXPECT--
 string(1) "A"
@@ -43,3 +50,4 @@ string(1) "X"
 NULL
 string(1) "C"
 int(777)
+string(3) "END"

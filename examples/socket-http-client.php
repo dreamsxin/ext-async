@@ -4,7 +4,7 @@ namespace Concurrent\Network;
 
 use Concurrent\Task;
 
-Task::async('count', []);
+require_once __DIR__ . '/dns.php';
 
 $tls = ($_SERVER['argv'][1] ?? null) ? new TlsClientEncryption() : null;
 

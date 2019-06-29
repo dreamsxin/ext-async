@@ -26,7 +26,7 @@ Task::asyncWithContext(Context::background(), function () use ($a, $b, $poll) {
             $poll->awaitReadable();
         }
     } catch (\Throwable $e) {
-        echo $e;
+        echo 'CATCH >> ', $e;
     }
 });
 
@@ -36,3 +36,5 @@ Task::async(function () use ($a) {
     
     fwrite($a, 'Hello!');
 });
+
+var_dump('GO LOOP');

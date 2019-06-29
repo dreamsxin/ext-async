@@ -47,6 +47,11 @@ try {
     var_dump($e->getMessage());
 }
 
+Deferred::transform(Deferred::value(123), function () {
+    var_dump('END');
+    exit();
+});
+
 --EXPECT--
 NULL
 int(123)
@@ -58,3 +63,4 @@ string(4) "BAR!"
 string(4) "FOO!"
 string(41) "Cannot await within the current execution"
 string(41) "Cannot await within the current execution"
+string(3) "END"

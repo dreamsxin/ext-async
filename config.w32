@@ -20,6 +20,7 @@ if (PHP_ASYNC != 'no') {
 		'context.c',
 		'deferred.c',
 		'dns.c',
+		'event.c',
 		'fiber\\winfib.c',
 		'filesystem.c',
 		'helper.c',

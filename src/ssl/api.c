@@ -331,7 +331,12 @@ PHP_METHOD(TlsClientEncryption, withCertificateAuthorityFile)
 	RETURN_OBJ(&encryption->std);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(TlsClientEncryption, async_tls_client_encryption_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_tls_client_encryption_functions[] = {
+	PHP_ME(TlsClientEncryption, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(TlsClientEncryption, withAllowSelfSigned, arginfo_tls_client_encryption_with_allow_self_signed, ZEND_ACC_PUBLIC)
 	PHP_ME(TlsClientEncryption, withVerifyDepth, arginfo_tls_client_encryption_with_verify_depth, ZEND_ACC_PUBLIC)
 	PHP_ME(TlsClientEncryption, withPeerName, arginfo_tls_client_encryption_with_peer_name, ZEND_ACC_PUBLIC)
@@ -636,7 +641,12 @@ PHP_METHOD(TlsServerEncryption, withCertificateAuthorityFile)
 	RETURN_OBJ(&encryption->std);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(TlsServerEncryption, async_tls_server_encryption_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_tls_server_encryption_functions[] = {
+	PHP_ME(TlsServerEncryption, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(TlsServerEncryption, withDefaultCertificate, arginfo_tls_server_encryption_with_default_certificate, ZEND_ACC_PUBLIC)
 	PHP_ME(TlsServerEncryption, withCertificate, arginfo_tls_server_encryption_with_certificate, ZEND_ACC_PUBLIC)
 	PHP_ME(TlsServerEncryption, withAlpnProtocols, arginfo_tls_server_encryption_with_alpn_protocols, ZEND_ACC_PUBLIC)
@@ -691,7 +701,14 @@ static void async_tls_info_object_destroy(zend_object *object)
 	zend_object_std_dtor(&info->std);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(TlsInfo, async_tls_info_ce)
+ASYNC_METHOD_NO_WAKEUP(TlsInfo, async_tls_info_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_tls_info_functions[] = {
+	PHP_ME(TlsInfo, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(TlsInfo, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_FE_END
 };
 

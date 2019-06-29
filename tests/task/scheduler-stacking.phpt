@@ -23,6 +23,11 @@ TaskScheduler::run(function () {
 
 Task::await(Task::async('var_dump', 'X'));
 
+TaskScheduler::run(function () {
+    var_dump('END');
+    exit();
+});
+
 --EXPECT--
 string(1) "A"
 string(1) "B"
@@ -30,3 +35,4 @@ string(1) "C"
 string(1) "D"
 string(1) "E"
 string(1) "X"
+string(3) "END"

@@ -234,7 +234,7 @@ static PHP_METHOD(Monitor, close)
 		return;
 	}
 	
-	ASYNC_PREPARE_ERROR(&error, "Monitor has been closed");
+	ASYNC_PREPARE_ERROR(&error, execute_data, "Monitor has been closed");
 	
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
@@ -280,8 +280,13 @@ static PHP_METHOD(Monitor, awaitEvent)
 	RETURN_OBJ(&event->std);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(Monitor, async_monitor_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_monitor_functions[] = {
 	PHP_ME(Monitor, __construct, arginfo_monitor_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(Monitor, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(Monitor, close, arginfo_monitor_close, ZEND_ACC_PUBLIC)
 	PHP_ME(Monitor, awaitEvent, arginfo_monitor_await_event, ZEND_ACC_PUBLIC)
 	PHP_FE_END
@@ -330,7 +335,14 @@ static void async_monitor_event_object_destroy(zend_object *object)
 	zend_object_std_dtor(&event->std);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(MonitorEvent, async_monitor_event_ce)
+ASYNC_METHOD_NO_WAKEUP(MonitorEvent, async_monitor_event_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_monitor_event_functions[] = {
+	PHP_ME(MonitorEvent, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(MonitorEvent, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_FE_END
 };
 

@@ -22,7 +22,15 @@ Task::async(function () use ($a) {
         for ($i = 0; $i < 3; $i++) {
             $timer->awaitTimeout();
             
-            Task::async([$b, 'send'], new UdpDatagram((string) $i, $a->getAddress(), $a->getPort()));
+            $dgram = new UdpDatagram((string) $i, $a->getAddress(), $a->getPort());
+            
+            if ($i == 0) {
+                $context = Context::current()->withTimeout(100);
+            
+                Task::await(Task::asyncWithContext($context, [$b, 'send'], $dgram));
+            } else {
+                Task::async([$b, 'send'], $dgram);
+            }
         }
         
         $b->flush();

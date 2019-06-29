@@ -530,7 +530,7 @@ static PHP_METHOD(Pipe, close)
 		return;
 	}
 
-	ASYNC_PREPARE_EXCEPTION(&error, async_stream_closed_exception_ce, "Socket has been closed");
+	ASYNC_PREPARE_EXCEPTION(&error, execute_data, async_stream_closed_exception_ce, "Socket has been closed");
 
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
@@ -666,7 +666,14 @@ static PHP_METHOD(Pipe, getWritableStream)
 	RETURN_OBJ(&writer->std);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(Pipe, async_pipe_ce)
+ASYNC_METHOD_NO_WAKEUP(Pipe, async_pipe_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_pipe_functions[] = {
+	PHP_ME(Pipe, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(Pipe, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(Pipe, connect, arginfo_pipe_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(Pipe, import, arginfo_pipe_import, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(Pipe, pair, arginfo_pipe_pair, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
@@ -1019,7 +1026,7 @@ static PHP_METHOD(PipeServer, close)
 		return;
 	}
 
-	ASYNC_PREPARE_EXCEPTION(&error, async_socket_exception_ce, "Server has been closed");
+	ASYNC_PREPARE_EXCEPTION(&error, execute_data, async_socket_exception_ce, "Server has been closed");
 
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
@@ -1133,7 +1140,14 @@ static PHP_METHOD(PipeServer, accept)
 	RETURN_OBJ(&pipe->std);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(PipeServer, async_pipe_server_ce)
+ASYNC_METHOD_NO_WAKEUP(PipeServer, async_pipe_server_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_pipe_server_functions[] = {
+	PHP_ME(PipeServer, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(PipeServer, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(PipeServer, bind, arginfo_pipe_server_bind, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(PipeServer, listen, arginfo_pipe_server_listen, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(PipeServer, import, arginfo_pipe_server_import, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)

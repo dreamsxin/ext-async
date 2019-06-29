@@ -169,6 +169,7 @@ static int establish_ipc_slave(async_thread *thread)
 ASYNC_CALLBACK run_thread(void *arg)
 {
 	async_thread *thread;
+	async_task_scheduler *scheduler;
 	
 	thread = (async_thread *) arg;
 	
@@ -218,10 +219,12 @@ ASYNC_CALLBACK run_thread(void *arg)
 	thread->slave = pipe;
 #endif
 	
+	scheduler = async_task_scheduler_get();
+
 	zend_first_try {
 		run_bootstrap(thread);
 	} zend_catch {
-		ASYNC_G(exit) = 1;
+		async_task_scheduler_handle_exit(scheduler);
 	} zend_end_try();
 	
 	uv_mutex_lock(&thread->mutex);
@@ -688,8 +691,13 @@ static PHP_METHOD(Thread, join)
 #endif
 }
 
-static const zend_function_entry thread_funcs[] = {
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(Thread, async_thread_ce)
+//LCOV_EXCL_STOP
+
+static const zend_function_entry thread_functions[] = {
 	PHP_ME(Thread, __construct, arginfo_thread_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(Thread, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(Thread, isAvailable, arginfo_thread_is_available, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(Thread, isWorker, arginfo_thread_is_worker, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(Thread, connect, arginfo_thread_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
@@ -724,7 +732,7 @@ void async_thread_ce_register()
 {
 	zend_class_entry ce;
 
-	INIT_NS_CLASS_ENTRY(ce, "Concurrent", "Thread", thread_funcs);
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent", "Thread", thread_functions);
 	async_thread_ce = zend_register_internal_class(&ce);
 	async_thread_ce->ce_flags |= ZEND_ACC_FINAL;
 	async_thread_ce->create_object = async_thread_object_create;

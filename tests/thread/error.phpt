@@ -11,6 +11,11 @@ $thread = new Thread(__DIR__ . '/assets/error.php');
 
 var_dump($thread->join());
 
---EXPECT--
+--EXPECTF--
 string(8) "GO THROW"
-int(1)
+
+Fatal error: Uncaught RuntimeException: This is an error! in %s:%d
+Stack trace:
+#0 {main}
+  thrown in %s on line %d
+int(%d)

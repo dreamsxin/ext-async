@@ -167,6 +167,8 @@ final class Task implements Awaitable
     
     /* Should be replaced with await keyword if merged into PHP core. */
     public static function await(Awaitable $awaitable): mixed { }
+    
+    public function getTrace(?int $options = \DEBUG_BACKTRACE_PROVIDE_OBJECT, ?int $limit = 0): array { }
 }
 ```
 
@@ -184,6 +186,82 @@ final class TaskScheduler
     public static function run(callable $callback, ?callable $inspect = null): mixed { }
     
     public static function runWithContext(Context $context, callable $callback, ?callable $inspect = null): mixed { }
+    
+    public static function get(string $type): object { }
+    
+    public static function register(string $type, ?callable $factory): ?callable { }
+    
+    public function tick(callable $callback): TickEvent { }
+    
+    public function timer(callable $callback): TimerEvent { }
+    
+    public function poll(resource $stream, callable $callback): PollEvent { }
+}
+
+interface Component
+{
+    public function shutdown(): void;
+}
+```
+
+### TickEvent
+
+```php
+namespace Concurrent;
+
+final class TickEvent
+{
+    public function close(): void { }
+    
+    public function start(): void { }
+    
+    public function stop(): void { }
+    
+    public function ref(): void { }
+    
+    public function unref(): void { }
+}
+```
+
+### TimerEvent
+
+```php
+namespace Concurrent;
+
+final class TimerEvent
+{
+    public function close(): void { }
+    
+    public function start(int $milliseconds, bool $periodic = false): void { }
+    
+    public function stop(): void { }
+    
+    public function ref(): void { }
+    
+    public function unref(): void { }
+}
+```
+
+### PollEvent
+
+```php
+namespace Concurrent;
+
+final class PollEvent
+{
+    public const int READABLE;
+    public const int WRITABLE;
+    public const int DISCONNECT;
+
+    public function close(): void { }
+    
+    public function start(int $events): void { }
+    
+    public function stop(): void { }
+    
+    public function ref(): void { }
+    
+    public function unref(): void { }
 }
 ```
 
@@ -355,7 +433,7 @@ namespace Concurrent;
 
 final class Monitor
 {
-    public function __construct(string $path, ?bool $recursive = null) { }
+    public function __construct(string $path, ?bool $recursive = false) { }
     
     public function close(?\Throwable $e = null): void { }
     
@@ -364,8 +442,8 @@ final class Monitor
 
 final class MonitorEvent
 {
-    public const RENAMED;
-    public const CHANGED;
+    public const int RENAMED;
+    public const int CHANGED;
     
     public int $events;
     public string $path;
@@ -423,13 +501,13 @@ namespace Concurrent;
 
 final class Signal
 {
-    public const SIGHUP;
-    public const SIGINT;
-    public const SIGQUIT;
-    public const SIGKILL;
-    public const SIGTERM;
-    public const SIGUSR1;
-    public const SIGUSR2;
+    public const int SIGHUP;
+    public const int SIGINT;
+    public const int SIGQUIT;
+    public const int SIGKILL;
+    public const int SIGTERM;
+    public const int SIGUSR1;
+    public const int SIGUSR2;
 
     public function __construct(int $signum) { }
     
@@ -496,6 +574,36 @@ interface DuplexStream extends ReadableStream, WritableStream
 }
 ```
 
+### ReadableMemoryStream
+
+Provides a readable stream backed by a PHP string.
+
+```php
+namespace Concurrent\Stream;
+
+final class ReadableMemoryStream implements ReadableStream
+{
+    public function __construct(string $buffer = '') { }
+    
+    public function isClosed(): bool { }
+}
+```
+
+### WritableMemoryStream
+
+Provides a writable stream backed by a PHP string.
+
+```php
+namespace Concurrent\Stream;
+
+final class WritableMemoryStream implements WritableStream
+{
+    public function isClosed(): bool { }
+    
+    public function getContents(): string { }
+}
+```
+
 ### ReadablePipe
 
 Provides non-blocking access to `STDIN` pipe of the PHP process.
@@ -506,7 +614,7 @@ namespace Concurrent\Stream;
 final class ReadablePipe implements ReadableStream
 {
     public static function getStdin(bool $ipc = false): ReadablePipe { }
-       
+    
     public function isTerminal(): bool { }
 }
 ```
@@ -596,11 +704,11 @@ namespace Concurrent\Network;
 
 final class Pipe implements SocketStream
 {
-    public static function connect(string $name, ?string $host = null, ?bool $ipc = null): Pipe { }
+    public static function connect(string $name, ?string $host = null, ?bool $ipc = false): Pipe { }
     
-    public static function import(Pipe $pipe, ?bool $ipc = null): Pipe { }
+    public static function import(Pipe $pipe, ?bool $ipc = false): Pipe { }
     
-    public static function pair(?bool $ipc = null): array { }
+    public static function pair(?bool $ipc = false): array { }
     
     public function export(Pipe $pipe): void { }
 }
@@ -615,11 +723,11 @@ namespace Concurrent\Network;
 
 final class PipeServer implements Server
 {
-    public static function bind(string $name, ?bool $ipc = null): PipeServer { }
+    public static function bind(string $name, ?bool $ipc = false): PipeServer { }
     
-    public static function listen(string $name, ?bool $ipc = null): PipeServer { }
+    public static function listen(string $name, ?bool $ipc = false): PipeServer { }
     
-    public static function import(Pipe $pipe, ?bool $ipc = null): PipeServer { }
+    public static function import(Pipe $pipe, ?bool $ipc = false): PipeServer { }
     
     public function export(Pipe $pipe): void { }
 }
@@ -636,8 +744,8 @@ namespace Concurrent\Network;
 
 final class TcpSocket implements SocketStream
 {
-    public const NODELAY;
-    public const KEEPALIVE;
+    public const int NODELAY;
+    public const int KEEPALIVE;
 
     public static function connect(string $host, int $port, ?TlsClientEncryption $tls = null): TcpSocket { }
     
@@ -662,11 +770,11 @@ namespace Concurrent\Network;
 
 final class TcpServer implements Server
 {
-    public const SIMULTANEOUS_ACCEPTS;
+    public const int SIMULTANEOUS_ACCEPTS;
     
-    public static function bind(string $host, int $port, ?TlsServerEncryption $tls = null, ?bool $reuseport = null): TcpServer { }
+    public static function bind(?string $host = '0.0.0.0', ?int $port = 0, ?TlsServerEncryption $tls = null, ?bool $reuseport = null): TcpServer { }
     
-    public static function listen(string $host, int $port, ?TlsServerEncryption $tls = null, ?bool $reuseport = null): TcpServer { }
+    public static function listen(?string $host = '0.0.0.0', ?int $port = 0, ?TlsServerEncryption $tls = null, ?bool $reuseport = false): TcpServer { }
     
     public static function import(Pipe $pipe, ?TlsServerEncryption $tls = null): TcpServer { }
     
@@ -744,15 +852,17 @@ namespace Concurrent\Network;
 
 final class UdpSocket implements Socket
 {
-    public const TTL;
-    public const MULTICAST_LOOP;
-    public const MULTICAST_TTL;
+    public const int TTL;
+    public const int MULTICAST_LOOP;
+    public const int MULTICAST_TTL;
     
-    public static function bind(string $address, int $port): UdpSocket { }
+    public static function bind(?string $address = '0.0.0.0', ?int $port = 0): UdpSocket { }
+    
+    public static function connect(string $remote_address, int $remote_port, ?string $address = '0.0.0.0', ?int $port = 0): UdpSocket { }
     
     public static function multicast(string $group, int $port): UdpSocket { }
     
-    public function receive(): UdpDatagram { }
+    public function receive(?int $size = 8192): UdpDatagram { }
     
     public function send(UdpDatagram $datagram): void { }
 }
@@ -769,15 +879,17 @@ final class UdpDatagram
 {
     public readonly string $data;
     
-    public readonly string $address;
+    public readonly ?string $address;
     
-    public readonly int $port;
+    public readonly ?int $port;
 
-    public function __construct(string $data, string $address, int $port) { }
+    public function __construct(string $data, ?string $address = null, ?int $port = null) { }
     
     public function withData(string $data): UdpDatagram { }
     
     public function withPeer(string $address, int $port): UdpDatagram { }
+    
+    public function withoutPeer(): UdpDatagram { }
 }
 ```
 
@@ -804,9 +916,9 @@ namespace Concurrent\Process;
 
 final class ProcessBuilder
 {
-    public const STDIN;
-    public const STDOUT;
-    public const STDERR;
+    public const int STDIN;
+    public const int STDOUT;
+    public const int STDERR;
     
     public function __construct(string $command, string ...$args) { }
     
@@ -816,23 +928,23 @@ final class ProcessBuilder
     
     public function withCwd(string $directory): ProcessBuilder { }
     
-    public function withEnv(array $env, ?bool $inherit = null): ProcessBuilder { }
+    public function withEnv(array $env, ?bool $inherit = false): ProcessBuilder { }
     
     public function withStdinPipe(): ProcessBuilder { }
     
-    public function withStdinInherited(?int $fd = null): ProcessBuilder { }
+    public function withStdinInherited(?int $fd = ProcessBuilder::STDIN): ProcessBuilder { }
     
     public function withoutStdin(): ProcessBuilder { }
     
     public function withStdoutPipe(): ProcessBuilder { }
     
-    public function withStdoutInherited(?int $fd = null): ProcessBuilder { }
+    public function withStdoutInherited(?int $fd = ProcessBuilder::STDOUT): ProcessBuilder { }
     
     public function withoutStdout(): ProcessBuilder { }
     
     public function withStderrPipe(): ProcessBuilder { }
     
-    public function withStderrInherited(?int $fd = null): ProcessBuilder { }
+    public function withStderrInherited(?int $fd = ProcessBuilder::STDERR): ProcessBuilder { }
     
     public function withoutStderr(): ProcessBuilder { }
     
@@ -876,6 +988,69 @@ final class Process
     public function signal(int $signum): void { }
     
     public function join(): int { }
+}
+```
+
+## DNS API
+
+### Resolver
+
+```php
+namespace Concurrent\DNS;
+
+interface Resolver
+{
+    public function search(Query $query): void;
+}
+```
+
+### Config
+
+```php
+namespace Concurrent\DNS;
+
+final class Config
+{
+    public static function getHostsFile(): string;
+    
+    public static function getResolvConf(): ?string;
+    
+    public static function getHosts(): array;
+    
+    public static function getNameservers(): array;
+}
+```
+
+### Query
+
+```php
+namespace Concurrent\DNS;
+
+final class Query
+{
+    public const int A;
+    public const int A6;
+    public const int AAAA;
+    public const int CAA;
+    public const int CNAME;
+    public const int HINFO;
+    public const int MX;
+    public const int NAPTR;
+    public const int NS;
+    public const int PTR;
+    public const int SOA;
+    public const int SRV;
+    public const int TXT;
+    
+    public readonly string $host;
+    
+    public function __construct(string $host, int ...$types) { }
+    
+    public function getTypes(): array { }
+    
+    public function getRecords(): array { }
+    
+    public function addRecord(int $type, int $ttl, array $data): void { }
 }
 ```
 

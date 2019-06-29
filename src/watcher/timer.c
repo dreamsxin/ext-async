@@ -240,7 +240,7 @@ PHP_METHOD(Timer, close)
 		return;
 	}
 	
-	ASYNC_PREPARE_ERROR(&error, "Timer has been closed");
+	ASYNC_PREPARE_ERROR(&error, execute_data, "Timer has been closed");
 	
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
@@ -312,8 +312,13 @@ PHP_METHOD(Timer, timeout)
 	RETURN_OBJ(&async_timeout_object_create(delay)->std);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(Timer, async_timer_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_timer_functions[] = {
 	PHP_ME(Timer, __construct, arginfo_timer_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(Timer, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(Timer, close, arginfo_timer_close, ZEND_ACC_PUBLIC)
 	PHP_ME(Timer, awaitTimeout, arginfo_timer_await_timeout, ZEND_ACC_PUBLIC)
 	PHP_ME(Timer, timeout, arginfo_timer_timeout, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
@@ -391,7 +396,7 @@ ASYNC_CALLBACK timeout_expired(uv_timer_t *handle)
 	ZEND_ASSERT(timeout != NULL);
 
 	if (timeout->cancel.func != NULL) {
-		ASYNC_PREPARE_EXCEPTION(&error, async_timeout_exception_ce, "Operation timed out");
+		ASYNC_PREPARE_SCHEDULER_EXCEPTION(&error, async_timeout_exception_ce, "Operation timed out");
 		ASYNC_LIST_REMOVE(&timeout->scheduler->shutdown, &timeout->cancel);
 
 		timeout->cancel.func(timeout, &error);

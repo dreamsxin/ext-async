@@ -4,7 +4,7 @@ namespace Concurrent\Network;
 
 use Concurrent\Task;
 
-$socket = UdpSocket::bind('0.0.0.0', 0);
+$socket = UdpSocket::bind();
 
 try {
     var_dump($socket->getAddress());

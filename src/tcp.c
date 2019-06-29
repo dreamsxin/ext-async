@@ -39,6 +39,8 @@ ASYNC_API zend_class_entry *async_tcp_server_ce;
 static zend_object_handlers async_tcp_socket_handlers;
 static zend_object_handlers async_tcp_server_handlers;
 
+static zend_string *str_wildcard;
+
 #define ASYNC_TCP_SERVER_FLAG_LAZY 1
 
 typedef struct _async_tcp_server {
@@ -588,7 +590,7 @@ static PHP_METHOD(TcpSocket, close)
 		return;
 	}
 
-	ASYNC_PREPARE_EXCEPTION(&error, async_stream_closed_exception_ce, "Socket has been closed");
+	ASYNC_PREPARE_EXCEPTION(&error, execute_data, async_stream_closed_exception_ce, "Socket has been closed");
 
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
@@ -840,7 +842,14 @@ static PHP_METHOD(TcpSocket, encrypt)
 #endif
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(TcpSocket, async_tcp_socket_ce)
+ASYNC_METHOD_NO_WAKEUP(TcpSocket, async_tcp_socket_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_tcp_socket_functions[] = {
+	PHP_ME(TcpSocket, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(TcpSocket, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(TcpSocket, connect, arginfo_tcp_socket_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(TcpSocket, import, arginfo_tcp_socket_import, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(TcpSocket, pair, arginfo_tcp_socket_pair, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
@@ -1037,8 +1046,9 @@ static void create_server(async_tcp_server **result, INTERNAL_FUNCTION_PARAMETER
 {
 	async_tcp_server *server;
 
-	zend_string *name;
+	zval *name;
 	zend_long port;
+	zend_string *host;
 
 	zval *tls;
 	zend_bool reuseport;
@@ -1049,18 +1059,26 @@ static void create_server(async_tcp_server **result, INTERNAL_FUNCTION_PARAMETER
 
 	*result = NULL;
 	
+	name = NULL;
+	port = 0;
 	tls = NULL;
 	reuseport = 0;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 4)
-		Z_PARAM_STR(name)
-		Z_PARAM_LONG(port)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 4)
 		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(name)
+		Z_PARAM_LONG(port)
 		Z_PARAM_OBJECT_OF_CLASS_EX(tls, async_tls_server_encryption_ce, 1, 0)
 		Z_PARAM_BOOL(reuseport)
 	ZEND_PARSE_PARAMETERS_END();
 
-	code = async_dns_lookup_ip(ZSTR_VAL(name), &addr, IPPROTO_TCP);
+	if (name == NULL || Z_TYPE_P(name) == IS_NULL) {
+		host = str_wildcard;
+	} else {
+		host = Z_STR_P(name);
+	}
+
+	code = async_dns_lookup_ip(ZSTR_VAL(host), &addr, IPPROTO_TCP);
 	
 	ASYNC_CHECK_EXCEPTION(code < 0, async_socket_exception_ce, "Failed to assemble IP address: %s", uv_strerror(code));
 	
@@ -1074,7 +1092,7 @@ static void create_server(async_tcp_server **result, INTERNAL_FUNCTION_PARAMETER
 		return;
 	}
 	
-	server->name = zend_string_copy(name);
+	server->name = zend_string_copy(host);
 	server->port = (uint16_t) port;
 	
 	async_socket_set_reuseaddr(sock, 1);
@@ -1109,9 +1127,9 @@ static void create_server(async_tcp_server **result, INTERNAL_FUNCTION_PARAMETER
 	*result = server;
 }
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_bind, 0, 2, Concurrent\\Network\\TcpServer, 0)
-	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
-	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_bind, 0, 0, Concurrent\\Network\\TcpServer, 0)
+	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 1)
+	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 1)
 	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
 	ZEND_ARG_TYPE_INFO(0, reuseport, _IS_BOOL, 1)
 ZEND_END_ARG_INFO();
@@ -1129,9 +1147,9 @@ static PHP_METHOD(TcpServer, bind)
 	}
 }
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_listen, 0, 2, Concurrent\\Network\\TcpServer, 0)
-	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 0)
-	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_tcp_server_listen, 0, 0, Concurrent\\Network\\TcpServer, 0)
+	ZEND_ARG_TYPE_INFO(0, host, IS_STRING, 1)
+	ZEND_ARG_TYPE_INFO(0, port, IS_LONG, 1)
 	ZEND_ARG_OBJ_INFO(0, tls, Concurrent\\Network\\TlsServerEncryption, 1)
 	ZEND_ARG_TYPE_INFO(0, reuseport, _IS_BOOL, 1)
 ZEND_END_ARG_INFO();
@@ -1240,7 +1258,7 @@ static PHP_METHOD(TcpServer, close)
 		return;
 	}
 
-	ASYNC_PREPARE_EXCEPTION(&error, async_socket_exception_ce, "Server has been closed");
+	ASYNC_PREPARE_EXCEPTION(&error, execute_data, async_socket_exception_ce, "Server has been closed");
 
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
@@ -1379,7 +1397,14 @@ static PHP_METHOD(TcpServer, accept)
 	RETURN_OBJ(&socket->std);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(TcpServer, async_tcp_server_ce)
+ASYNC_METHOD_NO_WAKEUP(TcpServer, async_tcp_server_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_tcp_server_functions[] = {
+	PHP_ME(TcpServer, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(TcpServer, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(TcpServer, bind, arginfo_tcp_server_bind, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(TcpServer, listen, arginfo_tcp_server_listen, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(TcpServer, import, arginfo_tcp_server_import, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
@@ -1468,6 +1493,8 @@ void async_tcp_ce_register()
 	zend_class_entry ce;
 	zend_function *func;
 	
+	str_wildcard = zend_new_interned_string(zend_string_init(ZEND_STRL("0.0.0.0"), 1));
+
 	INIT_NS_CLASS_ENTRY(ce, "Concurrent\\Network", "TcpSocket", async_tcp_socket_functions);
 	async_tcp_socket_ce = zend_register_internal_class(&ce);
 	async_tcp_socket_ce->ce_flags |= ZEND_ACC_FINAL;
@@ -1502,4 +1529,9 @@ void async_tcp_ce_register()
 	if (NULL != (func = (zend_function *) zend_hash_str_find_ptr(&async_tcp_socket_ce->function_table, ZEND_STRL("write")))) {
 		async_register_interceptor(func, intercept_write);
 	}
+}
+
+void async_tcp_ce_unregister()
+{
+	zend_string_release(str_wildcard);
 }

@@ -58,6 +58,15 @@ static zend_always_inline async_context_timeout *init_timeout_cancellation()
 	return cancel;
 }
 
+static zend_always_inline void propagate_cancellation(async_context *from, async_context *to)
+{
+	to->cancel = from->cancel;
+
+	if (to->cancel) {
+		to->cancel->refcount++;
+	}
+}
+
 static zend_always_inline void chain_cancellation(void *obj, zval *error)
 {
 	async_context_cancellation *cancel;
@@ -153,7 +162,7 @@ ASYNC_CALLBACK timed_out(uv_timer_t *timer)
 	
 	cancel->flags |= ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED;
 	
-	ASYNC_PREPARE_EXCEPTION(&cancel->error, async_cancellation_exception_ce, "Context has timed out");
+	ASYNC_PREPARE_SCHEDULER_EXCEPTION(&cancel->error, async_cancellation_exception_ce, "Context has timed out");
 	
 	while (cancel->callbacks.first != NULL) {
 		ASYNC_LIST_EXTRACT_FIRST(&cancel->callbacks, callback);
@@ -229,16 +238,6 @@ static void async_context_object_destroy(zend_object *object)
 	zend_object_std_dtor(&context->std);
 }
 
-ZEND_BEGIN_ARG_INFO(arginfo_context_ctor, 0)
-ZEND_END_ARG_INFO();
-
-static PHP_METHOD(Context, __construct)
-{
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	zend_throw_error(NULL, "Context must not be constructed from userland code");
-}
-
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_context_is_cancelled, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO();
 
@@ -281,11 +280,8 @@ static PHP_METHOD(Context, with)
 	context->parent = current;
 	context->flags = current->flags;
 	context->output.context = current->output.context;
-	context->cancel = current->cancel;
 	
-	if (context->cancel != NULL) {
-		context->cancel->refcount++;
-	}
+	propagate_cancellation(current, context);
 
 	ASYNC_ADDREF(&current->std);
 
@@ -309,13 +305,9 @@ static PHP_METHOD(Context, withIsolatedOutput)
 	context = async_context_object_create(NULL, NULL);
 	context->parent = current;
 	context->flags = current->flags;
-	context->cancel = current->cancel;
-	
-	if (context->cancel != NULL) {
-		context->cancel->refcount++;
-	}
-	
 	context->output.context = context;
+	
+	propagate_cancellation(current, context);
 	
 	ASYNC_ADDREF(&current->std);
 	
@@ -461,7 +453,11 @@ static PHP_METHOD(Context, run)
 	async_fiber_capture_og(prev);
 	async_fiber_restore_og(context);
 
-	zend_call_function(&fci, &fcc);
+	zend_try {
+		zend_call_function(&fci, &fcc);
+	} zend_catch {
+		async_task_scheduler_handle_exit(async_task_scheduler_get());
+	} zend_end_try();
 
 	async_fiber_capture_og(context);
 	async_fiber_restore_og(prev);
@@ -471,6 +467,8 @@ static PHP_METHOD(Context, run)
 	if (count > 0) {
 		zend_fcall_info_args_clear(&fci, 1);
 	}
+
+	ASYNC_FORWARD_EXIT();
 
 	RETURN_ZVAL(&result, 1, 1);
 }
@@ -503,8 +501,14 @@ static PHP_METHOD(Context, background)
 	RETURN_ZVAL(&obj, 1, 0);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(Context, async_context_ce)
+ASYNC_METHOD_NO_WAKEUP(Context, async_context_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_context_functions[] = {
-	PHP_ME(Context, __construct, arginfo_context_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(Context, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(Context, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(Context, isCancelled, arginfo_context_is_cancelled, ZEND_ACC_PUBLIC)
 	PHP_ME(Context, with, arginfo_context_with, ZEND_ACC_PUBLIC)
 	PHP_ME(Context, withIsolatedOutput, arginfo_context_with_isolated_output, ZEND_ACC_PUBLIC)
@@ -583,8 +587,13 @@ static PHP_METHOD(ContextVar, get)
 	} while (context != NULL);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(ContextVar, async_context_var_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_context_var_functions[] = {
 	PHP_ME(ContextVar, __construct, arginfo_context_var_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(ContextVar, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(ContextVar, get, arginfo_context_var_get, ZEND_ACC_PUBLIC)
 	PHP_FE_END
 };
@@ -645,7 +654,7 @@ static PHP_METHOD(CancellationHandler, __invoke)
 	
 	cancel->flags |= ASYNC_CONTEXT_CANCELLATION_FLAG_TRIGGERED;
 
-	ASYNC_PREPARE_EXCEPTION(&cancel->error, async_cancellation_exception_ce, "Context has been cancelled");
+	ASYNC_PREPARE_EXCEPTION(&cancel->error, execute_data, async_cancellation_exception_ce, "Context has been cancelled");
 
 	if (err != NULL && Z_TYPE_P(err) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&cancel->error), Z_OBJ_P(err));
@@ -659,7 +668,14 @@ static PHP_METHOD(CancellationHandler, __invoke)
 	}
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(CancellationHandler, async_cancellation_handler_ce)
+ASYNC_METHOD_NO_WAKEUP(CancellationHandler, async_cancellation_handler_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_cancellation_handler_functions[] = {
+	PHP_ME(CancellationHandler, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(CancellationHandler, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(CancellationHandler, __invoke, arginfo_cancellation_handler_invoke, ZEND_ACC_PUBLIC)
 	PHP_FE_END
 };

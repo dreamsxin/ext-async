@@ -265,7 +265,7 @@ static zend_always_inline void release_state(async_deferred_state *state)
 		state->status = state->status == ASYNC_DEFERRED_STATUS_FAILED;
 
 		if (state->operations.first != NULL) {
-			ASYNC_PREPARE_ERROR(&state->result, "Awaitable has been disposed before it was resolved");
+			ASYNC_PREPARE_SCHEDULER_ERROR(&state->result, "Awaitable has been disposed before it was resolved");
 
 			while (state->operations.first != NULL) {
 				ASYNC_NEXT_OP(&state->operations, op);
@@ -318,7 +318,7 @@ ASYNC_CALLBACK cancel_defer(void *obj, zval* error)
 	defer->fci.retval = &retval;
 	defer->fci.no_separation = 1;
 
-	async_call_nowait(&defer->fci, &defer->fcc);
+	async_call_nowait(EG(current_execute_data), &defer->fci, &defer->fcc);
 
 	zval_ptr_dtor(&args[0]);
 	zval_ptr_dtor(&args[1]);
@@ -474,18 +474,14 @@ static HashTable *deferred_awaitable_get_props(zval *obj)
 	return awaitable->std.properties;
 }
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_deferred_awaitable_ctor, 0, 0, 0)
-ZEND_END_ARG_INFO();
-
-static PHP_METHOD(DeferredAwaitable, __construct)
-{
-	ZEND_PARSE_PARAMETERS_NONE();
-
-	zend_throw_error(NULL, "Deferred awaitable must not be created from userland code");
-}
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(DeferredAwaitable, async_deferred_awaitable_ce)
+ASYNC_METHOD_NO_WAKEUP(DeferredAwaitable, async_deferred_awaitable_ce)
+//LCOV_EXCL_STOP
 
 static const zend_function_entry deferred_awaitable_functions[] = {
-	PHP_ME(DeferredAwaitable, __construct, arginfo_deferred_awaitable_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(DeferredAwaitable, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(DeferredAwaitable, __wakeup, arginfo_no_wakeup, ZEND_ACC_PRIVATE)
 	PHP_FE_END
 };
 
@@ -516,7 +512,7 @@ static void async_deferred_object_destroy(zend_object *object)
 	
 	if (defer->state->status == ASYNC_DEFERRED_STATUS_PENDING) {
 		defer->state->status = ASYNC_OP_FAILED;
-		ASYNC_PREPARE_ERROR(&defer->state->result, "Awaitable has been disposed before it was resolved");
+		ASYNC_PREPARE_SCHEDULER_ERROR(&defer->state->result, "Awaitable has been disposed before it was resolved");
 
 		trigger_ops(defer->state);
 	}
@@ -819,7 +815,14 @@ ASYNC_CALLBACK combine_cb(async_op *op)
 		zend_clear_exception();
 	}
 
-	async_call_nowait(&combined->fci, &combined->fcc);
+	state = combined->defer->state;
+
+	zend_try {
+		async_call_nowait(EG(current_execute_data), &combined->fci, &combined->fcc);
+	} zend_catch {
+		async_task_scheduler_handle_exit(state->scheduler);
+		return;
+	} zend_end_try();
 
 	for (i = 0; i < 5; i++) {
 		zval_ptr_dtor(&args[i]);
@@ -832,8 +835,6 @@ ASYNC_CALLBACK combine_cb(async_op *op)
 	}
 
 	ASYNC_FREE_OP(op);
-
-	state = combined->defer->state;
 
 	if (UNEXPECTED(EG(exception))) {
 		if (state->status == ASYNC_DEFERRED_STATUS_PENDING) {
@@ -854,7 +855,7 @@ ASYNC_CALLBACK combine_cb(async_op *op)
 		if (state->status == ASYNC_DEFERRED_STATUS_PENDING) {
 			state->status = ASYNC_DEFERRED_STATUS_FAILED;
 
-			ASYNC_PREPARE_ERROR(&state->result, "Awaitable has been disposed before it was resolved");
+			ASYNC_PREPARE_SCHEDULER_ERROR(&state->result, "Awaitable has been disposed before it was resolved");
 
 			trigger_ops(state);
 		}
@@ -995,7 +996,12 @@ ASYNC_CALLBACK transform_cb(async_op *op)
 		zend_clear_exception();
 	}
 
-	async_call_nowait(&trans->fci, &trans->fcc);
+	zend_try {
+		async_call_nowait(EG(current_execute_data), &trans->fci, &trans->fcc);
+	} zend_catch {
+		async_task_scheduler_handle_exit(trans->state->scheduler);
+		return;
+	} zend_end_try();
 
 	zval_ptr_dtor(&args[0]);
 	zval_ptr_dtor(&args[1]);
@@ -1086,8 +1092,13 @@ static PHP_METHOD(Deferred, transform)
 	RETURN_OBJ(&awaitable->std);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(Deferred, async_deferred_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry deferred_functions[] = {
 	PHP_ME(Deferred, __construct, arginfo_deferred_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(Deferred, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(Deferred, awaitable, arginfo_deferred_awaitable, ZEND_ACC_PUBLIC)
 	PHP_ME(Deferred, resolve, arginfo_deferred_resolve, ZEND_ACC_PUBLIC)
 	PHP_ME(Deferred, fail, arginfo_deferred_fail, ZEND_ACC_PUBLIC)

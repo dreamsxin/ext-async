@@ -24,9 +24,22 @@ Task::await($t = Task::async(function () {
 
 var_dump(Task::await($t));
 
+$t = Task::async(function () {
+    (new Timer(100))->awaitTimeout();
+});
+
+try {
+    TaskScheduler::run(function () use ($t) {
+        Task::await($t);
+    });
+} catch (\Throwable $e) {
+    var_dump($e->getMessage());
+}
+
 ?>
 --EXPECT--
 string(1) "A"
 string(1) "B"
 string(1) "C"
 string(1) "D"
+string(60) "Cannot await a task that is running on a different scheduler"

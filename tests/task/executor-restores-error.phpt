@@ -1,5 +1,5 @@
 --TEST--
-Task execution does not clear global exception.
+Task scheduler is disposed if a root-level error occurs.
 --SKIPIF--
 <?php require __DIR__ . '/skipif.inc'; ?>
 --FILE--
@@ -11,12 +11,10 @@ Task::async(function () {
     var_dump(123);
 });
 
-set_exception_handler(function ($e) {
-    var_dump($e->getMessage());
-});
-
 throw new \Exception('FOO!');
 
---EXPECT--
-int(123)
-string(4) "FOO!"
+--EXPECTF--
+Fatal error: Uncaught Exception: FOO! in %s:%d
+Stack trace:
+#0 {main}
+  thrown in %s on line %d

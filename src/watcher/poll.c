@@ -17,6 +17,7 @@
 */
 
 #include "php_async.h"
+#include "async_helper.h"
 
 ASYNC_API zend_class_entry *async_poll_ce;
 
@@ -57,61 +58,6 @@ typedef struct _async_poll {
 	async_cancel_cb cancel;
 } async_poll;
 
-
-#if ASYNC_SOCKETS
-static int (*le_socket)(void);
-#endif
-
-static php_socket_t get_poll_fd(zval *val)
-{
-	php_socket_t fd;
-	php_stream *stream;
-
-	stream = (php_stream *) zend_fetch_resource_ex(val, NULL, php_file_le_stream());
-
-#if ASYNC_SOCKETS
-	php_socket *socket;
-
-	if (!stream && le_socket && (socket = (php_socket *) zend_fetch_resource_ex(val, NULL, php_sockets_le_socket()))) {
-		return socket->bsd_socket;
-	}
-#endif
-
-	if (UNEXPECTED(!stream)) {
-		return -1;
-	}
-
-	if (stream->wrapper) {
-		if (!strcmp((char *)stream->wrapper->wops->label, "PHP")) {
-			if (!stream->orig_path || (strncmp(stream->orig_path, "php://std", sizeof("php://std") - 1) && strncmp(stream->orig_path, "php://fd", sizeof("php://fd") - 1))) {
-				return -1;
-			}
-		}
-	}
-
-	if (UNEXPECTED(php_stream_cast(stream, PHP_STREAM_AS_FD_FOR_SELECT | PHP_STREAM_CAST_INTERNAL, (void *) &fd, 1) != SUCCESS)) {
-		return -1;
-	}
-
-	if (UNEXPECTED(fd < 1)) {
-		return -1;
-	}
-
-	if (stream->wrapper && !strcmp((char *) stream->wrapper->wops->label, "plainfile")) {
-#ifndef PHP_WIN32
-		struct stat stat;
-		fstat(fd, &stat);
-
-		if (!S_ISFIFO(stat.st_mode)) {
-			return -1;
-		}
-#else
-		return -1;
-#endif
-	}
-
-	return fd;
-}
 
 static zend_always_inline void sync_poll(async_poll *poll);
 
@@ -314,7 +260,9 @@ ZEND_END_ARG_INFO();
 PHP_METHOD(Poll, __construct)
 {
 	async_poll *poll;
+
 	php_socket_t fd;
+	zend_string *error;
 
 	zval *val;
 
@@ -322,11 +270,13 @@ PHP_METHOD(Poll, __construct)
 		Z_PARAM_RESOURCE(val)
 	ZEND_PARSE_PARAMETERS_END();
 
+	if (UNEXPECTED(FAILURE == async_get_poll_fd(val, &fd, &error))) {
+		zend_throw_error(NULL, "%s", ZSTR_VAL(error));
+		zend_string_release(error);
+		return;
+	}
+
 	poll = (async_poll *) Z_OBJ_P(getThis());
-
-	fd = get_poll_fd(val);
-
-	ASYNC_CHECK_ERROR(fd < 0, "Cannot cast resource to file descriptor");
 
 	poll->fd = fd;
 
@@ -335,7 +285,7 @@ PHP_METHOD(Poll, __construct)
 #ifdef PHP_WIN32
 	uv_poll_init_socket(&poll->scheduler->loop, &poll->handle, (uv_os_sock_t) fd);
 #else
-	uv_poll_init(&poll->scheduler->loop, &poll->handle, fd);
+	uv_poll_init(&poll->scheduler->loop, &poll->handle, (int) fd);
 #endif
 
 	uv_unref((uv_handle_t *) &poll->handle);
@@ -369,7 +319,7 @@ PHP_METHOD(Poll, close)
 		return;
 	}
 	
-	ASYNC_PREPARE_ERROR(&error, "Poll has been closed");
+	ASYNC_PREPARE_ERROR(&error, execute_data, "Poll has been closed");
 	
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
@@ -425,8 +375,13 @@ PHP_METHOD(Poll, awaitWritable)
 	suspend(poll, &poll->writes);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(Poll, async_poll_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_poll_functions[] = {
 	PHP_ME(Poll, __construct, arginfo_poll_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(Poll, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(Poll, close, arginfo_poll_close, ZEND_ACC_PUBLIC)
 	PHP_ME(Poll, awaitReadable, arginfo_poll_await_readable, ZEND_ACC_PUBLIC)
 	PHP_ME(Poll, awaitWritable, arginfo_poll_await_writable, ZEND_ACC_PUBLIC)
@@ -436,10 +391,6 @@ static const zend_function_entry async_poll_functions[] = {
 
 void async_poll_ce_register()
 {
-#if ASYNC_SOCKETS
-	zend_module_entry *sockets;
-#endif
-
 	zend_class_entry ce;
 
 	INIT_NS_CLASS_ENTRY(ce, "Concurrent", "Poll", async_poll_functions);
@@ -453,18 +404,4 @@ void async_poll_ce_register()
 	async_poll_handlers.free_obj = async_poll_object_destroy;
 	async_poll_handlers.dtor_obj = async_poll_object_dtor;
 	async_poll_handlers.clone_obj = NULL;
-
-#if ASYNC_SOCKETS
-	le_socket = NULL;
-
-	if ((sockets = zend_hash_str_find_ptr(&module_registry, ZEND_STRL("sockets")))) {
-		if (sockets->handle) { // shared
-			le_socket = (int (*)(void)) DL_FETCH_SYMBOL(sockets->handle, "php_sockets_le_socket");
-
-			if (le_socket == NULL) {
-				le_socket = (int (*)(void)) DL_FETCH_SYMBOL(sockets->handle, "_php_sockets_le_socket");
-			}
-		}
-	}
-#endif
 }

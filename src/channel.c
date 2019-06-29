@@ -183,18 +183,24 @@ static async_channel_iterator *async_channel_iterator_object_create(async_channe
 #define ASYNC_CHANNEL_READABLE_NONBLOCK(state) ((state)->receivers.first != NULL || (state)->buffer.len > 0)
 #define ASYNC_CHANNEL_READABLE(state) (!((state)->flags & ASYNC_CHANNEL_FLAG_CLOSED) || ASYNC_CHANNEL_READABLE_NONBLOCK(state))
 
-static zend_always_inline void forward_error(zval *cause)
+static zend_always_inline void forward_error(zval *cause, zend_execute_data *exec)
 {
+	zend_execute_data *prev;
 	zval error;
 	
-	ASYNC_PREPARE_EXCEPTION(&error, async_channel_closed_exception_ce, "Channel has been closed");
+	ASYNC_PREPARE_EXCEPTION(&error, exec, async_channel_closed_exception_ce, "Channel has been closed");
 
 	zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(cause));
 	Z_ADDREF_P(cause);
 	
-	EG(current_execute_data)->opline--;
+	prev = EG(current_execute_data);
+	EG(current_execute_data) = exec;
+
+	exec->opline--;
 	zend_throw_exception_internal(&error);
-	EG(current_execute_data)->opline++;
+	exec->opline++;
+
+	EG(current_execute_data) = prev;
 }
 
 static zend_always_inline int fetch_noblock(async_channel_state *state, zval *entry)
@@ -467,7 +473,7 @@ static PHP_METHOD(Channel, send)
 	state = ((async_channel *) Z_OBJ_P(getThis()))->state;
 	
 	if (UNEXPECTED(Z_TYPE_P(&state->error) != IS_UNDEF)) {
-		forward_error(&state->error);
+		forward_error(&state->error, execute_data);
 		return;
 	}
 	
@@ -503,7 +509,7 @@ static PHP_METHOD(Channel, send)
 	}
 	
 	if (async_await_op((async_op *) send) == FAILURE) {
-		forward_error(&send->base.result);
+		forward_error(&send->base.result, execute_data);
 	}
 	
 	if (!async_context_is_background(context)) {
@@ -515,8 +521,13 @@ static PHP_METHOD(Channel, send)
 	ASYNC_FREE_OP(send);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(Channel, async_channel_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry channel_functions[] = {
 	PHP_ME(Channel, __construct, arginfo_channel_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(Channel, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(Channel, getIterator, arginfo_channel_get_iterator, ZEND_ACC_PUBLIC)
 	PHP_ME(Channel, close, arginfo_channel_close, ZEND_ACC_PUBLIC)
 	PHP_ME(Channel, isClosed, arginfo_channel_is_closed, ZEND_ACC_PUBLIC)
@@ -714,12 +725,8 @@ static PHP_METHOD(ChannelGroup, __construct)
 			zend_call_method_with_0_params(entry, Z_OBJCE_P(entry), &Z_OBJCE_P(entry)->iterator_funcs_ptr->zf_new_iterator, "getiterator", &tmp);
 			
 			if (UNEXPECTED(EG(exception) || Z_TYPE_P(&tmp) != IS_OBJECT || !instanceof_function(Z_OBJCE_P(&tmp), async_channel_iterator_ce))) {
+				ASYNC_ENSURE_ERROR("Aggregated iterator is not a channel iterator");
 				zval_ptr_dtor(&tmp);
-				
-				if (!EG(exception)) {
-					zend_throw_error(NULL, "Aggregated iterator is not a channel iterator");
-				}
-				
 				return;
 			}
 			
@@ -866,7 +873,7 @@ static PHP_METHOD(ChannelGroup, select)
 			i--;
 			
 			if (UNEXPECTED(Z_TYPE_P(&state->error) != IS_UNDEF)) {
-				forward_error(&state->error);
+				forward_error(&state->error, execute_data);
 				return;
 			}
 		}
@@ -917,7 +924,7 @@ static PHP_METHOD(ChannelGroup, select)
 	}
 	
 	if (async_await_op((async_op *) &group->select) == FAILURE) {
-		forward_error(&group->select.base.result);
+		forward_error(&group->select.base.result, execute_data);
 	}
 	
 	if (timeout > 0) {
@@ -1001,7 +1008,7 @@ ASYNC_CALLBACK continue_send_cb(async_op *op)
 		group->entry = send->entry;
 		
 		if (EXPECTED(send->entry->it->state->flags & ASYNC_CHANNEL_FLAG_CLOSED)) {
-			ASYNC_PREPARE_EXCEPTION(&error, async_channel_closed_exception_ce, "Channel has been closed");
+			ASYNC_PREPARE_SCHEDULER_EXCEPTION(&error, async_channel_closed_exception_ce, "Channel has been closed");
 			
 			zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(&op->result));
 			Z_ADDREF_P(&op->result);
@@ -1017,7 +1024,7 @@ ASYNC_CALLBACK continue_send_cb(async_op *op)
 	}
 	
 	if (UNEXPECTED(send->entry->it->state->flags & ASYNC_CHANNEL_FLAG_CLOSED)) {
-		ASYNC_PREPARE_EXCEPTION(&error, async_channel_closed_exception_ce, "Channel has been closed");
+		ASYNC_PREPARE_SCHEDULER_EXCEPTION(&error, async_channel_closed_exception_ce, "Channel has been closed");
 		ASYNC_FAIL_OP(group, &error);
 		
 		zval_ptr_dtor(&error);
@@ -1102,7 +1109,7 @@ static PHP_METHOD(ChannelGroup, send)
 			i--;
 			
 			if (UNEXPECTED(Z_TYPE_P(&state->error) != IS_UNDEF)) {
-				forward_error(&state->error);
+				forward_error(&state->error, execute_data);
 				return;
 			}
 			
@@ -1202,8 +1209,13 @@ static PHP_METHOD(ChannelGroup, send)
 	}
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(ChannelGroup, async_channel_group_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry channel_group_functions[] = {
 	PHP_ME(ChannelGroup, __construct, arginfo_channel_group_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(ChannelGroup, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(ChannelGroup, count, arginfo_channel_group_count, ZEND_ACC_PUBLIC)
 	PHP_ME(ChannelGroup, select, arginfo_channel_group_select, ZEND_ACC_PUBLIC)
 	PHP_ME(ChannelGroup, send, arginfo_channel_group_send, ZEND_ACC_PUBLIC)
@@ -1211,7 +1223,7 @@ static const zend_function_entry channel_group_functions[] = {
 };
 
 
-static zend_always_inline void fetch_next_entry(async_channel_iterator *it)
+static zend_always_inline void fetch_next_entry(async_channel_iterator *it, zend_execute_data *exec)
 {
 	async_channel_state *state;
 	async_context *context;
@@ -1238,7 +1250,7 @@ static zend_always_inline void fetch_next_entry(async_channel_iterator *it)
 	}
 	
 	if (async_await_op(&it->op) == FAILURE) {
-		forward_error(&it->op.result);
+		forward_error(&it->op.result, exec);
 	} else if (!(state->flags & ASYNC_CHANNEL_FLAG_CLOSED)) {
 		it->pos++;
 		
@@ -1254,13 +1266,13 @@ static zend_always_inline void fetch_next_entry(async_channel_iterator *it)
 	it->flags &= ~ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING;
 }
 
-static zend_always_inline void advance_iterator(async_channel_iterator *it)
+static zend_always_inline void advance_iterator(async_channel_iterator *it, zend_execute_data *exec)
 {
 	if (Z_TYPE_P(&it->entry) == IS_UNDEF) {
 		if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->state)) {
-			fetch_next_entry(it);
+			fetch_next_entry(it, exec);
 		} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
-			forward_error(&it->state->error);
+			forward_error(&it->state->error, exec);
 		}
 	}
 }
@@ -1303,7 +1315,7 @@ static PHP_METHOD(ChannelIterator, rewind)
 	
 	it = (async_channel_iterator *) Z_OBJ_P(getThis());
 	
-	advance_iterator(it);
+	advance_iterator(it, execute_data);
 }
 
 static PHP_METHOD(ChannelIterator, valid)
@@ -1314,7 +1326,7 @@ static PHP_METHOD(ChannelIterator, valid)
 	
 	it = (async_channel_iterator *) Z_OBJ_P(getThis());
 	
-	advance_iterator(it);
+	advance_iterator(it, execute_data);
 	
 	RETURN_BOOL(Z_TYPE_P(&it->entry) != IS_UNDEF);
 }
@@ -1327,7 +1339,7 @@ static PHP_METHOD(ChannelIterator, current)
 	
 	it = (async_channel_iterator *) Z_OBJ_P(getThis());
 	
-	advance_iterator(it);
+	advance_iterator(it, execute_data);
 	
 	if (EXPECTED(Z_TYPE_P(&it->entry) != IS_UNDEF)) {
 		RETURN_ZVAL(&it->entry, 1, 0);
@@ -1342,7 +1354,7 @@ static PHP_METHOD(ChannelIterator, key)
 	
 	it = (async_channel_iterator *) Z_OBJ_P(getThis());
 	
-	advance_iterator(it);
+	advance_iterator(it, execute_data);
 	
 	if (EXPECTED(Z_TYPE_P(&it->entry) != IS_UNDEF)) {
 		RETURN_LONG(it->pos);
@@ -1363,16 +1375,23 @@ static PHP_METHOD(ChannelIterator, next)
 	}
 	
 	if (ASYNC_CHANNEL_READABLE(it->state)) {
-		fetch_next_entry(it);
+		fetch_next_entry(it, execute_data);
 	} else if (Z_TYPE_P(&it->state->error) != IS_UNDEF) {
-		forward_error(&it->state->error);
+		forward_error(&it->state->error, execute_data);
 	}
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_channel_iterator_void, 0)
 ZEND_END_ARG_INFO();
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(ChannelIterator, async_channel_iterator_ce)
+ASYNC_METHOD_NO_WAKEUP(ChannelIterator, async_channel_iterator_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry channel_iterator_functions[] = {
+	PHP_ME(ChannelIterator, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(ChannelIterator, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(ChannelIterator, rewind, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
 	PHP_ME(ChannelIterator, valid, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)
 	PHP_ME(ChannelIterator, current, arginfo_channel_iterator_void, ZEND_ACC_PUBLIC)

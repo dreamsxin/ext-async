@@ -40,6 +40,7 @@ if test "$PHP_ASYNC" != "no"; then
     src/context.c \
     src/deferred.c \
     src/dns.c \
+    src/event.c \
     src/fiber/stack.c \
     src/filesystem.c \
     src/helper.c \

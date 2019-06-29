@@ -217,7 +217,7 @@ PHP_METHOD(Signal, close)
 		return;
 	}
 	
-	ASYNC_PREPARE_ERROR(&error, "Signal has been closed");
+	ASYNC_PREPARE_ERROR(&error, execute_data, "Signal has been closed");
 	
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
@@ -357,8 +357,13 @@ PHP_METHOD(Signal, signal)
 	}
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(Signal, async_signal_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_signal_functions[] = {
 	PHP_ME(Signal, __construct, arginfo_signal_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(Signal, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(Signal, close, arginfo_signal_close, ZEND_ACC_PUBLIC)
 	PHP_ME(Signal, awaitSignal, arginfo_signal_await_signal, ZEND_ACC_PUBLIC)
 	PHP_ME(Signal, isSupported, arginfo_signal_is_supported, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)

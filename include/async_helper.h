@@ -24,6 +24,7 @@ void async_console_ce_register();
 void async_context_ce_register();
 void async_deferred_ce_register();
 void async_dns_ce_register();
+void async_event_ce_register();
 void async_monitor_ce_register();
 void async_pipe_ce_register();
 void async_poll_ce_register();
@@ -32,7 +33,7 @@ void async_signal_ce_register();
 void async_socket_ce_register();
 void async_ssl_ce_register();
 void async_stream_ce_register();
-void async_sync_init();
+void async_sync_ce_register();
 void async_task_ce_register();
 void async_tcp_ce_register();
 void async_thread_ce_register();
@@ -41,15 +42,18 @@ void async_udp_socket_ce_register();
 
 void async_channel_ce_unregister();
 void async_deferred_ce_unregister();
+void async_dns_ce_unregister();
 void async_monitor_ce_unregister();
 void async_ssl_ce_unregister();
 void async_task_ce_unregister();
+void async_tcp_ce_unregister();
 void async_thread_ce_unregister();
 void async_udp_socket_ce_unregister();
 
 void async_context_init();
 void async_dns_init();
 void async_filesystem_init();
+void async_helper_init();
 void async_tcp_socket_init();
 void async_task_scheduler_init();
 void async_timer_init();
@@ -64,6 +68,8 @@ void async_timer_shutdown();
 void async_udp_socket_shutdown();
 
 char *async_status_label(zend_uchar status);
+
+int async_get_poll_fd(zval *val, php_socket_t *sock, zend_string **error);
 
 #if PHP_VERSION_ID < 80000
 #define ASYNC_DEBUG_INFO_HANDLER(name) HashTable *name(zval *obj_, int *temp)

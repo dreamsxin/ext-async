@@ -193,21 +193,14 @@ void async_fiber_switch(async_task_scheduler *scheduler, async_fiber *next, asyn
 	
 	current = ASYNC_G(fiber);
 	
-	if (current == NULL) {
-		current = ASYNC_G(root);
-	}
-	
 	ZEND_ASSERT(current != NULL);
-	
-	if (UNEXPECTED(current == next)) {
-		return;
-	}
 
 	from = (async_fiber_ucontext *) current;
 	to = (async_fiber_ucontext *) next;
 
 	ZEND_ASSERT(from->initialized);
 	ZEND_ASSERT(to->initialized);
+	ZEND_ASSERT(from != to);
 	
 	if (EXPECTED(!(current->flags & ASYNC_FIBER_FLAG_QUEUED))) {
 		switch (suspend) {

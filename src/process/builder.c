@@ -603,8 +603,13 @@ static PHP_METHOD(ProcessBuilder, start)
 	}
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(ProcessBuilder, async_process_builder_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_process_builder_functions[] = {
 	PHP_ME(ProcessBuilder, __construct, arginfo_process_builder_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(ProcessBuilder, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(ProcessBuilder, fork, arginfo_process_builder_fork, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(ProcessBuilder, shell, arginfo_process_builder_shell, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(ProcessBuilder, withCwd, arginfo_process_builder_with_cwd, ZEND_ACC_PUBLIC)

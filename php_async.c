@@ -32,26 +32,24 @@ static void (*orig_execute_ex)(zend_execute_data *exec);
 
 static void execute_root(zend_execute_data *exec)
 {
-	zend_object *error;
-	
-	error = NULL;
-	
+	async_task_scheduler *scheduler;
+
+	scheduler = async_task_scheduler_get();
+
 	zend_try {
 		orig_execute_ex(exec);
 	} zend_catch {
-		ASYNC_G(exit) = 1;
+		async_task_scheduler_handle_exit(scheduler);
 	} zend_end_try();
 	
-	error = EG(exception);
-	
-	if (UNEXPECTED(error != NULL)) {
-		ASYNC_ADDREF(error);
+	if (UNEXPECTED(EG(exception))) {
+		async_task_scheduler_handle_error(scheduler, EG(exception));
 		zend_clear_exception();
 	}
-	
-	async_task_scheduler_run();
-	
-	EG(exception) = error;
+
+	async_task_scheduler_run(scheduler, exec);
+
+	ASYNC_FORWARD_EXIT();
 }
 
 /* Custom executor being used to run the task scheduler before shutdown functions. */
@@ -159,13 +157,14 @@ PHP_MINIT_FUNCTION(async)
 	async_context_ce_register();
 	async_deferred_ce_register();
 	async_dns_ce_register();
+	async_event_ce_register();
 	async_monitor_ce_register();
 	async_pipe_ce_register();
 	async_poll_ce_register();
 	async_process_ce_register();
 	async_signal_ce_register();
 	async_ssl_ce_register();
-	async_sync_init();
+	async_sync_ce_register();
 	async_tcp_ce_register();
 	async_thread_ce_register();
 	async_timer_ce_register();
@@ -202,8 +201,10 @@ PHP_MSHUTDOWN_FUNCTION(async)
 {
 	async_channel_ce_unregister();
 	async_deferred_ce_unregister();
+	async_dns_ce_unregister();
 	async_monitor_ce_unregister();
 	async_ssl_ce_unregister();
+	async_tcp_ce_unregister();
 	async_udp_socket_ce_unregister();
 
 	async_task_ce_unregister();
@@ -243,6 +244,7 @@ PHP_RINIT_FUNCTION(async)
 
 	async_context_init();
 	async_task_scheduler_init();
+	async_helper_init();
 
 	if (ASYNC_G(dns_enabled)) {
 		async_dns_init();

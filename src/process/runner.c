@@ -689,7 +689,14 @@ static PHP_METHOD(Process, join)
 	}
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(Process, async_process_ce)
+ASYNC_METHOD_NO_WAKEUP(Process, async_process_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_process_functions[] = {
+	PHP_ME(Process, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(Process, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(Process, isWorker, arginfo_process_is_worker, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(Process, connect, arginfo_process_connect, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(Process, isRunning, arginfo_process_is_running, ZEND_ACC_PUBLIC)
@@ -755,7 +762,7 @@ static PHP_METHOD(ReadablePipe, close)
 		return;
 	}
 	
-	ASYNC_PREPARE_EXCEPTION(&pipe->state->error, async_stream_closed_exception_ce, "Pipe has been closed");
+	ASYNC_PREPARE_EXCEPTION(&pipe->state->error, execute_data, async_stream_closed_exception_ce, "Pipe has been closed");
 	
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(&pipe->state->error), Z_OBJ_P(val));
@@ -817,7 +824,14 @@ static PHP_METHOD(ReadablePipe, read)
 	forward_stream_read_error(pipe->state->stream, &read);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(ReadablePipe, async_readable_process_pipe_ce)
+ASYNC_METHOD_NO_WAKEUP(ReadablePipe, async_readable_process_pipe_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_readable_process_pipe_functions[] = {
+	PHP_ME(ReadablePipe, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(ReadablePipe, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(ReadablePipe, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
 	PHP_ME(ReadablePipe, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
 	PHP_FE_END
@@ -875,7 +889,7 @@ static PHP_METHOD(WritablePipe, close)
 		return;
 	}
 
-	ASYNC_PREPARE_EXCEPTION(&pipe->state->error, async_stream_closed_exception_ce, "Pipe has been closed");
+	ASYNC_PREPARE_EXCEPTION(&pipe->state->error, execute_data, async_stream_closed_exception_ce, "Pipe has been closed");
 
 	if (!(pipe->state->stream->flags & ASYNC_STREAM_CLOSED)) {
 		ASYNC_ADDREF(&pipe->state->process->std);
@@ -971,7 +985,14 @@ static PHP_METHOD(WritablePipe, write)
 #endif
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(WritablePipe, async_writable_process_pipe_ce)
+ASYNC_METHOD_NO_WAKEUP(WritablePipe, async_writable_process_pipe_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_writable_process_pipe_functions[] = {
+	PHP_ME(WritablePipe, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(WritablePipe, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(WritablePipe, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
 	PHP_ME(WritablePipe, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
 	PHP_FE_END

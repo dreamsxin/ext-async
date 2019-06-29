@@ -36,6 +36,11 @@ TaskScheduler::runWithContext($context, function () use ($var) {
     }
 });
 
+Task::await(Task::async(function () {
+    var_dump('END');
+    exit();
+}));
+
 ?>
 --EXPECT--
 int(123)
@@ -44,3 +49,4 @@ int(123)
 int(777)
 int(123)
 string(5) "FAIL!"
+string(3) "END"

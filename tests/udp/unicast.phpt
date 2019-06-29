@@ -10,8 +10,10 @@ namespace Concurrent\Network;
 use Concurrent\Task;
 use Concurrent\Timer;
 
-$a = UdpSocket::bind('localhost', 0);
+$a = UdpSocket::bind();
 $b = UdpSocket::bind('127.0.0.1', 0);
+
+var_dump($a->getAddress());
 
 Task::async(function () use ($a, $b) {
     try {
@@ -51,6 +53,7 @@ var_dump($data->address);
 var_dump($data->port);
 
 --EXPECTF--
+string(7) "0.0.0.0"
 string(4) "Test"
 string(9) "127.0.0.1"
 bool(true)

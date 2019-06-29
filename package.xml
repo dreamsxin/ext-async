@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2019-06-11</date>
-  <time>20:24:26</time>
+  <date>2019-06-29</date>
+  <time>13:46:54</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -32,6 +32,7 @@
       <file role="src" name="php_async.c"/>
       <file role="src" name="php_async.h"/>
       <file role="src" name="include/async_buffer.h"/>
+      <file role="src" name="include/async_event.h"/>
       <file role="src" name="include/async_fiber.h"/>
       <file role="src" name="include/async_helper.h"/>
       <file role="src" name="include/async_pipe.h"/>
@@ -46,6 +47,7 @@
       <file role="src" name="src/context.c"/>
       <file role="src" name="src/deferred.c"/>
       <file role="src" name="src/dns.c"/>
+      <file role="src" name="src/event.c"/>
       <file role="src" name="src/fiber/asm.c"/>
       <file role="src" name="src/fiber/stack.c"/>
       <file role="src" name="src/fiber/ucontext.c"/>
@@ -257,10 +259,12 @@
       <file role="test" name="tests/console/stdout.phpt"/>
       <file role="test" name="tests/context/cancel-chain.phpt"/>
       <file role="test" name="tests/context/cancel-deferred.phpt"/>
+      <file role="test" name="tests/context/cancel-inherit.phpt"/>
       <file role="test" name="tests/context/cancel-internal.phpt"/>
       <file role="test" name="tests/context/cancel-nested.phpt"/>
       <file role="test" name="tests/context/cancel-shield.phpt"/>
       <file role="test" name="tests/context/cancel-timeout.phpt"/>
+      <file role="test" name="tests/context/context-exit.phpt"/>
       <file role="test" name="tests/context/current.phpt"/>
       <file role="test" name="tests/context/nested-var.phpt"/>
       <file role="test" name="tests/context/ouput-isolation.phpt"/>
@@ -280,6 +284,12 @@
       <file role="test" name="tests/deferred/suspend-during-continuation.phpt"/>
       <file role="test" name="tests/deferred/transform-task.phpt"/>
       <file role="test" name="tests/deferred/transform.phpt"/>
+      <file role="test" name="tests/dns/get-record.phpt"/>
+      <file role="test" name="tests/dns/gethostbyname-resolver.phpt"/>
+      <file role="test" name="tests/dns/gethostbyname.phpt"/>
+      <file role="test" name="tests/dns/gethostbynamel-resolver.phpt"/>
+      <file role="test" name="tests/dns/gethostbynamel.phpt"/>
+      <file role="test" name="tests/dns/skipif.inc"/>
       <file role="test" name="tests/filesystem/assets/test.php"/>
       <file role="test" name="tests/filesystem/assets/upper.php"/>
       <file role="test" name="tests/filesystem/cast-fd.phpt"/>
@@ -327,6 +337,10 @@
       <file role="test" name="tests/process/signal.phpt"/>
       <file role="test" name="tests/process/skipif.inc"/>
       <file role="test" name="tests/skipif.inc"/>
+      <file role="test" name="tests/stream/readable-stream.phpt"/>
+      <file role="test" name="tests/stream/skipif.inc"/>
+      <file role="test" name="tests/stream/writable-stream.phpt"/>
+      <file role="test" name="tests/sync/broadcast-root.phpt"/>
       <file role="test" name="tests/sync/broadcast.phpt"/>
       <file role="test" name="tests/sync/close.phpt"/>
       <file role="test" name="tests/sync/skipif.inc"/>
@@ -337,6 +351,9 @@
       <file role="test" name="tests/task/awaitable-cannot-be-implemented.phpt"/>
       <file role="test" name="tests/task/background-with-cancel.phpt"/>
       <file role="test" name="tests/task/busy-while-waiting.phpt"/>
+      <file role="test" name="tests/task/component-shutdown.phpt"/>
+      <file role="test" name="tests/task/construction.phpt"/>
+      <file role="test" name="tests/task/context.phpt"/>
       <file role="test" name="tests/task/default-scheduler-await-deferred.phpt"/>
       <file role="test" name="tests/task/default-scheduler.phpt"/>
       <file role="test" name="tests/task/disposal.phpt"/>
@@ -345,9 +362,14 @@
       <file role="test" name="tests/task/executor-restores-error.phpt"/>
       <file role="test" name="tests/task/exit.phpt"/>
       <file role="test" name="tests/task/exit2.phpt"/>
+      <file role="test" name="tests/task/factory-registration.phpt"/>
+      <file role="test" name="tests/task/factory-usage.phpt"/>
       <file role="test" name="tests/task/inlining.phpt"/>
       <file role="test" name="tests/task/inspection.phpt"/>
       <file role="test" name="tests/task/multiple-continuations.phpt"/>
+      <file role="test" name="tests/task/poll-error.phpt"/>
+      <file role="test" name="tests/task/poll-state.phpt"/>
+      <file role="test" name="tests/task/poll.phpt"/>
       <file role="test" name="tests/task/root-await-deferred.phpt"/>
       <file role="test" name="tests/task/scheduler-pending-tasks.phpt"/>
       <file role="test" name="tests/task/scheduler-stacking.phpt"/>
@@ -355,6 +377,16 @@
       <file role="test" name="tests/task/skipif.inc"/>
       <file role="test" name="tests/task/static-scheduling.phpt"/>
       <file role="test" name="tests/task/suspend.phpt"/>
+      <file role="test" name="tests/task/tick-activate.phpt"/>
+      <file role="test" name="tests/task/tick-error-await.phpt"/>
+      <file role="test" name="tests/task/tick-error-nested.phpt"/>
+      <file role="test" name="tests/task/tick-error.phpt"/>
+      <file role="test" name="tests/task/tick-exit-nested.phpt"/>
+      <file role="test" name="tests/task/tick-exit.phpt"/>
+      <file role="test" name="tests/task/tick-unref.phpt"/>
+      <file role="test" name="tests/task/timer-error.phpt"/>
+      <file role="test" name="tests/task/timer.phpt"/>
+      <file role="test" name="tests/task/trace.phpt"/>
       <file role="test" name="tests/task/will-await-returned-awaitable.phpt"/>
       <file role="test" name="tests/tcp/assets/sslpair.php"/>
       <file role="test" name="tests/tcp/cancel-accept.phpt"/>
@@ -388,6 +420,9 @@
       <file role="test" name="tests/thread/skipif.inc"/>
       <file role="test" name="tests/udp/async-send.phpt"/>
       <file role="test" name="tests/udp/cancel-receiver.phpt"/>
+      <file role="test" name="tests/udp/connected-async.phpt"/>
+      <file role="test" name="tests/udp/connected-peer-check.phpt"/>
+      <file role="test" name="tests/udp/connected.phpt"/>
       <file role="test" name="tests/udp/readonly-dgram-props.phpt"/>
       <file role="test" name="tests/udp/skipif.inc"/>
       <file role="test" name="tests/udp/unicast.phpt"/>

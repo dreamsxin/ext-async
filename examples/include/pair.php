@@ -9,7 +9,7 @@ use Concurrent\Task;
 
 function socketpair(): array
 {
-    $server = TcpServer::listen('localhost', 0);
+    $server = TcpServer::listen('127.0.0.1');
 
     $tasks = [
         Task::async(function () use ($server) {

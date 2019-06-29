@@ -38,7 +38,7 @@
 	async_uv_op *op; \
 	int code; \
 	op = NULL; \
-	if (UNEXPECTED((data)->scheduler->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED)) { \
+	if (UNEXPECTED((data)->scheduler->flags & (ASYNC_TASK_SCHEDULER_FLAG_DISPOSED | ASYNC_TASK_SCHEDULER_FLAG_ERROR))) { \
 		(data)->async = 0; \
 	} \
 	if (EXPECTED((data)->async)) { \
@@ -73,7 +73,7 @@
 	async_uv_op *op; \
 	int code; \
 	zend_bool disposed; \
-	disposed = (async_task_scheduler_get()->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED) ? 1 : 0; \
+	disposed = (async_task_scheduler_get()->flags & (ASYNC_TASK_SCHEDULER_FLAG_DISPOSED | ASYNC_TASK_SCHEDULER_FLAG_ERROR)) ? 1 : 0; \
 	op = NULL; \
 	if (EXPECTED(async && !disposed)) { \
 		ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op)); \

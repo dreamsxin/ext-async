@@ -46,7 +46,7 @@ ASYNC_CALLBACK shutdown_cond_cb(void *arg, zval *error)
 		if (error) {
 			ZVAL_COPY(&cond->error, error);
 		} else {
-			ASYNC_PREPARE_ERROR(&cond->error, "Condition has been closed");
+			ASYNC_PREPARE_SCHEDULER_ERROR(&cond->error, "Condition has been closed");
 		}
 	}
 
@@ -121,7 +121,7 @@ static PHP_METHOD(Condition, close)
 	cond = (async_sync_condition *) Z_OBJ_P(getThis());
 	
 	if (cond->shutdown.func) {
-		ASYNC_PREPARE_ERROR(&error, "Condition has been closed");
+		ASYNC_PREPARE_ERROR(&error, execute_data, "Condition has been closed");
 		
 		if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 			zend_exception_set_previous(Z_OBJ_P(&error), Z_OBJ_P(val));
@@ -240,7 +240,12 @@ static PHP_METHOD(Condition, broadcast)
 	RETURN_LONG(count);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(Condition, async_sync_condition_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry sync_condition_funcs[] = {
+	PHP_ME(Condition, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(Condition, close, arginfo_sync_condition_close, ZEND_ACC_PUBLIC)
 	PHP_ME(Condition, wait, arginfo_sync_condition_wait, ZEND_ACC_PUBLIC)
 	PHP_ME(Condition, signal, arginfo_sync_condition_signal, ZEND_ACC_PUBLIC)
@@ -249,7 +254,7 @@ static const zend_function_entry sync_condition_funcs[] = {
 };
 
 
-void async_sync_init()
+void async_sync_ce_register()
 {
 	zend_class_entry ce;
 

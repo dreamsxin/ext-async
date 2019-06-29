@@ -20,18 +20,47 @@
 #include "async_ssl.h"
 #include "async_stream.h"
 #include "zend_inheritance.h"
+#include "zend_smart_str.h"
 
 ASYNC_API zend_class_entry *async_duplex_stream_ce;
 ASYNC_API zend_class_entry *async_pending_read_exception_ce;
+ASYNC_API zend_class_entry *async_readable_memory_stream_ce;
 ASYNC_API zend_class_entry *async_readable_stream_ce;
 ASYNC_API zend_class_entry *async_stream_closed_exception_ce;
 ASYNC_API zend_class_entry *async_stream_exception_ce;
 ASYNC_API zend_class_entry *async_stream_reader_ce;
 ASYNC_API zend_class_entry *async_stream_writer_ce;
+ASYNC_API zend_class_entry *async_writable_memory_stream_ce;
 ASYNC_API zend_class_entry *async_writable_stream_ce;
+
+static zend_object_handlers async_readable_memory_stream_handlers;
+static zend_object_handlers async_writable_memory_stream_handlers;
 
 static zend_object_handlers async_stream_reader_handlers;
 static zend_object_handlers async_stream_writer_handlers;
+
+#define ASYNC_READABLE_MEMORY_STREAM_FLAG_CLOSED 1
+
+typedef struct _async_readable_memory_stream {
+	zend_object std;
+
+	uint8_t flags;
+
+	size_t offset;
+	zend_string *data;
+	zval error;
+} async_readable_memory_stream;
+
+#define ASYNC_WRITABLE_MEMORY_STREAM_FLAG_CLOSED 1
+
+typedef struct _async_writable_memory_stream {
+	zend_object std;
+
+	uint8_t flags;
+
+	smart_str data;
+	zval error;
+} async_writable_memory_stream;
 
 ASYNC_CALLBACK write_cb(uv_write_t *req, int status);
 
@@ -1485,6 +1514,279 @@ static const zend_function_entry async_duplex_stream_functions[] = {
 };
 
 
+static zend_object *async_readable_memory_stream_object_create(zend_class_entry *ce)
+{
+	async_readable_memory_stream *stream;
+
+	stream = ecalloc(1, sizeof(async_readable_memory_stream));
+
+	zend_object_std_init(&stream->std, ce);
+	stream->std.handlers = &async_readable_memory_stream_handlers;
+
+	return &stream->std;
+}
+
+static void async_readable_memory_stream_object_destroy(zend_object *object)
+{
+	async_readable_memory_stream *stream;
+
+	stream = (async_readable_memory_stream *) object;
+
+	zend_string_release(stream->data);
+	zval_ptr_dtor(&stream->error);
+
+	zend_object_std_dtor(&stream->std);
+}
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_readable_memory_stream_ctor, 0, 0, 0)
+	ZEND_ARG_TYPE_INFO(0, buffer, IS_STRING, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(ReadableMemoryStream, __construct)
+{
+	async_readable_memory_stream *stream;
+
+	zend_string *str;
+
+	str = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_STR(str)
+	ZEND_PARSE_PARAMETERS_END();
+
+	stream = (async_readable_memory_stream *) Z_OBJ_P(getThis());
+
+	if (str == NULL) {
+		stream->data = ZSTR_EMPTY_ALLOC();
+	} else {
+		stream->data = zend_string_copy(str);
+	}
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_readable_memory_stream_is_closed, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(ReadableMemoryStream, isClosed)
+{
+	async_readable_memory_stream *stream;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	stream = (async_readable_memory_stream *) Z_OBJ_P(getThis());
+
+	RETURN_BOOL(stream->flags & ASYNC_READABLE_MEMORY_STREAM_FLAG_CLOSED);
+}
+
+static PHP_METHOD(ReadableMemoryStream, close)
+{
+	async_readable_memory_stream *stream;
+
+	zval *val;
+
+	val = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_OBJECT_OF_CLASS_EX(val, zend_ce_throwable, 1, 0)
+	ZEND_PARSE_PARAMETERS_END();
+
+	stream = (async_readable_memory_stream *) Z_OBJ_P(getThis());
+
+	if (stream->flags & ASYNC_READABLE_MEMORY_STREAM_FLAG_CLOSED) {
+		return;
+	}
+
+	stream->flags |= ASYNC_READABLE_MEMORY_STREAM_FLAG_CLOSED;
+
+	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
+		ZVAL_COPY(&stream->error, val);
+	}
+}
+
+static PHP_METHOD(ReadableMemoryStream, read)
+{
+	async_readable_memory_stream *stream;
+	zend_string *chunk;
+
+	zval *hint;
+	size_t len;
+
+	hint = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(hint)
+	ZEND_PARSE_PARAMETERS_END();
+
+	if (hint == NULL || Z_TYPE_P(hint) == IS_NULL) {
+		len = 8192;
+	} else if (Z_LVAL_P(hint) < 1) {
+		zend_throw_exception_ex(async_stream_exception_ce, 0, "Invalid read length: %d", (int) Z_LVAL_P(hint));
+		return;
+	} else {
+		len = (size_t) Z_LVAL_P(hint);
+	}
+
+	stream = (async_readable_memory_stream *) Z_OBJ_P(getThis());
+
+	if (stream->flags & ASYNC_READABLE_MEMORY_STREAM_FLAG_CLOSED) {
+		zend_throw_exception(async_stream_closed_exception_ce, "Cannot read from closed stream", 0);
+
+		if (Z_TYPE(stream->error) != IS_UNDEF) {
+			zend_exception_set_previous(EG(exception), Z_OBJ(stream->error));
+			GC_ADDREF(Z_OBJ(stream->error));
+		}
+
+		return;
+	}
+
+	len = MIN(len, ZSTR_LEN(stream->data) - stream->offset);
+
+	if (len > 0) {
+		chunk = zend_string_init(ZSTR_VAL(stream->data) + stream->offset, len, 0);
+		stream->offset += len;
+
+		RETVAL_STR(chunk);
+	}
+}
+
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(ReadableMemoryStream, async_readable_memory_stream_ce)
+//LCOV_EXCL_STOP
+
+static const zend_function_entry async_readable_memory_stream_functions[] = {
+	PHP_ME(ReadableMemoryStream, __construct, arginfo_readable_memory_stream_ctor, ZEND_ACC_PUBLIC)
+	PHP_ME(ReadableMemoryStream, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
+	PHP_ME(ReadableMemoryStream, isClosed, arginfo_readable_memory_stream_is_closed, ZEND_ACC_PUBLIC)
+	PHP_ME(ReadableMemoryStream, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	PHP_ME(ReadableMemoryStream, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
+	PHP_FE_END
+};
+
+
+static zend_object *async_writable_memory_stream_object_create(zend_class_entry *ce)
+{
+	async_writable_memory_stream *stream;
+
+	stream = ecalloc(1, sizeof(async_writable_memory_stream));
+
+	zend_object_std_init(&stream->std, ce);
+	stream->std.handlers = &async_writable_memory_stream_handlers;
+
+	return &stream->std;
+}
+
+static void async_writable_memory_stream_object_destroy(zend_object *object)
+{
+	async_writable_memory_stream *stream;
+
+	stream = (async_writable_memory_stream *) object;
+
+	smart_str_free(&stream->data);
+	zval_ptr_dtor(&stream->error);
+
+	zend_object_std_dtor(&stream->std);
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_writable_memory_stream_is_closed, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(WritableMemoryStream, isClosed)
+{
+	async_writable_memory_stream *stream;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	stream = (async_writable_memory_stream *) Z_OBJ_P(getThis());
+
+	RETURN_BOOL(stream->flags & ASYNC_WRITABLE_MEMORY_STREAM_FLAG_CLOSED);
+}
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_writable_memory_stream_get_contents, 0, 0, IS_STRING, 0)
+ZEND_END_ARG_INFO();
+
+static PHP_METHOD(WritableMemoryStream, getContents)
+{
+	async_writable_memory_stream *stream;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	stream = (async_writable_memory_stream *) Z_OBJ_P(getThis());
+
+	if (stream->data.s) {
+		RETURN_STR(zend_string_dup(stream->data.s, 0));
+	} else {
+		RETURN_STR(ZSTR_EMPTY_ALLOC());
+	}
+}
+
+static PHP_METHOD(WritableMemoryStream, close)
+{
+	async_writable_memory_stream *stream;
+
+	zval *val;
+
+	val = NULL;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_OBJECT_OF_CLASS_EX(val, zend_ce_throwable, 1, 0)
+	ZEND_PARSE_PARAMETERS_END();
+
+	stream = (async_writable_memory_stream *) Z_OBJ_P(getThis());
+
+	if (stream->flags & ASYNC_WRITABLE_MEMORY_STREAM_FLAG_CLOSED) {
+		return;
+	}
+
+	stream->flags |= ASYNC_WRITABLE_MEMORY_STREAM_FLAG_CLOSED;
+
+	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
+		ZVAL_COPY(&stream->error, val);
+	}
+}
+
+static PHP_METHOD(WritableMemoryStream, write)
+{
+	async_writable_memory_stream *stream;
+
+	zend_string *data;
+
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 1)
+		Z_PARAM_STR(data)
+	ZEND_PARSE_PARAMETERS_END();
+
+	stream = (async_writable_memory_stream *) Z_OBJ_P(getThis());
+
+	if (stream->flags & ASYNC_WRITABLE_MEMORY_STREAM_FLAG_CLOSED) {
+		zend_throw_exception(async_stream_closed_exception_ce, "Cannot write to closed stream", 0);
+
+		if (Z_TYPE(stream->error) != IS_UNDEF) {
+			zend_exception_set_previous(EG(exception), Z_OBJ(stream->error));
+			GC_ADDREF(Z_OBJ(stream->error));
+		}
+
+		return;
+	}
+
+	smart_str_append(&stream->data, data);
+}
+
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_WAKEUP(WritableMemoryStream, async_writable_memory_stream_ce)
+//LCOV_EXCL_STOP
+
+static const zend_function_entry async_writable_memory_stream_functions[] = {
+	PHP_ME(WritableMemoryStream, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
+	PHP_ME(WritableMemoryStream, isClosed, arginfo_writable_memory_stream_is_closed, ZEND_ACC_PUBLIC)
+	PHP_ME(WritableMemoryStream, getContents, arginfo_writable_memory_stream_get_contents, ZEND_ACC_PUBLIC)
+	PHP_ME(WritableMemoryStream, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
+	PHP_ME(WritableMemoryStream, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
+	PHP_FE_END
+};
+
+
 async_stream_reader *async_stream_reader_create(async_stream *stream, zend_object *ref, zval *error)
 {
 	async_stream_reader *reader;
@@ -1533,7 +1835,7 @@ static PHP_METHOD(StreamReader, close)
 		return;
 	}
 
-	ASYNC_PREPARE_EXCEPTION(reader->error, async_stream_closed_exception_ce, "Stream has been closed");
+	ASYNC_PREPARE_EXCEPTION(reader->error, execute_data, async_stream_closed_exception_ce, "Stream has been closed");
 
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(reader->error), Z_OBJ_P(val));
@@ -1552,7 +1854,14 @@ static PHP_METHOD(StreamReader, read)
 	async_stream_call_read(reader->stream, reader->error, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(StreamReader, async_stream_reader_ce)
+ASYNC_METHOD_NO_WAKEUP(StreamReader, async_stream_reader_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_stream_reader_functions[] = {
+	PHP_ME(StreamReader, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(StreamReader, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(StreamReader, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
 	PHP_ME(StreamReader, read, arginfo_readable_stream_read, ZEND_ACC_PUBLIC)
 	PHP_FE_END
@@ -1577,7 +1886,7 @@ async_stream_writer *async_stream_writer_create(async_stream *stream, zend_objec
 	return writer;
 }
 
-ASYNC_CALLBACK async_stream_writer_object_destroy(zend_object *object)
+static void async_stream_writer_object_destroy(zend_object *object)
 {
 	async_stream_writer *writer;
 
@@ -1607,7 +1916,7 @@ static PHP_METHOD(StreamWriter, close)
 		return;
 	}
 
-	ASYNC_PREPARE_EXCEPTION(writer->error, async_stream_closed_exception_ce, "Stream has been closed");
+	ASYNC_PREPARE_EXCEPTION(writer->error, execute_data, async_stream_closed_exception_ce, "Stream has been closed");
 
 	if (val != NULL && Z_TYPE_P(val) != IS_NULL) {
 		zend_exception_set_previous(Z_OBJ_P(writer->error), Z_OBJ_P(val));
@@ -1626,7 +1935,14 @@ static PHP_METHOD(StreamWriter, write)
 	async_stream_call_write(writer->stream, writer->error, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
 
+//LCOV_EXCL_START
+ASYNC_METHOD_NO_CTOR(StreamWriter, async_stream_writer_ce)
+ASYNC_METHOD_NO_WAKEUP(StreamWriter, async_stream_writer_ce)
+//LCOV_EXCL_STOP
+
 static const zend_function_entry async_stream_writer_functions[] = {
+	PHP_ME(StreamWriter, __construct, arginfo_no_ctor, ZEND_ACC_PRIVATE)
+	PHP_ME(StreamWriter, __wakeup, arginfo_no_wakeup, ZEND_ACC_PUBLIC)
 	PHP_ME(StreamWriter, close, arginfo_stream_close, ZEND_ACC_PUBLIC)
 	PHP_ME(StreamWriter, write, arginfo_writable_stream_write, ZEND_ACC_PUBLIC)
 	PHP_FE_END
@@ -1666,6 +1982,32 @@ void async_stream_ce_register()
 	async_pending_read_exception_ce = zend_register_internal_class(&ce);
 
 	zend_do_inheritance(async_pending_read_exception_ce, async_stream_exception_ce);
+
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent\\Stream", "ReadableMemoryStream", async_readable_memory_stream_functions);
+	async_readable_memory_stream_ce = zend_register_internal_class(&ce);
+	async_readable_memory_stream_ce->ce_flags |= ZEND_ACC_FINAL;
+	async_readable_memory_stream_ce->create_object = async_readable_memory_stream_object_create;
+	async_readable_memory_stream_ce->serialize = zend_class_serialize_deny;
+	async_readable_memory_stream_ce->unserialize = zend_class_unserialize_deny;
+
+	zend_class_implements(async_readable_memory_stream_ce, 1, async_readable_stream_ce);
+
+	memcpy(&async_readable_memory_stream_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_readable_memory_stream_handlers.free_obj = async_readable_memory_stream_object_destroy;
+	async_readable_memory_stream_handlers.clone_obj = NULL;
+
+	INIT_NS_CLASS_ENTRY(ce, "Concurrent\\Stream", "WritableMemoryStream", async_writable_memory_stream_functions);
+	async_writable_memory_stream_ce = zend_register_internal_class(&ce);
+	async_writable_memory_stream_ce->ce_flags |= ZEND_ACC_FINAL;
+	async_writable_memory_stream_ce->create_object = async_writable_memory_stream_object_create;
+	async_writable_memory_stream_ce->serialize = zend_class_serialize_deny;
+	async_writable_memory_stream_ce->unserialize = zend_class_unserialize_deny;
+
+	zend_class_implements(async_writable_memory_stream_ce, 1, async_writable_stream_ce);
+
+	memcpy(&async_writable_memory_stream_handlers, &std_object_handlers, sizeof(zend_object_handlers));
+	async_writable_memory_stream_handlers.free_obj = async_writable_memory_stream_object_destroy;
+	async_writable_memory_stream_handlers.clone_obj = NULL;
 
 	INIT_NS_CLASS_ENTRY(ce, "Concurrent\\Stream", "StreamReader", async_stream_reader_functions);
 	async_stream_reader_ce = zend_register_internal_class(&ce);

@@ -9,7 +9,7 @@ namespace Concurrent\Network;
 
 use Concurrent\Task;
 
-$server = TcpServer::listen('127.0.0.1', 0);
+$server = TcpServer::listen();
 
 try {
 
@@ -20,6 +20,8 @@ try {
     var_dump($port > 0);
     
     var_dump($server->setOption(TcpServer::SIMULTANEOUS_ACCEPTS, true));
+    
+    $host = '127.0.0.1';
     
     Task::async(function () use ($host, $port) {
         $socket = TcpSocket::connect($host, $port);
@@ -64,7 +66,7 @@ try {
 }
 
 --EXPECT--
-string(9) "127.0.0.1"
+string(7) "0.0.0.0"
 bool(true)
 bool(true)
 string(6) "LISTEN"

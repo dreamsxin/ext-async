@@ -2,7 +2,7 @@
 
 namespace Concurrent\Network;
 
-$socket = UdpSocket::bind('0.0.0.0', 0);
+$socket = UdpSocket::bind();
 
 try {
     $socket->send(new UdpDatagram(implode("\r\n", [
