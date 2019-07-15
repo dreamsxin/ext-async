@@ -2,7 +2,7 @@
   +----------------------------------------------------------------------+
   | PHP Version 7                                                        |
   +----------------------------------------------------------------------+
-  | Copyright (c) 1997-2018 The PHP Group                                |
+  | Copyright (c) Martin Schröder 2019                                   |
   +----------------------------------------------------------------------+
   | This source file is subject to version 3.01 of the PHP license,      |
   | that is bundled with this package in the file LICENSE, and is        |
@@ -19,8 +19,8 @@
 #ifndef ASYNC_STREAM_H
 #define ASYNC_STREAM_H
 
-#include "async_buffer.h"
-#include "async_ssl.h"
+#include "buffer.h"
+#include "ssl.h"
 
 #define ASYNC_STREAM_EOF 1
 #define ASYNC_STREAM_CLOSED (1 << 1)

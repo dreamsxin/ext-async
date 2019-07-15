@@ -2,7 +2,7 @@
   +----------------------------------------------------------------------+
   | PHP Version 7                                                        |
   +----------------------------------------------------------------------+
-  | Copyright (c) 1997-2018 The PHP Group                                |
+  | Copyright (c) Martin Schröder 2019                                   |
   +----------------------------------------------------------------------+
   | This source file is subject to version 3.01 of the PHP license,      |
   | that is bundled with this package in the file LICENSE, and is        |
@@ -17,10 +17,8 @@
 */
 
 #include "php_async.h"
-#include "async_stream.h"
-#include "async_socket.h"
-#include "async_pipe.h"
-#include "zend_inheritance.h"
+
+#include "async/pipe.h"
 
 #ifdef ZEND_WIN32
 #include "zend_smart_str.h"

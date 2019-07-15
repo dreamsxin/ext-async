@@ -332,6 +332,4 @@ if test "$PHP_ASYNC" != "no"; then
   PHP_SUBST(ASYNC_SHARED_LIBADD)
   PHP_ADD_MAKEFILE_FRAGMENT
   
-  PHP_INSTALL_HEADERS([ext/async], [config.h thirdparty/libuv/include/*.h])
-  
 fi

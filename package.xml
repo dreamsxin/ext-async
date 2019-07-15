@@ -10,8 +10,8 @@
     <email>m.schroeder2007@gmail.com</email>
     <active>yes</active>
   </lead>
-  <date>2019-06-29</date>
-  <time>13:46:54</time>
+  <date>2019-07-15</date>
+  <time>12:33:24</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -31,17 +31,17 @@
       <file role="src" name="config.w32"/>
       <file role="src" name="php_async.c"/>
       <file role="src" name="php_async.h"/>
-      <file role="src" name="include/async_buffer.h"/>
-      <file role="src" name="include/async_event.h"/>
-      <file role="src" name="include/async_fiber.h"/>
-      <file role="src" name="include/async_helper.h"/>
-      <file role="src" name="include/async_pipe.h"/>
-      <file role="src" name="include/async_process.h"/>
-      <file role="src" name="include/async_socket.h"/>
-      <file role="src" name="include/async_ssl.h"/>
-      <file role="src" name="include/async_stack.h"/>
-      <file role="src" name="include/async_stream.h"/>
-      <file role="src" name="include/async_xp.h"/>
+      <file role="src" name="async/buffer.h"/>
+      <file role="src" name="async/event.h"/>
+      <file role="src" name="async/fiber.h"/>
+      <file role="src" name="async/helper.h"/>
+      <file role="src" name="async/pipe.h"/>
+      <file role="src" name="async/process.h"/>
+      <file role="src" name="async/socket.h"/>
+      <file role="src" name="async/ssl.h"/>
+      <file role="src" name="async/stack.h"/>
+      <file role="src" name="async/stream.h"/>
+      <file role="src" name="async/xp.h"/>
       <file role="src" name="src/channel.c"/>
       <file role="src" name="src/console.c"/>
       <file role="src" name="src/context.c"/>
@@ -158,6 +158,7 @@
       <file role="src" name="thirdparty/libuv/src/unix/fsevents.c"/>
       <file role="src" name="thirdparty/libuv/src/unix/getaddrinfo.c"/>
       <file role="src" name="thirdparty/libuv/src/unix/getnameinfo.c"/>
+      <file role="src" name="thirdparty/libuv/src/unix/haiku.c"/>
       <file role="src" name="thirdparty/libuv/src/unix/ibmi.c"/>
       <file role="src" name="thirdparty/libuv/src/unix/internal.h"/>
       <file role="src" name="thirdparty/libuv/src/unix/kqueue.c"/>

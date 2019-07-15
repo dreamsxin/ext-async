@@ -5,9 +5,7 @@ X64 = toolset_is_64();
 if (PHP_ASYNC != 'no') {
 	AC_DEFINE('HAVE_ASYNC', 1, 'async support enabled');
 	
-	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname);
-	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\include');
-	
+	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname);	
 	ADD_FLAG('LDFLAGS', '/NODEFAULTLIB:LIBCMT');
 		
 	var async_source_files = [

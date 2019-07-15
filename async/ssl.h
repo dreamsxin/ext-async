@@ -2,7 +2,7 @@
   +----------------------------------------------------------------------+
   | PHP Version 7                                                        |
   +----------------------------------------------------------------------+
-  | Copyright (c) 1997-2018 The PHP Group                                |
+  | Copyright (c) Martin Schröder 2019                                   |
   +----------------------------------------------------------------------+
   | This source file is subject to version 3.01 of the PHP license,      |
   | that is bundled with this package in the file LICENSE, and is        |
@@ -18,8 +18,6 @@
 
 #ifndef ASYNC_SSL_H
 #define ASYNC_SSL_H
-
-#include "async_buffer.h"
 
 #define ASYNC_SSL_MODE_SERVER 0
 #define ASYNC_SSL_MODE_CLIENT 1

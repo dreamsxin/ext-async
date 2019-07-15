@@ -111,7 +111,7 @@ foreach ($xpath->query('/p:package/p:contents') as $contents) {
         ];
     }
 
-    $files = array_merge($files, collect_files(__DIR__ . '/include', [
+    $files = array_merge($files, collect_files(__DIR__ . '/async', [
         'h'
     ]));
 

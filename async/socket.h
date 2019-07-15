@@ -2,7 +2,7 @@
   +----------------------------------------------------------------------+
   | PHP Version 7                                                        |
   +----------------------------------------------------------------------+
-  | Copyright (c) 1997-2018 The PHP Group                                |
+  | Copyright (c) Martin Schröder 2019                                   |
   +----------------------------------------------------------------------+
   | This source file is subject to version 3.01 of the PHP license,      |
   | that is bundled with this package in the file LICENSE, and is        |
@@ -19,7 +19,7 @@
 #ifndef ASYNC_SOCKET_H
 #define ASYNC_SOCKET_H
 
-#include "async_stream.h"
+#include "stream.h"
 
 static zend_always_inline int async_socket_addr_size(const struct sockaddr *addr)
 {

@@ -2,7 +2,7 @@
   +----------------------------------------------------------------------+
   | PHP Version 7                                                        |
   +----------------------------------------------------------------------+
-  | Copyright (c) 1997-2018 The PHP Group                                |
+  | Copyright (c) Martin Schröder 2019                                   |
   +----------------------------------------------------------------------+
   | This source file is subject to version 3.01 of the PHP license,      |
   | that is bundled with this package in the file LICENSE, and is        |
@@ -17,7 +17,8 @@
 */
 
 #include "php_async.h"
-#include "async_fiber.h"
+
+#include "async/fiber.h"
 
 #define ASYNC_FIBER_WINFIB_FLAG_ROOT 1
 #define ASYNC_FIBER_WINFIB_FLAG_INITIALIZED 2
