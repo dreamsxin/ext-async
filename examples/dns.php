@@ -18,11 +18,7 @@ class UdpResolver implements Resolver, Component
     private $requests = [];
 
     public function __construct(string $ip, int $port)
-    {
-        if (\filter_var($ip, \FILTER_VALIDATE_IP) === false) {
-            throw new \InvalidArgumentException(\sprintf('Invalid IP address: "%s"', $ip));
-        }
-        
+    {        
         if ($port < 0 || $port > 0xFFFF) {
             throw new \InvalidArgumentException(\sprintf('Invalid port number: %d', $port));
         }

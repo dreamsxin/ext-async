@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PHP_VERSION=PHP-7.4
+PHP_VERSION=php-7.4.0alpha3
 
 sudo apt-get update
 sudo apt-get install gdb git gcc make pkg-config autoconf libtool re2c bison libxml2-dev libssl-dev valgrind -y
