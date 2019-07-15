@@ -5,7 +5,9 @@ X64 = toolset_is_64();
 if (PHP_ASYNC != 'no') {
 	AC_DEFINE('HAVE_ASYNC', 1, 'async support enabled');
 	
-	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname);	
+	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname);
+	ADD_FLAG('CFLAGS', '/I ' + configure_module_dirname + '\\include');
+	
 	ADD_FLAG('LDFLAGS', '/NODEFAULTLIB:LIBCMT');
 		
 	var async_source_files = [
@@ -108,8 +110,6 @@ if (PHP_ASYNC != 'no') {
 	for (var i = 0; i < uv_win.length; i++) {
 		async_source_files.push('thirdparty\\libuv\\src\\win\\' + uv_win[i]);
 	}
-
-	PHP_INSTALL_HEADERS('ext/async', 'php_async.h thirdparty\\libuv\\include\\uv.h');
 
 	var ret = SETUP_OPENSSL('async', PHP_ASYNC);
 	

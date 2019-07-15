@@ -11,7 +11,7 @@
     <active>yes</active>
   </lead>
   <date>2019-07-15</date>
-  <time>12:33:24</time>
+  <time>12:51:07</time>
   <version>
     <release>0.3.0</release>
     <api>0.3.0</api>
@@ -31,17 +31,17 @@
       <file role="src" name="config.w32"/>
       <file role="src" name="php_async.c"/>
       <file role="src" name="php_async.h"/>
-      <file role="src" name="async/buffer.h"/>
-      <file role="src" name="async/event.h"/>
-      <file role="src" name="async/fiber.h"/>
-      <file role="src" name="async/helper.h"/>
-      <file role="src" name="async/pipe.h"/>
-      <file role="src" name="async/process.h"/>
-      <file role="src" name="async/socket.h"/>
-      <file role="src" name="async/ssl.h"/>
-      <file role="src" name="async/stack.h"/>
-      <file role="src" name="async/stream.h"/>
-      <file role="src" name="async/xp.h"/>
+      <file role="src" name="include/async/buffer.h"/>
+      <file role="src" name="include/async/event.h"/>
+      <file role="src" name="include/async/fiber.h"/>
+      <file role="src" name="include/async/helper.h"/>
+      <file role="src" name="include/async/pipe.h"/>
+      <file role="src" name="include/async/process.h"/>
+      <file role="src" name="include/async/socket.h"/>
+      <file role="src" name="include/async/ssl.h"/>
+      <file role="src" name="include/async/stack.h"/>
+      <file role="src" name="include/async/stream.h"/>
+      <file role="src" name="include/async/xp.h"/>
       <file role="src" name="src/channel.c"/>
       <file role="src" name="src/console.c"/>
       <file role="src" name="src/context.c"/>
