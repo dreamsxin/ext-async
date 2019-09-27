@@ -30,8 +30,9 @@ ASYNC_API zend_class_entry *async_pipe_server_ce;
 static zend_object_handlers async_pipe_handlers;
 static zend_object_handlers async_pipe_server_handlers;
 
+php_stream_ops unix_socket_ops;
 
-ASYNC_CALLBACK pipe_disposed(uv_handle_t *handle)
+void pipe_disposed(uv_handle_t *handle)
 {
 	async_pipe *pipe;
 
@@ -42,7 +43,7 @@ ASYNC_CALLBACK pipe_disposed(uv_handle_t *handle)
 	ASYNC_DELREF(&pipe->std);
 }
 
-ASYNC_CALLBACK shutdown_pipe(void *arg, zval *error)
+void shutdown_pipe(void *arg, zval *error)
 {
 	async_pipe *pipe;
 	
@@ -64,18 +65,18 @@ ASYNC_CALLBACK shutdown_pipe(void *arg, zval *error)
 		}
 	}
 	
-	if (pipe->stream == NULL) {
+	if (pipe->astream == NULL) {
 		pipe->handle.data = pipe;
 
 		ASYNC_UV_TRY_CLOSE_REF(&pipe->std, &pipe->handle, pipe_disposed);
 	} else {
 		ZVAL_OBJ(&obj, &pipe->std);
 		
-		async_stream_close(pipe->stream, &obj);
+		async_stream_close(pipe->astream, &obj);
 	}
 }
 
-static async_pipe *async_pipe_object_create(int ipc)
+async_pipe *async_pipe_object_create(int ipc)
 {
 	async_pipe *pipe;
 
@@ -93,17 +94,50 @@ static async_pipe *async_pipe_object_create(int ipc)
 
 	uv_pipe_init(&pipe->scheduler->loop, &pipe->handle, ipc);
 	
-	pipe->stream = async_stream_init((uv_stream_t *) &pipe->handle, ipc);
+	pipe->astream = async_stream_init((uv_stream_t *) &pipe->handle, ipc);
 
 	if (ipc) {
 		pipe->flags |= ASYNC_PIPE_FLAG_IPC;
-		pipe->stream->flags |= ASYNC_STREAM_IPC;
+		pipe->astream->flags |= ASYNC_STREAM_IPC;
 	}
 
 	return pipe;
 }
 
-static void async_pipe_object_dtor(zend_object *object)
+php_stream *async_pipe_object_create2(const char *pid)
+{
+	async_pipe *pipe;
+	php_stream *stream;
+
+	pipe = ecalloc(1, sizeof(async_pipe));
+	stream = php_stream_alloc_rel(&unix_socket_ops, pipe, pid, "r+");
+	if (UNEXPECTED(stream == NULL)) {
+		efree(pipe);
+	
+		return NULL;
+	}
+
+	zend_object_std_init(&pipe->std, async_pipe_ce);
+	pipe->std.handlers = &async_pipe_handlers;
+	
+	pipe->scheduler = async_task_scheduler_ref();
+	
+	pipe->cancel.object = pipe;
+	pipe->cancel.func = shutdown_pipe;
+	
+	ASYNC_LIST_APPEND(&pipe->scheduler->shutdown, &pipe->cancel);
+
+	uv_pipe_init(&pipe->scheduler->loop, &pipe->handle, 0);
+	
+	pipe->astream = async_stream_init((uv_stream_t *) &pipe->handle, 0);
+
+	pipe->timer.data = pipe;
+	uv_timer_init(&pipe->scheduler->loop, &pipe->timer);
+
+	return stream;
+}
+
+void async_pipe_object_dtor(zend_object *object)
 {
 	async_pipe *pipe;
 
@@ -116,14 +150,14 @@ static void async_pipe_object_dtor(zend_object *object)
 	}
 }
 
-static void async_pipe_object_destroy(zend_object *object)
+void async_pipe_object_destroy(zend_object *object)
 {
 	async_pipe *pipe;
 	
 	pipe = (async_pipe *) object;
 
-	if (pipe->stream != NULL) {
-		async_stream_free(pipe->stream);
+	if (pipe->astream != NULL) {
+		async_stream_free(pipe->astream);
 	}
 
 	if (pipe->server != NULL) {
@@ -153,7 +187,7 @@ async_pipe *async_pipe_init_ipc()
 	return pipe;
 }
 
-ASYNC_CALLBACK connect_cb(uv_connect_t *req, int status)
+void connect_cb(uv_connect_t *req, int status)
 {
 	async_uv_op *op;
 
@@ -234,13 +268,13 @@ static PHP_METHOD(Pipe, connect)
 	
 	context = async_context_get();
 	
-	if (!async_context_is_background(context) && 1 == ++pipe->stream->ref_count) {
+	if (!async_context_is_background(context) && 1 == ++pipe->astream->ref_count) {
 		uv_ref((uv_handle_t *) &pipe->handle);
 	}
 	
 	code = async_await_op((async_op *) op);
 	
-	if (!async_context_is_background(context) && 0 == --pipe->stream->ref_count) {
+	if (!async_context_is_background(context) && 0 == --pipe->astream->ref_count) {
 		uv_unref((uv_handle_t *) &pipe->handle);
 	}
 	
@@ -550,7 +584,7 @@ static PHP_METHOD(Pipe, flush)
 	
 	pipe = (async_pipe *) Z_OBJ_P(getThis());
 	
-	async_stream_flush(pipe->stream);
+	async_stream_flush(pipe->astream);
 }
 
 static PHP_METHOD(Pipe, getAddress)
@@ -606,7 +640,7 @@ static PHP_METHOD(Pipe, isAlive)
 
 	pipe = (async_pipe *) Z_OBJ_P(getThis());
 	
-	RETURN_BOOL(async_socket_is_alive(pipe->stream));
+	RETURN_BOOL(async_socket_is_alive(pipe->astream));
 }
 
 static PHP_METHOD(Pipe, read)
@@ -615,7 +649,7 @@ static PHP_METHOD(Pipe, read)
 
 	pipe = (async_pipe *) Z_OBJ_P(getThis());
 
-	async_stream_call_read(pipe->stream, &pipe->read_error, INTERNAL_FUNCTION_PARAM_PASSTHRU);
+	async_stream_call_read(pipe->astream, &pipe->read_error, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
 
 static PHP_METHOD(Pipe, getReadableStream)
@@ -626,7 +660,7 @@ static PHP_METHOD(Pipe, getReadableStream)
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	pipe = (async_pipe *) Z_OBJ_P(getThis());
-	reader = async_stream_reader_create(pipe->stream, &pipe->std, &pipe->read_error);
+	reader = async_stream_reader_create(pipe->astream, &pipe->std, &pipe->read_error);
 	
 	RETURN_OBJ(&reader->std);
 }
@@ -637,7 +671,7 @@ static PHP_METHOD(Pipe, write)
 
 	pipe = (async_pipe *) Z_OBJ_P(getThis());
 
-	async_stream_call_write(pipe->stream, &pipe->write_error, INTERNAL_FUNCTION_PARAM_PASSTHRU);
+	async_stream_call_write(pipe->astream, &pipe->write_error, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
 
 static PHP_METHOD(Pipe, getWriteQueueSize)
@@ -659,7 +693,7 @@ static PHP_METHOD(Pipe, getWritableStream)
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	pipe = (async_pipe *) Z_OBJ_P(getThis());
-	writer = async_stream_writer_create(pipe->stream, &pipe->std, &pipe->write_error);
+	writer = async_stream_writer_create(pipe->astream, &pipe->std, &pipe->write_error);
 	
 	RETURN_OBJ(&writer->std);
 }
@@ -1198,7 +1232,7 @@ int async_pipe_import(uv_stream_t *handle, zend_object **object)
 		
 		ASYNC_LIST_APPEND(&pipe->scheduler->shutdown, &pipe->cancel);
 		
-		pipe->stream = async_stream_init((uv_stream_t *) &pipe->handle, 0);
+		pipe->astream = async_stream_init((uv_stream_t *) &pipe->handle, 0);
 	} else {
 		zend_object_std_init(&pipe->std, async_pipe_server_ce);
 		pipe->std.handlers = &async_pipe_server_handlers;
@@ -1253,11 +1287,11 @@ void async_pipe_import_stream(async_pipe *pipe, uv_stream_t *handle)
 	read.in.timeout = 0;
 	read.in.flags = ASYNC_STREAM_READ_REQ_FLAG_IMPORT;
 	
-	if (EXPECTED(SUCCESS == async_stream_read(pipe->stream, &read))) {
+	if (EXPECTED(SUCCESS == async_stream_read(pipe->astream, &read))) {
 		return;
 	}
 	
-	forward_stream_read_error(pipe->stream, &read);
+	forward_stream_read_error(pipe->astream, &read);
 }
 
 void async_pipe_export_stream(async_pipe *pipe, uv_stream_t *handle)
@@ -1271,8 +1305,8 @@ void async_pipe_export_stream(async_pipe *pipe, uv_stream_t *handle)
 	write.in.handle = handle;
 	write.in.flags = ASYNC_STREAM_WRITE_REQ_FLAG_EXPORT;
 	
-	if (UNEXPECTED(FAILURE == async_stream_write(pipe->stream, &write))) {
-		forward_stream_write_error(pipe->stream, &write);
+	if (UNEXPECTED(FAILURE == async_stream_write(pipe->astream, &write))) {
+		forward_stream_write_error(pipe->astream, &write);
 	}
 }
 
@@ -1333,13 +1367,13 @@ static void intercept_write(async_context *context, zend_object *obj, INTERNAL_F
 		awaitable = NULL;
 	}
 
-	if (UNEXPECTED(FAILURE == async_stream_write(pipe->stream, &write))) {
+	if (UNEXPECTED(FAILURE == async_stream_write(pipe->astream, &write))) {
 		if (awaitable) {
 			ASYNC_DELREF(&awaitable->std);
 			ASYNC_DELREF(&awaitable->std);
 		}
 
-		forward_stream_write_error(pipe->stream, &write);
+		forward_stream_write_error(pipe->astream, &write);
 	} else if (return_value) {
 		ASYNC_ADDREF(&pipe->std);
 

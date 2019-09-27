@@ -98,6 +98,7 @@ PHP_INI_BEGIN()
 	STD_PHP_INI_ENTRY("async.threads", "4", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateThreadCount, threads, zend_async_globals, async_globals)
 	STD_PHP_INI_ENTRY("async.timer", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, timer_enabled, zend_async_globals, async_globals)
 	STD_PHP_INI_ENTRY("async.udp", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, udp_enabled, zend_async_globals, async_globals)
+	STD_PHP_INI_ENTRY("async.unix", "0", PHP_INI_SYSTEM | PHP_INI_PERDIR, OnUpdateBool, unix_enabled, zend_async_globals, async_globals)
 PHP_INI_END()
 
 PHP_GINIT_FUNCTION(async)
@@ -258,6 +259,7 @@ PHP_RINIT_FUNCTION(async)
 	async_filesystem_init();
 	async_tcp_socket_init();
 	async_udp_socket_init();
+	async_unix_socket_init();
 
 	return SUCCESS;
 }
@@ -275,6 +277,7 @@ PHP_RSHUTDOWN_FUNCTION(async)
 	async_filesystem_shutdown();
 	async_tcp_socket_shutdown();
 	async_udp_socket_shutdown();
+	async_unix_socket_shutdown();
 	
 	async_task_scheduler_shutdown();
 	async_context_shutdown();

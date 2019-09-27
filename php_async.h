@@ -559,6 +559,7 @@ ZEND_BEGIN_MODULE_GLOBALS(async)
 	zend_long threads;
 	zend_bool timer_enabled;
 	zend_bool udp_enabled;
+	zend_bool unix_enabled;
 
 ZEND_END_MODULE_GLOBALS(async)
 

@@ -62,11 +62,14 @@ if test "$PHP_ASYNC" != "no"; then
     src/watcher/poll.c \
     src/watcher/signal.c \
     src/watcher/timer.c \
+    src/xp/unix.c \
     src/xp/socket.c \
     src/xp/tcp.c \
     src/xp/udp.c
   "
   
+  ext_builddir="dst/"
+
   PHP_ADD_BUILD_DIR($ext_builddir/src)
   PHP_ADD_BUILD_DIR($ext_builddir/src/fiber)
   PHP_ADD_BUILD_DIR($ext_builddir/src/process)
