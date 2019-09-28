@@ -317,7 +317,7 @@ static int tcp_socket_accept(php_stream *stream, async_xp_socket_data *data, php
 	code = 0;
 	
 	client = ecalloc(1, sizeof(async_xp_socket_data_tcp));
-	
+
 	uv_tcp_init(&server->scheduler->loop, &client->handle);
 	
 	client->flags |= ASYNC_XP_SOCKET_FLAG_INIT;	

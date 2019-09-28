@@ -30,9 +30,7 @@ ASYNC_API zend_class_entry *async_pipe_server_ce;
 static zend_object_handlers async_pipe_handlers;
 static zend_object_handlers async_pipe_server_handlers;
 
-php_stream_ops unix_socket_ops;
-
-void pipe_disposed(uv_handle_t *handle)
+ASYNC_CALLBACK pipe_disposed(uv_handle_t *handle)
 {
 	async_pipe *pipe;
 
@@ -43,7 +41,7 @@ void pipe_disposed(uv_handle_t *handle)
 	ASYNC_DELREF(&pipe->std);
 }
 
-void shutdown_pipe(void *arg, zval *error)
+ASYNC_CALLBACK shutdown_pipe(void *arg, zval *error)
 {
 	async_pipe *pipe;
 	
@@ -76,7 +74,7 @@ void shutdown_pipe(void *arg, zval *error)
 	}
 }
 
-async_pipe *async_pipe_object_create(int ipc)
+static async_pipe *async_pipe_object_create(int ipc)
 {
 	async_pipe *pipe;
 
@@ -102,39 +100,6 @@ async_pipe *async_pipe_object_create(int ipc)
 	}
 
 	return pipe;
-}
-
-php_stream *async_pipe_object_create2(const char *pid)
-{
-	async_pipe *pipe;
-	php_stream *stream;
-
-	pipe = ecalloc(1, sizeof(async_pipe));
-	stream = php_stream_alloc_rel(&unix_socket_ops, pipe, pid, "r+");
-	if (UNEXPECTED(stream == NULL)) {
-		efree(pipe);
-	
-		return NULL;
-	}
-
-	zend_object_std_init(&pipe->std, async_pipe_ce);
-	pipe->std.handlers = &async_pipe_handlers;
-	
-	pipe->scheduler = async_task_scheduler_ref();
-	
-	pipe->cancel.object = pipe;
-	pipe->cancel.func = shutdown_pipe;
-	
-	ASYNC_LIST_APPEND(&pipe->scheduler->shutdown, &pipe->cancel);
-
-	uv_pipe_init(&pipe->scheduler->loop, &pipe->handle, 0);
-	
-	pipe->astream = async_stream_init((uv_stream_t *) &pipe->handle, 0);
-
-	pipe->timer.data = pipe;
-	uv_timer_init(&pipe->scheduler->loop, &pipe->timer);
-
-	return stream;
 }
 
 void async_pipe_object_dtor(zend_object *object)
@@ -187,7 +152,7 @@ async_pipe *async_pipe_init_ipc()
 	return pipe;
 }
 
-void connect_cb(uv_connect_t *req, int status)
+ASYNC_CALLBACK connect_cb(uv_connect_t *req, int status)
 {
 	async_uv_op *op;
 

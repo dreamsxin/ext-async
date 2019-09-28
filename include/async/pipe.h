@@ -24,12 +24,6 @@
 #define ASYNC_PIPE_FLAG_IPC 1
 #define ASYNC_PIPE_FLAG_LAZY (1 << 1)
 
-#define ASYNC_PIPE_FLAG_BLOCKING (1 << 2)
-#define ASYNC_PIPE_FLAG_DGRAM (1 << 3)
-#define ASYNC_PIPE_FLAG_ACCEPTED (1 << 4)
-#define ASYNC_PIPE_FLAG_TIMED_OUT (1 << 5)
-#define ASYNC_PIPE_FLAG_INIT (1 << 6)
-
 typedef struct _async_pipe_server {
 	/* PHP object handle. */
 	zend_object std;
@@ -99,17 +93,4 @@ async_pipe *async_pipe_init_ipc();
 void async_pipe_import_stream(async_pipe *pipe, uv_stream_t *handle);
 void async_pipe_export_stream(async_pipe *pipe, uv_stream_t *handle);
 
-extern zend_class_entry *async_pipe_ce;
-extern zend_class_entry *async_pipe_server_ce;
-
-void pipe_disposed(uv_handle_t *handle);
-void shutdown_pipe(void *arg, zval *error);
-
-async_pipe *async_pipe_object_create(int ipc);
-php_stream *async_pipe_object_create2(const char *pid);
-void async_pipe_object_dtor(zend_object *object);
-void async_pipe_object_destroy(zend_object *object);
-void connect_cb(uv_connect_t *req, int status);
-
-extern php_stream_ops unix_socket_ops;
 #endif

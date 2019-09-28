@@ -17,28 +17,97 @@
 */
 
 #include "php_async.h"
-
-#include "async/pipe.h"
 #include "async/xp.h"
 
 #include "ext/standard/url.h"
 
+#define ASYNC_PIPE_FLAG_IPC 1
+#define ASYNC_PIPE_FLAG_LAZY (1 << 1)
+#define ASYNC_PIPE_FLAG_BLOCKING (1 << 2)
+#define ASYNC_PIPE_FLAG_DGRAM (1 << 3)
+#define ASYNC_PIPE_FLAG_ACCEPTED (1 << 4)
+#define ASYNC_PIPE_FLAG_TIMED_OUT (1 << 5)
+#define ASYNC_PIPE_FLAG_INIT (1 << 6)
+
+typedef struct _async_pipe_data async_pipe_data;
+
+struct _async_pipe_data {
+	/* Task scheduler being used. */
+	async_task_scheduler *scheduler;
+
+	/* UV pipe handle. */
+	uv_pipe_t handle;
+	
+	uint8_t flags;
+
+	/* Number of pending connection attempts queued in the backlog. */
+	zend_uchar pending;
+
+	php_stream *stream;
+	
+	async_stream *astream;
+	
+	/* Number of referenced accept operations. */
+	zend_uchar ref_count;
+
+	/* Queue of tasks waiting to accept a socket connection. */
+	async_op_list accepts;
+
+	uint64_t timeout;
+	uv_timer_t timer;
+};
+
+ASYNC_CALLBACK free_cb(uv_handle_t *handle)
+{
+	efree(handle->data);
+}
+
 static php_stream_transport_factory orig_unix_factory;
+static php_stream_ops unix_socket_ops;
+
+static php_stream *async_pipe_create(async_pipe_data *pipe, const char *pid)
+{
+	php_stream *stream;
+
+	if (pipe == NULL) {
+		pipe = ecalloc(1, sizeof(async_pipe_data));
+	}
+
+	stream = php_stream_alloc_rel(&unix_socket_ops, pipe, pid, "r+");
+	if (UNEXPECTED(stream == NULL)) {
+		efree(pipe);
+	
+		return NULL;
+	}
+	
+	pipe->scheduler = async_task_scheduler_ref();
+	pipe->stream = stream;
+	pipe->flags |= ASYNC_PIPE_FLAG_BLOCKING;
+
+	uv_pipe_init(&pipe->scheduler->loop, &pipe->handle, 0);
+
+	pipe->handle.data = pipe;
+
+	pipe->timeout = 0;
+	uv_timer_init(&pipe->scheduler->loop, &pipe->timer);
+	pipe->timer.data = pipe;
+	return stream;
+}
 
 static php_stream *unix_socket_factory(const char *proto, size_t plen, const char *res, size_t reslen,
 	const char *pid, int options, int flags, struct timeval *timeout, php_stream_context *context STREAMS_DC)
 {
-	return async_pipe_object_create2(pid);
+	return async_pipe_create(NULL, pid);
 }
 
 static size_t async_pipe_write(php_stream *stream, const char *buf, size_t count)
 {
-	async_pipe *data;
+	async_pipe_data *data;
 	async_stream_write_req write;
 	
 	zval ref;
 
-	data = (async_pipe *) stream->abstract;
+	data = (async_pipe_data *) stream->abstract;
 	
 	ZVAL_RES(&ref, stream->res);
 	
@@ -57,12 +126,12 @@ static size_t async_pipe_write(php_stream *stream, const char *buf, size_t count
 
 static size_t async_pipe_read(php_stream *stream, char *buf, size_t count)
 {
-	async_pipe *data;
+	async_pipe_data *data;
 	async_stream_read_req read;
 	
 	int code;
 	
-	data = (async_pipe *) stream->abstract;
+	data = (async_pipe_data *) stream->abstract;
 	
 	read.in.len = count;
 	read.in.buffer = buf;
@@ -85,21 +154,94 @@ static size_t async_pipe_read(php_stream *stream, char *buf, size_t count)
 	return 0;
 }
 
+ASYNC_CALLBACK dispose_timer(uv_handle_t *handle)
+{
+	async_pipe_data *data;
+	
+	data = (async_pipe_data *) handle->data;
+	
+	ZEND_ASSERT(data != NULL);
+	
+	async_task_scheduler_unref(data->scheduler);
+	
+	efree(data);
+}
+
+ASYNC_CALLBACK close_cb(void *arg)
+{
+	async_pipe_data *data;
+	
+	data = (async_pipe_data *) arg;
+	
+	ZEND_ASSERT(data != NULL);
+	
+	async_stream_free(data->astream);
+
+	if (uv_is_closing((uv_handle_t *) &data->timer)) {
+		async_task_scheduler_unref(data->scheduler);
+		efree(data);
+	} else {
+		ASYNC_UV_CLOSE(&data->timer, dispose_timer);
+	}
+}
+
+ASYNC_CALLBACK close_dgram_cb(uv_handle_t *handle)
+{
+	async_pipe_data *data;
+	
+	data = (async_pipe_data *) handle->data;
+	
+	ZEND_ASSERT(data != NULL);
+	
+	if (uv_is_closing((uv_handle_t *) &data->timer)) {
+		async_task_scheduler_unref(data->scheduler);
+		
+		efree(data);
+	} else {
+		ASYNC_UV_CLOSE(&data->timer, dispose_timer);
+	}
+}
+
+ASYNC_CALLBACK dispose_pending_cb(uv_handle_t *handle)
+{
+	efree(handle);
+}
+
 static int async_pipe_close(php_stream *stream, int close_handle)
 {
-	async_pipe *pipe;
+	async_pipe_data *pipe;
 
-	pipe = (async_pipe *) stream->abstract;
+	pipe = (async_pipe_data *) stream->abstract;
+
+	while (pipe->pending > 0) {
+		pipe->pending--;
+
+		uv_tcp_t *tcpstream = emalloc(sizeof(uv_stream_t));
+
+		uv_tcp_init(&pipe->scheduler->loop, tcpstream);
+		uv_accept((uv_stream_t *) &pipe->handle, (uv_stream_t *) tcpstream);
+
+		ASYNC_UV_CLOSE(tcpstream, dispose_pending_cb);
+	}
+	
+	while (pipe->accepts.first != NULL) {
+		async_uv_op *op;
+
+		ASYNC_NEXT_CUSTOM_OP(&pipe->accepts, op, async_uv_op);
+
+		op->code = UV_ECANCELED;
+
+		ASYNC_FINISH_OP(op);
+	}
 
 	if (pipe->astream == NULL) {
-		pipe->handle.data = pipe;
-
-		ASYNC_UV_TRY_CLOSE_REF(&pipe->std, &pipe->handle, pipe_disposed);
+		if (!(pipe->flags & ASYNC_PIPE_FLAG_INIT)) {
+			ASYNC_UV_CLOSE(&pipe->timer, dispose_timer);
+		} else {
+			ASYNC_UV_CLOSE(&pipe->handle, close_dgram_cb);
+		}
 	} else {
-		zval obj;
-		ZVAL_OBJ(&obj, &pipe->std);
-		
-		async_stream_close(pipe->astream, &obj);
+		async_stream_close_cb(pipe->astream, close_cb, pipe);
 	}
 	
 	return 0;
@@ -107,7 +249,7 @@ static int async_pipe_close(php_stream *stream, int close_handle)
 
 static int async_pipe_flush(php_stream *stream)
 {
-	async_pipe *pipe = (async_pipe *) stream->abstract;
+	async_pipe_data *pipe = (async_pipe_data *) stream->abstract;
 	
 	async_stream_flush(pipe->astream);
     return 0;
@@ -115,10 +257,10 @@ static int async_pipe_flush(php_stream *stream)
 
 static int async_pipe_cast(php_stream *stream, int castas, void **ret)
 {
-	async_pipe *data;
+	async_pipe_data *data;
 	php_socket_t fd;
 	
-	data = (async_pipe *) stream->abstract;
+	data = (async_pipe_data *) stream->abstract;
 	
 	switch (castas) {
 	case PHP_STREAM_AS_FD_FOR_SELECT:
@@ -142,7 +284,7 @@ static int async_pipe_stat(php_stream *stream, php_stream_statbuf *ssb)
 	return FAILURE;
 }
 
-static int unix_socket_shutdown(php_stream *stream, async_pipe *data, int how)
+static int unix_socket_shutdown(php_stream *stream, async_pipe_data *data, int how)
 {
 	zval ref;
 
@@ -167,23 +309,135 @@ static int unix_socket_shutdown(php_stream *stream, async_pipe *data, int how)
 
 ASYNC_CALLBACK connect_timer_cb(uv_timer_t *timer)
 {
-	async_pipe *pipe;
+	async_pipe_data *pipe;
 	
-	pipe = (async_pipe *) timer->data;
+	pipe = (async_pipe_data *) timer->data;
 
 	if (pipe->flags & ASYNC_PIPE_FLAG_INIT) {
 		ASYNC_UV_CLOSE(&pipe->handle, NULL);
 	}
 }
 
-static int async_pipe_xport_api(php_stream *stream, async_pipe *pipe, php_stream_xport_param *xparam STREAMS_DC)
+ASYNC_CALLBACK connect_cb(uv_connect_t *req, int status)
+{
+	async_uv_op *op;
+
+	op = (async_uv_op *) req->data;
+
+	ZEND_ASSERT(op != NULL);
+	
+	op->code = status;
+	
+	ASYNC_FINISH_OP(op);
+}
+
+ASYNC_CALLBACK listen_cb(uv_stream_t *stream, int status)
+{
+	async_pipe_data *server;
+	async_uv_op *op;
+	
+	server = (async_pipe_data *) stream->data;
+	
+	ZEND_ASSERT(server != NULL);
+	
+	if (server->accepts.first == NULL) {
+		server->pending++;
+	} else {
+		ASYNC_NEXT_CUSTOM_OP(&server->accepts, op, async_uv_op);
+		
+		op->code = status;
+				
+		ASYNC_FINISH_OP(op);
+	}
+}
+
+static int async_pipe_xport_api(php_stream *stream, async_pipe_data *pipe, php_stream_xport_param *xparam STREAMS_DC)
 {
 	switch (xparam->op) {
 	case STREAM_XPORT_OP_ACCEPT:
-		xparam->outputs.returncode = FAILURE;
+		{
+			async_pipe_data *client = NULL;
+			php_stream *clientstream = NULL;
+			int code;
+			xparam->outputs.returncode = FAILURE;
+
+			client = ecalloc(1, sizeof(async_pipe_data));
+			if (client) {
+				clientstream = async_pipe_create(client, NULL);
+				client->flags |= ASYNC_PIPE_FLAG_INIT;
+			}
+			if (clientstream) {
+
+				if (pipe->pending != 0) {
+					pipe->pending--;
+				} else {
+					async_uv_op *op;
+					async_context *context;
+
+					ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op));
+					ASYNC_APPEND_OP(&pipe->accepts, op);
+	
+					context = async_context_get();
+
+					ASYNC_UNREF_ENTER(context, pipe);
+					code = async_await_op((async_op *) op);
+					ASYNC_UNREF_EXIT(context, pipe);
+
+					if (UNEXPECTED(code == FAILURE)) {
+						php_error_docref(NULL, E_WARNING, "Server failed to listen: %s", uv_strerror(code));
+						//ASYNC_FORWARD_OP_ERROR(op);
+						ASYNC_FREE_OP(op);
+						break;
+					}
+					
+					code = op->code;
+					ASYNC_FREE_OP(op);
+					
+					if (code < 0) {
+						php_error_docref(NULL, E_WARNING, "Server failed to listen: %s", uv_strerror(code));
+						break;
+					}
+				}
+				code = uv_accept((uv_stream_t *) &pipe->handle, (uv_stream_t *) &client->handle);
+				if (code == 0) {
+					xparam->outputs.client = clientstream;
+				}
+
+				if (UNEXPECTED(xparam->outputs.client == NULL)) {
+					ASYNC_UV_CLOSE(&client->handle, free_cb);
+					return code;
+				}
+
+				xparam->outputs.client->ctx = clientstream->ctx;
+				
+				if (clientstream->ctx) {
+					GC_ADDREF(clientstream->ctx);
+				}
+				
+				client->flags |= ASYNC_PIPE_FLAG_ACCEPTED;
+				client->astream = async_stream_init((uv_stream_t *) &client->handle, 0);
+				xparam->outputs.returncode = code;
+			}
+		}
 		break;
 	case STREAM_XPORT_OP_BIND:
-		xparam->outputs.returncode = FAILURE;
+		{
+			int code;
+			xparam->outputs.returncode = FAILURE;
+
+			pipe->flags |= ASYNC_PIPE_FLAG_INIT;
+			code = uv_pipe_bind(&pipe->handle, xparam->inputs.name);
+		
+			if (UNEXPECTED(code) != 0) {
+				php_error_docref(NULL, E_WARNING, "Failed to bind server: %s", uv_strerror(code));
+				return PHP_STREAM_OPTION_RETURN_OK;
+			}
+
+			uv_unref((uv_handle_t *) &pipe->handle);
+			pipe->flags = ASYNC_PIPE_FLAG_LAZY;
+
+			xparam->outputs.returncode = code;
+		}
 		break;
 	case STREAM_XPORT_OP_CONNECT:
 	case STREAM_XPORT_OP_CONNECT_ASYNC:
@@ -194,10 +448,10 @@ static int async_pipe_xport_api(php_stream *stream, async_pipe *pipe, php_stream
 			uint64_t timeout;
 			int code;
 
-			pipe->name = zend_string_init(xparam->inputs.name, xparam->inputs.namelen, 0);
+			pipe->astream = async_stream_init((uv_stream_t *) &pipe->handle, 0);
 
 			pipe->flags |= ASYNC_PIPE_FLAG_INIT;
-			uv_pipe_connect(&req, &pipe->handle, ZSTR_VAL(pipe->name), connect_cb);
+			uv_pipe_connect(&req, &pipe->handle, xparam->inputs.name, connect_cb);
 		
 			ASYNC_ALLOC_CUSTOM_OP(op, sizeof(async_uv_op));
 			
@@ -226,7 +480,6 @@ static int async_pipe_xport_api(php_stream *stream, async_pipe *pipe, php_stream
 			}
 			
 			if (UNEXPECTED(code == FAILURE)) {
-				ASYNC_DELREF(&pipe->std);
 				ASYNC_FORWARD_OP_ERROR(op);
 				ASYNC_FREE_OP(op);
 			} else {
@@ -237,9 +490,10 @@ static int async_pipe_xport_api(php_stream *stream, async_pipe *pipe, php_stream
 				if (UNEXPECTED(code < 0)) {
 					xparam->outputs.returncode = FAILURE;
 					php_error_docref(NULL, E_WARNING, "Failed to connect pipe: %s", uv_strerror(code));
-					ASYNC_DELREF(&pipe->std);
 				}
 			}
+
+			xparam->outputs.returncode = code;
 		}
 		break;
 	case STREAM_XPORT_OP_GET_NAME:
@@ -247,7 +501,20 @@ static int async_pipe_xport_api(php_stream *stream, async_pipe *pipe, php_stream
 		xparam->outputs.returncode = FAILURE;
 		break;
 	case STREAM_XPORT_OP_LISTEN:
-		xparam->outputs.returncode = FAILURE;
+		{
+			int code = 0;
+			pipe->flags |= ASYNC_PIPE_FLAG_INIT;
+			if (!(pipe->flags & ASYNC_PIPE_FLAG_LAZY)) {
+				code = uv_pipe_bind(&pipe->handle, xparam->inputs.name);
+			}
+			if (code == 0) {
+				code = uv_listen((uv_stream_t *) &pipe->handle, xparam->inputs.backlog, listen_cb);
+			}
+			if (UNEXPECTED(code != 0)) {
+				php_error_docref(NULL, E_WARNING, "Server failed to listen: %s", uv_strerror(xparam->outputs.returncode));
+			}
+			xparam->outputs.returncode = code;
+		}
 		break;
 	case STREAM_XPORT_OP_RECV:
 		xparam->outputs.returncode = FAILURE;
@@ -263,11 +530,13 @@ static int async_pipe_xport_api(php_stream *stream, async_pipe *pipe, php_stream
 	return PHP_STREAM_OPTION_RETURN_OK;
 }
 
+#define ASYNC_XP_UNIX_EOF(data) ((data)->astream ? ((data)->astream->flags & ASYNC_STREAM_EOF && (data)->astream->buffer.len == 0) : 0)
+
 static int async_pipe_set_option(php_stream *stream, int option, int value, void *ptrparam)
 {
-	async_pipe *data;
+	async_pipe_data *data;
 	
-	data = (async_pipe *) stream->abstract;
+	data = (async_pipe_data *) stream->abstract;
 	
 	switch (option) {
 	case PHP_STREAM_OPTION_XPORT_API:
@@ -275,7 +544,7 @@ static int async_pipe_set_option(php_stream *stream, int option, int value, void
 	case PHP_STREAM_OPTION_META_DATA_API:
 		add_assoc_bool((zval *) ptrparam, "timed_out", (data->flags & ASYNC_PIPE_FLAG_TIMED_OUT) ? 1 : 0);
 		add_assoc_bool((zval *) ptrparam, "blocked", (data->flags & ASYNC_PIPE_FLAG_BLOCKING) ? 1 : 0);
-		add_assoc_bool((zval *) ptrparam, "eof", 0);
+		add_assoc_bool((zval *) ptrparam, "eof", ASYNC_XP_UNIX_EOF(data));
 		
 		return PHP_STREAM_OPTION_RETURN_OK;
 	case PHP_STREAM_OPTION_BLOCKING:
