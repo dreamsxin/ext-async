@@ -13,6 +13,7 @@
   | license@php.net so we can mail you a copy immediately.               |
   +----------------------------------------------------------------------+
   | Authors: Martin Schröder <m.schroeder2007@gmail.com>                 |
+  |          ZhuZongXin <dreamsxin@qq.com>                               |
   +----------------------------------------------------------------------+
 */
 
