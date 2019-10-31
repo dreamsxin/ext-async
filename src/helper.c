@@ -55,12 +55,15 @@ zval *async_prop_write_handler_readonly(zval *object, zval *member, zval *value,
 
 ASYNC_API void async_prepare_throwable(zval *error, zend_execute_data *exec, zend_class_entry *ce, const char *message, ...)
 {
-	zend_execute_data *prev;
+	zend_execute_data *current, *prev;
 
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
-
+#if PHP_VERSION_ID >= 70200
 	smart_str str = {0};
+#else
+	zend_string *str;
+#endif
 	va_list argv;
 
 	zend_object *p1;
@@ -69,7 +72,7 @@ ASYNC_API void async_prepare_throwable(zval *error, zend_execute_data *exec, zen
 	zval arg;
 	zval retval;
 
-	prev = EG(current_execute_data);
+	current = EG(current_execute_data);
 	p1 = EG(exception);
 	p2 = EG(prev_exception);
 
@@ -77,24 +80,26 @@ ASYNC_API void async_prepare_throwable(zval *error, zend_execute_data *exec, zen
 	EG(exception) = NULL;
 	EG(prev_exception) = NULL;
 
-	object_init_ex(error, ce);
-
-	if (UNEXPECTED(EG(exception))) {
-		zval_ptr_dtor(error);
-
-		ZVAL_OBJ(error, EG(exception));
-		EG(exception) = NULL;
+	// The zend_fetch_debug_backtrace will causing memory leak
+	if (exec) {
+		prev = exec->prev_execute_data;
+		exec->prev_execute_data = NULL;
 	}
+
+	object_init_ex(error, ce);
 
 	va_start(argv, message);
 
 	if (!ce->constructor) {
 		va_end(argv);
 
-		EG(current_execute_data) = prev;
+		EG(current_execute_data) = current;
 		EG(exception) = p1;
 		EG(prev_exception) = p2;
 
+		if (exec) {
+			exec->prev_execute_data = prev;
+		}
 		return;
 	}
 
@@ -102,9 +107,13 @@ ASYNC_API void async_prepare_throwable(zval *error, zend_execute_data *exec, zen
 	fcc = empty_fcall_info_cache;
 
 	ZVAL_STR(&fci.function_name, ce->constructor->common.function_name);
-
+#if PHP_VERSION_ID >= 70200
 	php_printf_to_smart_str(&str, message, argv);
 	ZVAL_STR(&arg, smart_str_extract(&str));
+#else
+	str = vstrpprintf(0, message, argv);
+	ZVAL_STR(&arg, str);
+#endif
 
 	va_end(argv);
 
@@ -134,16 +143,13 @@ ASYNC_API void async_prepare_throwable(zval *error, zend_execute_data *exec, zen
 	zend_fcall_info_args_clear(&fci, 1);
 	zval_ptr_dtor(&fci.function_name);
 
-	if (UNEXPECTED(EG(exception))) {
-		zval_ptr_dtor(error);
-
-		ZVAL_OBJ(error, EG(exception));
-		EG(exception) = NULL;
-	}
-
-	EG(current_execute_data) = prev;
+	EG(current_execute_data) = current;
 	EG(exception) = p1;
 	EG(prev_exception) = p2;
+
+	if (exec) {
+		exec->prev_execute_data = prev;
+	}
 }
 
 int async_get_poll_fd(zval *val, php_socket_t *sock, zend_string **error)
