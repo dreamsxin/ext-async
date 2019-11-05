@@ -299,6 +299,9 @@ static PHP_METHOD(UdpSocket, connect)
 		Z_PARAM_LONG(port)
 	ZEND_PARSE_PARAMETERS_END();
 
+	ASYNC_CHECK_EXCEPTION(async_task_scheduler_get()->flags & ASYNC_TASK_SCHEDULER_FLAG_DISPOSED, async_socket_exception_ce, "Task scheduler has been disposed");
+	ASYNC_CHECK_EXCEPTION(async_task_scheduler_get()->flags & ASYNC_TASK_SCHEDULER_FLAG_ERROR, async_socket_exception_ce, "Task scheduler was stopped due to an error");
+
 	if (name == NULL || Z_TYPE_P(name) == IS_NULL) {
 		host = str_wildcard;
 	} else {
